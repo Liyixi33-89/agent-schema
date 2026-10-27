@@ -6,24 +6,37 @@ last_verified_at: 2026-10-27
 owner: 待定
 ---
 
-# Spec 路 Schema 鍗忚灞傚鍩猴紙P1 棣栦换鍔★級
+# Spec · Schema 协议层奠基（P1 首任务）
 
-## 1. 鑳屾櫙涓庣洰鏍?
-鍗忚灞傛槸鍏ㄥ钩鍙板湴鍩猴紙鍓嶇鏂囨。 01 / 鍚庣鏂囨。 01 鐨勫叡鍚屼笂娓革級銆侾RD 搂6.1/搂6.2 鍐崇瓥瑕佹眰瀛楁鐘舵€佹満銆佽〃杈惧紡鐧藉悕鍗曘€佸弻绔绾﹂暅鍍忎粠绗竴澶╂垚绔嬨€備笉鍋氬垯鍚庣画鎵€鏈夋ā鍧楋紙娓叉煋/琛ㄥ崟/寤烘ā鍣?鏁版嵁寮曟搸锛夋病鏈夊彲渚濊禆鐨勭ǔ瀹氬唴鏍搞€?
-## 2. 鑼冨洿澹版槑
+## 1. 背景与目标
 
-**鍋?*锛?- `schema-frontend/packages/schema-protocol` 鍖呴鏋讹紙闆惰繍琛屾椂渚濊禆锛?- 绫诲瀷浣撶郴锛歁odelSchema/FieldSchema/PageSchema/LayoutNode/ExpressionBinding锛堝墠绔枃妗?01 搂2锛?- zod 鏍￠獙鍣?+ JSON Pointer 閿欒璺緞
-- ExprEngine锛歍okenizer鈫扨ratt Parser鈫扐ST鈫扙valuator锛岀櫧鍚嶅崟 `functions.json`锛?000 姝ヤ笂闄?- `extractDepends` 闈欐€佷緷璧栨彁鍙?- schemaVersion 杩佺Щ绠＄嚎楠ㄦ灦锛坢igrate + FutureSchemaVersionError锛?- `zod-to-json-schema` 瀵煎嚭鑴氭湰 鈫?`contract/` 鐩綍锛堜緵鍚庣 diff锛?
-**涓嶅仛**锛?- React 娓叉煋闆嗘垚锛坰pec-002锛屾覆鏌撳紩鎿庝换鍔★級
-- 鍚庣 `schema-protocol-java` 瀹炵幇锛堝悗绔嫭绔?spec锛涙湰鏈熷彧浜や粯鍓嶇瀵煎嚭鐨勫绾︽枃浠讹級
-- 杩佺Щ鍑芥暟鐨勭湡瀹炲巻鍙茬増鏈紪鍐欙紙褰撳墠 LATEST=1锛岀绾跨┖杞嵆鍙級
+协议层是全平台地基（前端文档 01 / 后端文档 01 的共同上游）。PRD §6.1/§6.2 决策要求字段状态机、表达式白名单、双端契约镜像从第一天成立。不做则后续所有模块（渲染/表单/建模器/数据引擎）没有可依赖的稳定内核。
 
-## 3. 鎺ュ彛濂戠害
+## 2. 范围声明
+
+**做**：
+
+- `schema-frontend/packages/schema-protocol` 包骨架（零运行时依赖）
+- 类型体系：ModelSchema/FieldSchema/PageSchema/LayoutNode/ExpressionBinding（前端文档 01 §2）
+- zod 校验器 + JSON Pointer 错误路径
+- ExprEngine：Tokenizer→Pratt Parser→AST→Evaluator，白名单 `functions.json`，1000 步上限
+- `extractDepends` 静态依赖提取
+- schemaVersion 迁移管线骨架（migrate + FutureSchemaVersionError）
+- `zod-to-json-schema` 导出脚本 → `contract/` 目录（供后端 diff）
+
+**不做**：
+
+- React 渲染集成（spec-002，渲染引擎任务）
+- 后端 `schema-protocol-java` 实现（后端独立 spec；本期只交付前端导出的契约文件）
+- 迁移函数的真实历史版本编写（当前 LATEST=1，管线空转即可）
+
+## 3. 接口契约
 
 ```ts
-// 鍖呭叕鍏卞鍑猴紙index.ts锛夆€斺€旂鍚嶅喕缁擄紝鏀瑰姩闇€鍥炴湰鑺傛洿鏂?export const LATEST_SCHEMA_VERSION: number;
+// 包公共导出（index.ts）。签名冻结，改动需回本节更新
+export const LATEST_SCHEMA_VERSION: number;
 export function validate(schema: unknown): { ok: true; data: PageSchema | ModelSchema } | { ok: false; errors: JsonPointerError[] };
-export function migrate(schema: AnySchema): AnySchema;            // 鎶?FutureSchemaVersionError
+export function migrate(schema: AnySchema): AnySchema;            // 抛 FutureSchemaVersionError
 export const ExprEngine: {
   compile(source: string): { ast: ExprNode } | { error: CompileError };
   evaluate(ast: ExprNode, scope: Record<string, unknown>): { value: unknown } | { error: EvalError };
@@ -33,22 +46,30 @@ export const ExprEngine: {
 
 ## 4. Tasks
 
-- [ ] T1 鍖呴鏋?+ tsconfig strict + Vitest 灏辩华锛堥浂渚濊禆鏂█锛?- [ ] T2 绫诲瀷浣撶郴 + zod schema锛堝惈 LayoutNode 閫掑綊 lazy锛?- [ ] T3 ExprEngine 鐧藉悕鍗曞嚱鏁板叏闆嗭紙绾?20 涓紝浠?`functions.json` 涓虹湡婧愶級
-- [ ] T4 姝ユ暟涓婇檺 + 绫诲瀷闈欐€佹帹鏂姤閿?- [ ] T5 杩佺Щ绠＄嚎 + FutureSchemaVersionError
-- [ ] T6 濂戠害瀵煎嚭鑴氭湰锛坺od 鈫?json-schema 鈫?`contract/`锛?- [ ] T7 鏂囨。 01 搂7 鍗曞厓娴嬭瘯纭€ц姹傚叏缁?
+- [ ] T1 包骨架 + tsconfig strict + Vitest 就绪（零依赖断言）
+- [ ] T2 类型体系 + zod schema（含 LayoutNode 递归 lazy）
+- [ ] T3 ExprEngine 白名单函数全集（约 20 个，以 `functions.json` 为真源）
+- [ ] T4 步数上限 + 类型静态推断报错
+- [ ] T5 迁移管线 + FutureSchemaVersionError
+- [ ] T6 契约导出脚本（zod → json-schema → `contract/`）
+- [ ] T7 文档 01 §7 单元测试硬性要求全绿
+
 ## 5. Acceptance
 
-- [ ] A1 `verify -Level commit` 閫氳繃锛堝惈鏈?spec 闃茶厫妫€鏌ラ」锛?- [ ] A2 `schema-protocol` 渚濊禆鏁?= 0锛坧ackage.json dependencies 涓虹┖锛宒evDependencies 浠呯被鍨?娴嬭瘯锛?- [ ] A3 鏂囨。 01 搂7 鍏ㄩ儴鐢ㄤ緥閫氳繃锛氱孩绾胯娉曟嫆缁濓紙鍚鍙峰垪鍙凤級銆丒valBudgetError銆丏ELETED 瀛楁璁捐鎬侀樆鏂€佽縼绉荤粓楠?- [ ] A4 `functions.json` 瀛樺湪涓旇 ExprEngine 娑堣垂锛堜笉鏄‖缂栫爜鐧藉悕鍗曪級
-- [ ] A5 濂戠害瀵煎嚭鐗╄惤 `contract/` 涓斿彲琚?CI diff 鏍￠獙
+- [ ] A1 `verify -Level commit` 通过（含本 spec 防腐检查项）
+- [ ] A2 `schema-protocol` 依赖数 = 0（package.json dependencies 为空，devDependencies 仅类型/测试）
+- [ ] A3 文档 01 §7 全部用例通过：红线语法拒绝（含行号列号）、EvalBudgetError、DELETED 字段设计态阻断、迁移闭环
+- [ ] A4 `functions.json` 存在且被 ExprEngine 消费（不是硬编码白名单）
+- [ ] A5 契约导出物落 `contract/` 且可被 CI diff 校验
 
-## 6. 楠岃瘉姝ラ
+## 6. 验证步骤
 
 ```text
 1. pwsh scripts/verify.ps1 -Level commit
 2. cd schema-frontend && pnpm --filter schema-protocol test
-3. 瑙傚療杈撳嚭锛氬叏閮ㄧ敤渚嬬豢锛汚2/A4 鏂█鐢ㄤ緥鍦ㄥ垪
+3. 观察输出：全部用例绿；A2/A4 断言用例在列
 ```
 
-## 7. 娌夋穩璁板綍
+## 7. 沉淀记录
 
-锛堢粨椤瑰洖濉級
+（结项回填）
