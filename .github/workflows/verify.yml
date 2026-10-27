@@ -1,0 +1,45 @@
+name: verify
+
+# CI 独立审计层：AI 说「验证通过」是自我报告；Actions 绿勾是 GitHub 的独立记录。
+# 本地 Windows/PowerShell，CI 是 Linux/pwsh——跨平台同一份脚本正是为这层写的。
+# 团队协作阶段：把本 workflow 的 check 设为 required status check 即升级为事前门禁。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 环境就绪（代码库落地后按实际锁版本；当前阶段仅文档体系，天然跳过）
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+        continue-on-error: true   # pnpm 未用到的阶段允许失败，由脚本内 [SKIP] 兜底
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+        continue-on-error: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+        continue-on-error: true
+
+      # 与本地跑同一份脚本、同一套检查——AI 代码与人写代码无豁免通道
+      - name: Run verify pipeline (commit level)
+        shell: pwsh
+        run: ./scripts/verify.ps1 -Level commit
+
+      # 度量上报（可选）：verify-log 由脚本写入 .agent/metrics/（gitignore，仅存档于 artifact）
+      - name: Archive verify log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-log
+          path: .agent/metrics/verify-log.jsonl
+          if-no-files-found: ignore
+          retention-days: 30

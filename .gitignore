@@ -1,0 +1,9 @@
+# 本地会话草稿区（含旧版归档、脚本、生成产物）不入 git
+.session_tmps/
+output/
+
+# 度量流水不入 git（本地留存 + CI artifact 存档）
+.agent/metrics/verify-log.jsonl
+
+# AI 工具产物
+*.log
