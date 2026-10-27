@@ -1,0 +1,193 @@
+# Schema 核心数据协议评审稿
+
+> 版本：v1.0 | 日期：2026-10-27 | 状态：**评审通过**（汇总现有实现级定义，不新增协议内容）
+> 定位：本稿是《PRD-低代码平台产品规划》§10 待办项的交付物——把分散在三篇技术文档中的 Schema 协议定义**汇总为一份可独立评审的权威视图**。
+> 原则：**本稿不是协议的第二份定义**，不重复维护类型代码；每个协议元素标注唯一真源（Source of Truth）位置，本稿只做汇总、关联与一致性核验。新增/修改协议字段一律回到真源文档，本稿同步更新引用版本号。
+
+---
+
+## 0. 评审范围与读法
+
+Schema 协议是全平台的"单一事实来源"：建模、渲染、流程、权限、计量五个视角都消费同一套定义。协议目前分布在：
+
+| 真源文档 | 覆盖协议层 |
+|---|---|
+| 详细技术文档 01（元数据服务） | 模型/字段协议（服务端权威定义 + DDL 映射） |
+| 详细前端技术文档 01（Schema 协议层） | 模型/字段/页面/表达式协议（前端 TS 镜像 + zod 校验 + 迁移管线） |
+| 详细前端技术文档 05（物料体系） | 物料协议（MaterialMeta，页面协议的扩展点） |
+| 详细技术文档 05（流程引擎集成） | 流程协议（FlowSchema → BPMN 映射） |
+| 详细技术文档 02（数据引擎）§3.6 | 聚合协议（AggregateRequest，数据源协议的扩展） |
+| 详细技术文档 03（多租户与权限） | 权限点协议（perms 串格式） |
+
+**评审方法**：本稿按"协议对象"（而非"文档"）组织，每个对象给出 ①权威结构定义位置 ②跨端一致性保证机制 ③已验证的边界规则 ④评审结论。
+
+---
+
+## 1. 协议全景图
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Schema 协议分层（协议对象）                    │
+│                                                                   │
+│  模型协议 ModelSchema/FieldSchema  ──┐                            │
+│   （元数据服务 01BE §2 权威；前端 01FE §2 镜像）                    │
+│                                       │ fieldRef 绑定              │
+│                                       ▼                           │
+│  页面协议 PageSchema/LayoutNode   ──┐                            │
+│   （前端 01FE §2 权威；后端仅存储透传，04BE §1）                    │
+│                                       │ componentName 绑定         │
+│                                       ▼                           │
+│  物料协议 MaterialMeta            ──┐                            │
+│   （前端 05FE §2 权威）                                           │
+│                                       │                           │
+│  表达式协议 ExpressionBinding      ◀──┴── 页面/流程/权限/计算字段共用│
+│   （前端 01FE §4 权威 Tokenizer/Parser；functions.json 双端唯一真源）│
+│                                       │                           │
+│  流程协议 FlowSchema              ──┐                            │
+│   （后端 05BE §2 权威：FlowSchema→BPMN 映射；前端 10FE §2 节点系统）│
+│                                       │                           │
+│  查询/聚合协议 QueryRequest/        ──┐                           │
+│   AggregateRequest/ConditionTree     （后端 02BE §3.1/§3.2/§3.6 权威；│
+│                                        前端 01FE §2 FilterNode 镜像）│
+│                                                                   │
+│  权限点协议 perms 串                （后端 03BE §3.2 权威格式定义）  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**判读**：模型协议是地基（字段状态机影响所有下游）；页面/流程/聚合协议都是"模型协议的消费者 + 表达式协议的宿主"；物料协议是页面协议的可扩展插槽。**任何协议变更必须先问"模型协议是否需要联动"**——这是五个视角共享同一定义的直接后果。
+
+---
+
+## 2. 模型协议（ModelSchema / FieldSchema）
+
+**权威定义**：后端 `meta_model`/`meta_field` 表结构（详细技术文档 01 §2）是数据库层真源；前端 `ModelSchema`/`FieldSchema` TS 接口（详细前端技术文档 01 §2）是镜像，字段名、类型枚举、状态机值必须逐一对应。
+
+| 维度 | 后端定义 | 前端镜像 | 一致性机制 |
+|---|---|---|---|
+| 字段类型 | `field_type VARCHAR(32)` 枚举 11 种 | `FieldType` 联合类型 11 种 | 手工对齐（无自动 diff，**评审发现的唯一风险点，见 §7**） |
+| 状态机 | `field_status ENUM('ACTIVE','DELETED')` | `FieldStatus = 'ACTIVE'\|'DELETED'` | 命名完全一致，字符串字面量直接对应 |
+| 版本 | `current_version INT`（业务版本）+ `meta_schema_version` 快照 | `version: number`（镜像业务版本）+ `schemaVersion`（**协议版本，与业务版本是两个概念**） | 命名上容易混淆，已在前端 01FE §2 注释中显式区分——评审确认此区分足够清晰，无需改名 |
+| 关系 | `relation_config JSONB {targetModelId, cardinality, cascade}` | `relation?: {targetModelId, cardinality, cascade}` | 结构一致 |
+| 计算字段 | `computed_config JSONB {expr, dependsOn, persistMode}` | `computed?: {expr: ExpressionBinding, dependsOn, persistMode}` | 一致；`expr` 在前端是结构化 `ExpressionBinding`，后端存原始表达式字符串——转换点在保存时由前端序列化（评审确认无歧义） |
+
+**字段状态机铁律**（跨五个消费视角的核心不变式，已在后端 01BE §3 以代码层强制）：
+1. `meta_field` 行永不物理 DELETE，只置状态；
+2. DELETED 字段：API 默认不返回、物理列不删、JSONB 键不删；
+3. 影响面分析（precheck）是变更前置闸门，三档 confirmMode（INFO/CHECKBOX/TYPE_MODEL_NAME）。
+
+**评审结论**：✅ 定义完整、状态机单点强制、前后端镜像关系清晰。**唯一待办**：字段类型枚举目前靠人工对齐，建议补充 CI 契约测试（已在后端 01FE §6「与后端契约同步」表中列为待办——`zod-to-json-schema` diff 校验覆盖的是结构不是枚举值集合，需补充专项枚举值 diff，见 §7 行动项）。
+
+---
+
+## 3. 页面协议（PageSchema / LayoutNode / ExpressionBinding）
+
+**权威定义**：前端 01FE §2（TS 接口 + zod）。后端 page-service 只做 JSONB 存储与版本管理，**不解析页面协议内部结构**（详细技术文档 04 §1），这是刻意的架构决策——页面语义只在前端消费，后端只管存储、发布快照、字段引用登记三件事。
+
+| 协议元素 | 定义 | 跨协议引用 |
+|---|---|---|
+| `LayoutNode.componentName` | 字符串，指向物料注册表 | → 物料协议 `MaterialMeta.componentName`（§4） |
+| `LayoutNode.fieldRef` | 指向 `FieldSchema.key` | → 模型协议（影响面分析数据源，后端 01BE §4.5 `field_reference` 登记） |
+| `LayoutNode.props: PropValue` | `JsonPrimitive \| ExpressionBinding \| ActionBinding[] \| LayoutNode[]` | → 表达式协议（§5）、动作协议 |
+| `DataSourceBinding` | `MODEL_LIST\|MODEL_DETAIL\|MODEL_AGG\|STATIC_JSON` | → 查询/聚合协议（§6）——**本轮评审已修复：前端早期简化版 `aggregate` 字段结构已对齐后端 02BE §3.6 冻结结构（见 §7.1）** |
+| `ActionBinding` | SUBMIT/TRIGGER_FLOW/CALL_API/OPEN_PAGE/DELETE/CUSTOM_SCRIPT 六种 | → 流程协议（TRIGGER_FLOW）、L2 脚本协议（CUSTOM_SCRIPT，文档 08FE） |
+
+**评审结论**：✅ 结构一致、职责边界清晰（后端不解析页面内部语义，避免后端承担前端渲染语义）。此前存在的 1 处协议漂移（`DataSourceBinding.aggregate`）已在本轮评审中修复，详见 §7.1。
+
+---
+
+## 4. 物料协议（MaterialMeta）
+
+**权威定义**：前端 05FE §2（两轨统一协议，`runtime: 'dynamic'|'compiled'` 分派依据）。
+
+| 字段 | 作用 | 消费方 |
+|---|---|---|
+| `componentName` | 全局唯一标识，命名空间 `basic.*/biz.*/custom.{tenant}.*` | 页面协议 `LayoutNode.componentName` 的合法值域 |
+| `propsSchema: JSONSchema` + `x-*` 扩展关键字 | 驱动属性面板表单生成 | schema-form（属性面板是"用 schema-form 编辑 Schema"的套娃） |
+| `runtime` | 轨道分派 | NodeRenderer 单入口（渲染引擎 02FE §3） |
+| `acceptsDataSource`（图表物料扩展，文档 12FE §3） | 声明可用数据源类型 | 仪表盘设计器数据源绑定面板 |
+
+**评审结论**：✅ 物料协议是页面协议的"合法扩展点"而非独立协议——`componentName` 字符串是唯一耦合点，设计干净（物料增减不影响页面协议本身的 zod schema）。两轨统一字段 `runtime` 的新增历史已在技术方案 §3.9 明确记录，无漂移。
+
+---
+
+## 5. 表达式协议（ExpressionBinding / L1 表达式引擎）
+
+**权威定义**：前端 01FE §4（Tokenizer→Pratt Parser→AST→Evaluator）。`functions.json` 是白名单函数表的**唯一真源文件**，Java 侧（Aviator 注册表）从该文件生成，CI 做 diff 校验——这是协议栈中**唯一已经落地自动化防漂移机制**的协议对象，应作为其他协议对象补齐 CI 校验的参照样本（§7）。
+
+**跨消费场景**（同一 AST 引擎，不同宿主）：
+
+| 宿主 | 求值位置 | 共享内容 |
+|---|---|---|
+| 页面联动/属性表达式 | 前端 ExprEngine（同步） | AST 结构、白名单函数 |
+| 流程条件分支 | 后端 Aviator（流程引擎 05BE §2.2） | 同一 `functions.json` 生成的函数集 |
+| 数据权限自定义规则 | 后端 Aviator（权限服务 03BE §3.3） | 同上，但额外限制：仅字段 vs 当前用户属性比较，禁子查询 |
+| 计算字段 | 后端（元数据服务消费，持久化模式） | 同上 |
+
+**评审结论**：✅ 这是协议栈中设计最严谨的部分——禁止 eval/new Function、步数上限 1000、双端函数白名单单一文件生成、各宿主按场景叠加额外限制（权限规则更严）。**无需改动，建议将 `functions.json` + CI diff 的模式作为协议治理标杆，推广到 §7 的其他协议一致性缺口**。
+
+---
+
+## 6. 流程协议（FlowSchema）与查询/聚合协议
+
+### 6.1 流程协议
+
+**权威定义**：后端 05BE §2（FlowSchema → BPMN 映射表）定义节点语义；前端 10FE §2.1 定义节点类型、属性面板**与显式 `FlowSchema`/`FlowNode`/`FlowEdge`/`ApproverRule` TS 接口**（本轮评审已补充，见 §7.2）——两者是同一份协议的服务端执行语义与前端编辑语义。
+
+**评审结论**：✅ 此前存在的文档结构缺口（流程 Schema 无独立 TS interface 定义点，功能完整但缺"一眼看到完整结构"的定义）已在本轮评审中修复，详见 §7.2。`conditionExpr`/分支表达式复用页面协议同一 `ExpressionBinding`/`ExprEngine`，`schemaVersion` 与 PageSchema 共享迁移管线实现——两点均已在前端 10FE 显式标注。
+
+### 6.2 查询/聚合协议
+
+**权威定义**：后端 02BE §3.2（`ConditionTree`）、§3.1（`QueryRequest`）、§3.6（`AggregateRequest`，详细技术文档 02 缺口补齐产出）；前端镜像为 01FE §2 的 `FilterNode`（与 `ConditionTree` 对应）与 `DataSourceBinding.filter/sort/pagination/aggregate`。
+
+**评审结论**：✅ `aggregate` 字段结构漂移已在本轮评审中修复（§7.1）。其余（`FilterNode` ↔ `ConditionTree` 操作符白名单 11 个）经核验完全对应（后端 02BE §A.2 与前端 07FE §附录「操作符白名单 11 个，契约测试锁定」互相引用，一致）。
+
+---
+
+## 7. 跨协议一致性矩阵与评审行动项
+
+| # | 协议对象 | 一致性机制现状 | 风险等级 | 行动项 | 状态 |
+|---|---|---|---|---|---|
+| 1 | 字段类型枚举（11 种） | 人工对齐，zod diff 只校验结构不校验枚举值集合 | 🟡 中 | 补充枚举值专项 diff 测试（CI） | 待排期（§7.3） |
+| 2 | `DataSourceBinding.aggregate` vs 后端 `AggregateRequest` | 结构不一致（前端简化版未跟进后端 02BE §3.6 冻结结构） | 🔴 高（真实漂移，影响仪表盘数据绑定） | 前端 01FE §2 更新 `aggregate` 字段结构，与 `AggregateRequest` 对齐 | ✅ 已修复（§7.1） |
+| 3 | 流程 Schema 结构 | 无独立 TS interface 定义点 | 🟢 低（功能不缺，只缺"一眼定义"） | 10FE 补充 `FlowSchema` 类型定义小节 | ✅ 已修复（§7.2） |
+| 4 | `functions.json` 双端生成 | 已有 CI diff | ✅ 无风险 | 无需行动，作为治理样本 | — |
+| 5 | 操作符白名单（ConditionTree/FilterNode） | 契约测试锁定 | ✅ 无风险 | 无需行动 | — |
+
+### 7.1 本次评审即时修复（#2，已执行）
+
+行动项 #2 是真实的协议漂移且影响面明确（仪表盘数据源绑定），评审过程中直接修复：
+
+- 前端 01FE §2 `DataSourceBinding.aggregate` 由 `{groupBy?, fn, field?}` 改为 `AggregateRequest`（`measures[]/group?/timeBucket?`），与后端 02BE §3.6 冻结结构逐字段对应；
+- 前端 01FE §6 契约同步表追加「聚合协议」行，纳入后续 `zod-to-json-schema` 结构 diff 范围（防止此类漂移再次发生而不被发现）；
+- 12FE（仪表盘设计器）文档引用的 `AggregateRequest` 本就是对齐后端的正确结构，无需改动——本次修复后前端内部两处引用（协议层 01FE 与消费方 12FE）完全统一。
+
+**结论**：行动项 #2 已闭环，不再遗留。
+
+### 7.2 本次评审即时修复（#3，已执行）
+
+行动项 #3 是文档结构缺口（功能设计完整，缺显式协议定义点），评审过程中直接补充：
+
+- 前端 10FE §2.1 新增 `FlowSchema`/`FlowNode`/`FlowEdge`/`ApproverRule` 显式 TS 接口定义，与后端 05BE §2.1「FlowSchema → BPMN 映射表」逐行对应；
+- 明确标注：`conditionExpr`/分支表达式复用页面协议同一 `ExpressionBinding`/`ExprEngine`（双端语义一致性的协议层面证据，而非仅口头约定）；
+- 明确标注：`schemaVersion` 与 PageSchema 共享迁移管线实现（同一组 migration 函数按 schema 类型分派）——避免后续误解为两套独立版本号序列。
+
+**结论**：行动项 #3 已闭环。此后流程协议与模型/页面协议具备同等的"一眼看到完整结构"可读性。
+
+### 7.3 遗留行动项（非本次评审阻塞项，按风险等级排期）
+
+| # | 行动项 | 建议时机 | 原因 |
+|---|---|---|---|
+| 1 | 字段类型枚举值集合专项 CI diff | Schema 引擎开发阶段（配套 §6 契约同步机制一并实现） | 需要在 CI 脚本中新增一条校验逻辑，属于工程基建任务而非文档任务，已在前端 01FE §6 登记待办，排入 MVP 任务依赖图（见《MVP 开发任务依赖顺序图》Schema 引擎阶段的"契约测试"子任务） |
+
+---
+
+## 8. 评审结论
+
+| 评审问题 | 结论 |
+|---|---|
+| Schema 核心数据协议是否已完善？ | **是**。六类协议对象（模型/页面/物料/表达式/流程/查询聚合）均有实现级定义，覆盖类型结构、校验规则、版本迁移、跨端一致性机制 |
+| 是否存在协议定义本身的缺失？ | 否——本轮评审发现的 3 处问题（#1 枚举值 CI 缺口、#2 聚合协议漂移、#3 流程协议文档缺口）均为**治理/文档完整性问题**，不是协议设计空白。#2、#3 已在评审过程中修复；#1 是工程基建待办已登记排期 |
+| 是否需要产出独立协议代码库（单一真源重构）？ | 不需要。现状"后端 DDL/zod 类型分别定义 + CI diff 防漂移"的模式经验证可行（表达式白名单 `functions.json` 是该模式最佳实践），扩大到枚举值级别校验即可，无需推翻为单一代码生成源 |
+| 本稿是否需要持续维护？ | 是，但**低频**——仅当新增协议对象（如 AI 网关的 Prompt 协议，P3）或发现新的跨端漂移时更新；日常协议字段增删改不动本稿，只动各真源文档 |
+
+**评审通过**。《PRD-低代码平台产品规划》§10 待办「输出《Schema 核心数据协议》评审稿」自本文档产出之日起标记为**已完成**（顶层 PRD 同步更新）。
