@@ -96,7 +96,8 @@ ci      —— commit + E2E                                         联调/交�
 
 - 每次返工/验证失败，若原因可复用 → **当场**更新对应 skill 或 spec，不依赖「下次记得」
 - 「重复交代指数」：同一背景第二次向 AI 粘贴时，就是固化 skill 的时机
-- skill 格式对齐 Anthropic Agent Skills 规范（YAML frontmatter + 触发关键词）；spec 对齐三件套（spec/tasks/acceptance）
+- skill 格式对齐 Anthropic Agent Skills 规范（YAML frontmatter + 触发关键词）；spec 对齐三件套（spec/tasks/acceptance）+ milestone 字段对应《MVP开发任务依赖顺序图》
+- commit 归因标记：message 尾加 `[ai]`/`[ai-assist]`/`[human]`（口径见 `.agent/metrics/README.md`；漏标按 [human] 处理）
 - spec 是活文档：结项后 `status: active → done`；范围与交付不符时当场修正
 
 ## 10. 文档防腐（过期信息比没有信息更危险）

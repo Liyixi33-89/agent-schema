@@ -89,7 +89,7 @@ function Test-DocAntiCorruption {
         if (-not (Test-Path $base)) { [void]$errs.Add(".agent/$dir 目录缺失"); continue }
         $files = @(Get-ChildItem $base -Filter '*.md' | Where-Object { $_.Name -notlike '_*' })
         $required = @{}
-        if ($dir -eq 'specs') { $required = @{ spec_id = $true; status = $true } } else { $required = @{ name = $true; triggers = $true } }
+        if ($dir -eq 'specs') { $required = @{ spec_id = $true; status = $true; milestone = $true } } else { $required = @{ name = $true; triggers = $true } }
         foreach ($f in $files) {
             # 取完整 frontmatter 块：首个 --- 到第二个 --- 之间（显式 UTF8，防 GBK 误解码）
             $lines = Get-Content $f.FullName -Encoding UTF8

@@ -1,6 +1,7 @@
 ---
 spec_id: <编号-短横线名称>
 status: draft | active | done | cancelled
+milestone: <依赖图 M 编号，如 M2>   # 对应《MVP开发任务依赖顺序图》§3；跨里程碑填主里程碑
 created: YYYY-MM-DD
 last_verified_at: null      # verify -Level commit 通过后由脚本/Agent 更新
 owner: <人类负责人>

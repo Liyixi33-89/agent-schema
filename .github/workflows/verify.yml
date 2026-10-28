@@ -2,7 +2,8 @@ name: verify
 
 # CI 独立审计层：AI 说「验证通过」是自我报告；Actions 绿勾是 GitHub 的独立记录。
 # 本地 Windows/PowerShell，CI 是 Linux/pwsh——跨平台同一份脚本正是为这层写的。
-# 团队协作阶段：把本 workflow 的 check 设为 required status check 即升级为事前门禁。
+# 团队协作启动时（操作项，不在代码库生效）：Settings → Branches → Branch protection
+#   → Require status checks: 勾选本 job 的 check（verify / verify）→ 即升级为事前门禁。
 on:
   push:
     branches: [main, master]

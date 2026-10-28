@@ -23,7 +23,7 @@ updated: 2026-10-26
 2. **实时状态走工具，静态规范走文件**：依赖树/路由/Schema 现状从代码读取（outline → 局部读），永远不誊抄进文档。
 3. **预算表**（AGENTS.md §5）：AGENTS.md ≤200 行常驻；spec 单份 ≤500 行；代码禁止整仓投喂。
 4. **长内容/含特殊字符内容走文件通道**：公钥、证书、带引号/`$` 的命令脚本一律写文件再引用，**不经过 LLM 复述**——转录错误不可检且难排查（真实教训：750 字符公钥两次转录错误致 SSH 认证失败）。
-5. **AI 工具写回复查**：AI 编辑器/AI Agent 重写 `.ps1` 等含 BOM 文件后必复查前 3 字节——本轮实证：`replace_in_file` 每次重写都会剥 BOM，脚本随即按 GBK 解码语法错乱（连续触发两次才定位为系统性行为，非偶发）。
+5. **AI 工具写回复查**：AI 编辑器/AI Agent 重写 `.ps1` 等含 BOM 文件后必复查前 3 字节——实证三次：`replace_in_file` 每次重写都会剥 BOM（2026-10-26 连续两次 + 2026-10-28 同一文件再剥一次），脚本随即按 GBK 解码语法错乱。**修复通道**：`python` 字节级补回 `b'\xef\xbb\xbf'` 前缀，不经编辑器二次重写。
 6. **PowerShell 5.1 读写中文文件三铁律**（本项目实证，2026-10-26）：
    - 读：`Get-Content -Encoding UTF8` 不加参数 = GBK 误解码（frontmatter 校验全部误报的根因）；
    - 写：`Set-Content -Encoding UTF8` 会**加 BOM**——保无 BOM 用 `[System.IO.File]::WriteAllText($p, $s, [UTF8Encoding]::new($false))`；

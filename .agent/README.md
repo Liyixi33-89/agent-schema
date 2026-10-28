@@ -138,14 +138,19 @@ AI 工程体系也是文档和脚本，**它同样会腐烂，且腐烂得更隐
 ```
 .agent/
 ├── README.md              本文件：体系总览
-├── specs/                 任务规格（spec-kit 三件套：spec/tasks/acceptance）
+├── specs/                 任务规格（spec-kit 三件套 + milestone 对应依赖图 M 编号）
 │   ├── _template.md
-│   └── 001-schema-protocol-foundation.md   示范：P1 首任务
+│   ├── 000-engineering-foundation.md       M0 工程地基（draft）
+│   ├── 001-schema-protocol-foundation.md   M1 协议层（active，示范）
+│   └── 002-metadata-service.md             M2 元数据服务（draft）
 ├── skills/                经验固化（Anthropic Agent Skills 规范）
 │   ├── _template.md
 │   ├── schema-contract-first.md            双端契约先行
 │   ├── onion-dependency-guard.md           前端洋葱依赖防违规
 │   ├── ddd-aggregate-discipline.md         后端聚合根纪律
+│   ├── sql-injection-guard.md              动态 SQL 防注入
+│   ├── tenant-isolation-guard.md           多租户隔离红线
+│   └── flyway-migration-discipline.md      Flyway 迁移规范
 │   └── doc-anti-corruption.md              文档防腐与上下文预算
 └── metrics/
     ├── README.md          度量口径
