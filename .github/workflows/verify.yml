@@ -5,7 +5,7 @@ name: verify
 # 团队协作阶段：把本 workflow 的 check 设为 required status check 即升级为事前门禁。
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
 
 jobs:

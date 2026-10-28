@@ -2,7 +2,7 @@
 spec_id: 001-schema-protocol-foundation
 status: active
 created: 2026-10-26
-last_verified_at: 2026-10-27
+last_verified_at: 2026-10-28
 owner: 待定
 ---
 

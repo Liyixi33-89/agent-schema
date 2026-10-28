@@ -54,7 +54,7 @@ function Finish() {
         result        = $overall
         duration_ms   = $swTotal.ElapsedMilliseconds
         failed_steps  = $script:failedCount
-        trigger       = 'manual'
+        trigger       = $(if ($env:GITHUB_ACTIONS -eq 'true') { 'ci' } elseif ($env:AGENT_SESSION) { 'agent' } else { 'manual' })
         steps         = $script:steps
     } | ConvertTo-Json -Compress -Depth 4
     Add-Content -Path (Join-Path $logDir 'verify-log.jsonl') -Value $entry -Encoding UTF8
@@ -123,7 +123,37 @@ function Test-DocAntiCorruption {
         }
     }
 
-    # 4) 起步模板仍在
+    # 4) 编码完整性：GBK 读 + UTF-8 写的典型乱码特征（实证 2026-10-27 spec-001 被污染）
+    #    扫描 AGENTS.md、.agent、docs、scripts 全部文本；.ps1 额外要求 UTF-8 BOM（PS5.1 无 BOM 按 GBK 解码）
+    #    特征字用 \u 转义书写，避免检查器自身命中
+    $mojibake = '([\u9366\u9428\u951B\u93C4\u6D93\u93BA\u5997\u5A34\u9418\u947C\u922B\u9286])'
+    $encTargets = @(Join-Path $root 'AGENTS.md')
+    foreach ($d in @('.agent', 'docs', 'scripts', '.github')) {
+        $dp = Join-Path $root $d
+        if (Test-Path $dp) {
+            $encTargets += @(Get-ChildItem $dp -Recurse -File -Include '*.md', '*.ps1', '*.yml' | ForEach-Object { $_.FullName })
+        }
+    }
+    foreach ($f in $encTargets) {
+        $bytes = [System.IO.File]::ReadAllBytes($f)
+        $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+        if ($text -match $mojibake) { [void]$errs.Add("$(Split-Path $f -Leaf) 疑似编码污染（命中 '$($Matches[1])'）") }
+        if ($f -like '*.ps1' -and -not ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) {
+            [void]$errs.Add("$(Split-Path $f -Leaf) 缺 UTF-8 BOM（PS5.1 将按 GBK 解码）")
+        }
+    }
+
+    # 5) 死引用：文档中引用的 skills/<name> 必须真实存在
+    $skillNames = @(Get-ChildItem (Join-Path $root '.agent\skills') -Filter '*.md' | ForEach-Object { $_.BaseName })
+    foreach ($f in ($scanTargets | Where-Object { (Split-Path $_ -Leaf) -notlike '_*' })) {
+        $c = [System.IO.File]::ReadAllText($f, [System.Text.Encoding]::UTF8)
+        foreach ($m in [regex]::Matches($c, 'skills/([a-z0-9][a-z0-9-]+)')) {
+            $n = $m.Groups[1].Value
+            if ($skillNames -notcontains $n) { [void]$errs.Add("$(Split-Path $f -Leaf) 引用不存在的 skill: $n") }
+        }
+    }
+
+    # 6) 起步模板仍在
     foreach ($t in @('.agent\specs\_template.md', '.agent\skills\_template.md')) {
         if (-not (Test-Path (Join-Path $root $t))) { [void]$errs.Add("模板缺失: $t") }
     }
@@ -157,6 +187,18 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         finally { Pop-Location }
     }
 } else { Skip 'backend-compile' 'schema-platform 尚未初始化' }
+
+$contractDir = Join-Path $fe 'packages\schema-protocol\contract'
+if (Test-Path $contractDir) {
+    Step 'contract-diff' {
+        # 前端导出的 json-schema 与后端生成物需一致；后端产物位置随 schema-protocol-java 落地确定
+        $beContract = Join-Path $be 'schema-protocol-java\src\main\resources\contract'
+        if (-not (Test-Path $beContract)) { throw '后端契约产物缺失：schema-protocol-java 未生成 contract/' }
+        $diff = Compare-Object (Get-ChildItem $contractDir -Recurse -File | ForEach-Object { (Get-FileHash $_.FullName).Hash + ' ' + $_.Name }) `
+                               (Get-ChildItem $beContract -Recurse -File | ForEach-Object { (Get-FileHash $_.FullName).Hash + ' ' + $_.Name })
+        if ($diff) { throw ("契约漂移: " + (($diff | ForEach-Object { $_.InputObject }) -join ', ')) }
+    }
+} else { Skip 'contract-diff' 'contract/ 尚未导出（spec-001 T6 落地后生效）' }
 
 if ($Level -eq 'quick') { Finish -Level $Level -swTotal $swTotal }
 
