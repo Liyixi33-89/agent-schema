@@ -106,7 +106,7 @@ CREATE INDEX idx_<model_id>_data_gin ON biz_model_<model_id> USING GIN(data);
 | 变更类型 | 存储层行为 |
 |---|---|
 | 新增字段 | 仅写元数据，**无 DDL**。存量行 `data` 中该键不存在 → 读取时按 Schema 默认值/null 填充 |
-| 修改字段类型 | 仅更新元数据的 `type`，**不转换存量数据**、无 DDL。写入时按新类型校验（Jackson 反序列化 + 校验器），读取时由渲染层按「行 `schema_version` + 字段类型」做宽松处理，无法解析的展示 `--` |
+| 修改字段类型 | **不可修改**（field_type 创建后冻结）。需要换类型 = 新建字段 + 用户用数据体检工具人工迁移（PRD 01 §2.9；决策口径详见协议评审稿）。写入校验按字段类型执行；读取兼容仅需处理新增字段缺键与版本差异两类情形 |
 | 删除字段 | **元数据置 `field_status='DELETED'` + `deleted_at`，物理列（提升列）与 `data` 中的键永不移除**。API 默认不返回该字段（`includeDeletedFields=true` 白名单，仅管理员） |
 | 删除模型 | 元数据置删除标识，物理表 `biz_model_*` **保留**（命名改为 `biz_model_<id>_archived` 或加 `archived` 标记，视运维策略），不 DROP |
 | 提升列（索引字段） | 仅有该操作触发 DDL：`ALTER TABLE ADD COLUMN ... GENERATED ALWAYS AS ... STORED` + `CREATE INDEX`，异步执行、走后台任务 + 影响面评估 |

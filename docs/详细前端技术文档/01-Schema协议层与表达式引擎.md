@@ -89,8 +89,8 @@ interface AggregateRequest {
 }
 
 type FilterNode =
-  | { field: string; op: 'eq'|'ne'|'in'|'gt'|'gte'|'lt'|'lte'|'like'|'between'|'isNull'; value?: unknown }
-  | { and: FilterNode[] } | { or: FilterNode[] };   // 过滤条件树，与后端 QueryRequest 一致
+  | { field: string; op: 'eq'|'ne'|'in'|'nin'|'gt'|'gte'|'lt'|'lte'|'like'|'between'|'isnull'; value?: unknown }
+  | { and: FilterNode[] } | { or: FilterNode[] };   // 过滤条件树；操作符 11 个与后端白名单逐一对应（后端 02 §3.2），isnull 全小写统一拼写；树形态 {and}/{or} 由 encodeQuery 转为后端 {op,conds} 形态（07FE §3 契约测试锁定）
 
 type ActionBinding =
   | { type: 'SUBMIT'; successBehavior: 'REFRESH'|'REDIRECT'|'TOAST'; redirectTo?: string }
@@ -179,7 +179,8 @@ migrate(schema):
 | 契约 | 同步方式 | CI 校验 |
 |---|---|---|
 | Schema 协议 | zod → `zod-to-json-schema` 导出 ↔ 后端 `schema-protocol-java` 校验规则文件 | diff 不一致即失败（**仅校验结构，不校验枚举值集合**——见下一行） |
-| 字段类型枚举值集合 | `FieldType` 联合类型 ↔ 后端 `field_type` 枚举 11 种 | **待补**：结构 diff 之外追加枚举值集合专项比对（Schema 核心数据协议评审稿 §7 行动项 #1） |
+| 字段类型枚举值集合 | `FieldType` 联合类型 ↔ 后端 `field_type` 枚举 **12 种**（textarea/datetime 为控件配置不进枚举，评审稿 §7 #9） | **待补**：结构 diff 之外追加枚举值集合专项比对（Schema 核心数据协议评审稿 §7 行动项 #1） |
+| 过滤操作符集合 | `FilterNode.op` ↔ 后端 ConditionTree 白名单 **11 个**（含 `nin`；`isnull` 全小写统一拼写，评审稿 §7 #5 已修复） | 纳入枚举值集合专项比对（与上一行同一 CI 任务） |
 | API DTO | 后端动态 OpenAPI JSON → `openapi-typescript` → `api-types.gen.ts`（禁止手写 DTO） | 后端发版触发 diff → 自动 PR |
 | 表达式白名单 | `functions.json` 双端共享 | Java 生成物 diff 为空 |
 | 聚合协议 | `AggregateRequest` TS 接口 ↔ 后端 02BE §3.6 同名结构 | 本次已对齐（评审稿 §7 #2 已修复），纳入结构 diff 范围 |

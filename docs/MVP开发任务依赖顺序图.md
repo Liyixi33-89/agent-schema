@@ -128,7 +128,7 @@
 |---|---|---|---|
 | M4.1 | page_schema 存储（JSONB + 草稿/发布态分离） | M1.4 | 后端 04BE §1.1-1.2 |
 | M4.2 | 发布快照 + 版本记录 + ETag 协议 | M4.1 | 后端 04BE §1.3-1.4 |
-| M4.3 | 字段引用登记（解析 dependsOn → 调 M2 的 /internal/references） | M4.1 + M2.4 | 后端 01BE §A.4 |
+| M4.3 | 字段引用登记（五位置扫描：fieldRef/dependsOn/filter/aggregate/脚本字面量 → 调 M2 的 /internal/references，规则见 04BE §1.4） | M4.1 + M2.4 | 后端 01BE §A.4 + 04BE §1.4 |
 
 ### 3.6 M5 数据引擎（★关键路径，约 3 周）
 
