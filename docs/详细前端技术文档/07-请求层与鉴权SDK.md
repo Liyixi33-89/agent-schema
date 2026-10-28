@@ -73,8 +73,11 @@ QUOTA_EXCEEDED 场景：结构化升级引导 payload（后端 §09）→ 前端
 ```
 登录态存储：内存 token + sessionStorage 镜像（刷新恢复）；
   不落 localStorage（XSS 持久化风险面大，权衡：牺牲持久登录换安全）
+  refreshToken 亦内存持有随请求体传输（非 Cookie）——当前形态 CSRF 面已收窄
+  （Bearer Header 非自动携带），后端仍强制 Origin 校验兜底（后端 03 §4）
+  P2 评估迁 HttpOnly Cookie：若引入，本 SDK 需加 CSRF Token 双提交逻辑（同步升级）
 刷新：token 有效期 2h，过期前 5min 静默刷新（单飞锁）
-一次性 code（嵌入场景）：宿主传 code → POST 换 token → 走标准登录态
+一次性 code（嵌入场景）：宿主传 code → POST 换 token → 走标准登录态（code 60s 单次失效）
 权限快照：{ userId, roles, perms: Set<string>, dept } → hasPerm(perm) O(1)
 失效：登出/401 刷新失败/切换租户 → 清快照 + 跳登录
 多标签页：storage 事件广播登出（一端登出全端登出）
