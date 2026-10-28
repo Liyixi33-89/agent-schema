@@ -1,6 +1,6 @@
 # 详细前端技术文档 01 · Schema 协议层与表达式引擎（schema-protocol）
 
-> 上游：《技术方案-前端(React).md》v0.2 §3.1；PRD §7.1（L1 表达式）；《技术方案-后端(Java).md》§2（schema-protocol-java 镜像）
+> 上游：《技术方案-前端(React).md》v0.3 §3.1；PRD §7.1（L1 表达式）；《技术方案-后端(Java).md》§2（schema-protocol-java 镜像）
 > 本文定位：**实现级技术设计**——类型体系、zod 运行时校验、受限表达式解释器、版本迁移管线
 > 包：`packages/schema-protocol` ★全平台地基（前后端契约的前端镜像）
 

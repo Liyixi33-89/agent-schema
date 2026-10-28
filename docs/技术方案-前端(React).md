@@ -1,9 +1,13 @@
 # 低代码平台前端技术方案（React）
 
-> 版本：v0.2 | 日期：2026-10-26 | 角色：高级前端工程师视角
-> 配套文档：《PRD-低代码平台产品规划.md》（v0.2 决策已定稿）《技术方案-后端(Java).md》
+> 版本：v0.3 | 日期：2026-10-28 | 角色：高级前端工程师视角
+> 配套文档：《PRD-低代码平台产品规划.md》（v0.3 三级上线门禁已定稿）《技术方案-后端(Java).md》（v0.3）
 >
 > v0.2 变更：按 PRD §6 决策修订——新增 §3.9 双轨渲染实现、§3.10 L2 脚本运行时、§3.11 用量埋点 SDK；交付形态调整为纯 SaaS + 预留私有化。
+> v0.3 变更（对齐 PRD v0.3 服务保障补齐与安全攻防体系，2026-10-28）：
+> - §3.10 L2 执行隔离模型修正：废弃「ESM scope + freeze(ctx)」伪隔离，改 **Worker 执行 + 受控消息桥（op 白名单）+ terminate() 硬中断**；token 永不进 Worker；网络出口靠红线扫描 + CSP connect-src + 网关鉴权三层兜底（Worker 不天然禁用 fetch）——实现真源 08FE §3-5
+> - §3.11 席位口径对齐三口径定版（授权/活跃/账单）；前端仅活跃漏斗参考
+> - §6 分期：P1 补成员建号/首次登录强制改密（PASSWORD_CHANGE_REQUIRED）、预览凭证签发/交换（PRD 06 §2.4 修正）、流程设计器画布只读（flow-service 整体 Phase 2）、服务保障前端触点（租户级健康页/状态页/SLA 看板，支撑 L-Pilot 门禁 G4）；L2 隔离验收（G7）未通过前功能整体关闭（feature flag）
 
 ## 1. 技术选型总览
 
@@ -216,30 +220,31 @@ interface ScriptHost {
 }
 ```
 
-- 编译期：L2 脚本在**设计态保存时**转译（TS→ES5 降级 + 白名单静态检查），产出受限的模块，运行时只 `import()` 执行，不 eval。
-- 运行期：每个页面挂载一个 `ScriptHost` 实例，按生命周期触发钩子；钩子执行超时（如 500ms）抛错并兜底（不阻断页面，只记录+提示）。
-- 钩子执行必须包在 `try/catch` 内：脚本报错**不能导致页面白屏**，只记录到控制台与上报（这是客户最不能接受的体验事故）。
+> ⚠️ **隔离模型修正（2026-10-28 安全评审）**：本节原设计「ESM module scope + `Object.freeze(ctx)`」不成立——模块运行在主线程全局环境，`window`/`document`/`fetch` 均可达，freeze 锁不住原型链。现行定版：**Worker 执行 + 受控消息桥（op 白名单）+ `worker.terminate()` 真硬中断**；token 永不进 Worker（`api.call` 由主线程代理）；网络出口隔离靠红线扫描 + CSP `connect-src` + 网关鉴权三层兜底（普通 Worker 并不天然禁用 fetch/XHR/WebSocket）。实现真源见文档 08FE §3-5。
 
-**ctx 的受控实现（关键：禁止裸 window）**
+- 编译期：L2 脚本在**设计态保存时**转译（TS→ES5 降级 + 白名单静态扫描），产出受限的模块，运行时在 Worker 内 `import()` 执行，不 eval。
+- 运行期：每个页面挂载一个 `ScriptHost` 实例（Worker 池上限 8，LRU 释放），按生命周期触发钩子；钩子超时（warn 500ms / hard 10s）后者 `terminate()` 真终止（同步死循环可被中断——Promise.race/AbortSignal 做不到）。
+- 钩子执行必须包在 `try/catch` 内：脚本报错**不能导致页面白屏**，只记录到控制台与上报（这是客户最不能接受的体验事故）。
+- **G7 门禁联动（PRD §5.1）**：L2 隔离验收（08FE §8）未通过前，L2 功能整体关闭上线（feature flag）——不以「客户自担」免责。
+
+**ctx 的受控实现（关键：消息桥代理，替代旧版冻结对象）**
 
 ```ts
-function createCtx(page: PageInstance, user: UserInfo): ScriptContext {
-  return Object.freeze({
-    form: {
-      get: (k) => page.formStore.get(k),
-      set: (k, v) => page.formStore.set(k, v),   // 内部走引擎 API，触发重渲染与联动校验
-      getValues: () => page.formStore.getValues(),
-      setValues: (v) => page.formStore.setValues(v),
-    },
+// Worker 内注入的 ctx 代理：每个方法都是 postMessage 往返，无本地能力（08FE §4.2）
+// user/page 为 mount 时一次性注入的静态快照；动态操作全部走主线程 op 白名单桥：
+//   form.get/set/getValues/setValues · api.call · ui.toast/confirm/dialog · log
+function createWorkerCtx(port: MessagePort): ScriptContext {
+  return {
+    form: { get, set, getValues, setValues },          // → op 'form.*'（postMessage 往返）
     api: {
-      // 只能调平台注册过的 API 名，不能传 URL
-      call: (name: string, params?: any) => platformApi.invoke(name, params),
+      // 只能调平台注册过的 API 名；注册名→接口映射在主线程执行并先做权限校验再走网关
+      call: (name: string, params?: any) => call('api.call', [name, params]),
     },
-    ui: { toast, confirm, dialog },
-    logger: scopedLogger(page.id),   // 自动带 pageId/traceId/脚本版本，直传后端日志中心
-    user: pick(user, ['id', 'roles', 'dept']),   // 脱敏白名单
-    page: { params: page.params, query: page.query, mode: page.mode },
-  });
+    ui: { toast, confirm, dialog },                    // → op 'ui.*'（confirm/dialog 经确认弹窗代理）
+    logger: scopedLogger(port),                         // → op 'log'
+    user: undefined /* 静态快照注入：pick(user,['id','roles','dept']) */,
+    page: { params, query, mode } /* 同静态快照 */,
+  };
 }
 ```
 
@@ -247,10 +252,10 @@ function createCtx(page: PageInstance, user: UserInfo): ScriptContext {
 
 | 红线 | 强制手段 |
 |---|---|
-| 禁止原生 `fetch`/`XHR` | 脚本在受限执行器内运行：构建期静态扫描禁止 `fetch`/`XMLHttpRequest`/`import(` 动态导入/`navigator.sendBeacon` 等标识符；运行期用 Proxy 包裹的 module scope 不注入全局 |
-| 禁止 DOM 操作 | 不向脚本注入 `document`/`ref`；静态扫描 `document`/`window`/`querySelector` |
-| 禁止读其他租户数据 | `ctx.api.call` 走后端鉴权，前端不做数据隔离（前端隔离不可信，必须在服务端拦） |
-| 禁止无限循环卡死页面 | 钩子执行带 `AbortSignal` + 超时；表单字段变更钩子做节流；循环体内不提供 `setTimeout` 递归调用（白名单里不注入定时器，或用受管 schedule） |
+| 禁止原生 `fetch`/`XHR`/`WebSocket` | 三层兜底：①构建期静态扫描禁标识符（编辑期 Monaco linter + 保存期 AST 扫描，redlines.json 双端同源）；②CSP `connect-src` 白名单（Worker 遵循所属文档 CSP）阻断越界请求；③网关对无凭证请求 401。⚠️ 不假设「Worker 里写 fetch 会报错」——普通 Worker 并不天然禁用网络 API |
+| 禁止 DOM 操作 | Worker 环境级缺失（`window`/`document` 为 undefined）+ 静态扫描 `document`/`window`/`querySelector` 双保险 |
+| 禁止读其他租户数据 | `ctx.api.call` 走后端鉴权（主线程继承当前用户 perms 后代理转发），前端隔离不可信，必须在服务端拦 |
+| 禁止无限循环卡死页面 | 钩子超时 `worker.terminate()` 真硬中断（同步死循环可终止）；表单字段变更钩子节流 50ms；不向 Worker 注入定时器 |
 
 **调试能力（上线前置条件，否则客户不吃这套）**
 
@@ -260,6 +265,8 @@ function createCtx(page: PageInstance, user: UserInfo): ScriptContext {
 ### 3.11 用量埋点 SDK（PRD §8.5 落地）
 
 前端是"活跃席位"与"AI 额度消耗"等指标的**第一数据源**，一期只埋点不出账，但事件模型必须一次设计对（补埋历史数据不可回溯）。
+
+> 席位三口径定版（PRD §8.4）：**授权**（持设计能力授权的账号数，配额硬限）/ **活跃**（滚动 30 天有设计器写操作）/ **账单**（P3 出账时冻结定义）——前端 `seat.active` 仅活跃口径漏斗参考，授权判定归服务端 tenant-service（后端 13BE），三口径禁止混用。
 
 ```ts
 type UsageEvent =
@@ -288,8 +295,9 @@ type UsageEvent =
 | 组件物料热更新 | ~~Module Federation 远程加载物料包~~ → **注册表 + 动态 import(artifactUrl)**（ADR-FE-001 拆解②，文档 05FE §3）：设计器/运行时按需拉取 ES module 产物，不影响主应用发版 |
 | 低代码表单与原生校验体验割裂 | 统一走 react-hook-form resolver，保证 UX 与手写表单一致（无感知差异） |
 | 双轨渲染产物对齐（动态 vs 编译） | 统一 `MaterialMeta.runtime` 标记 + `NodeRenderer` 单入口分派；编译产物受 `ErrorBoundary` + 保留上一版本兜底 |
-| L2 脚本失控拖垮页面 | 钩子超时 + 异常兜底 + 静态白名单扫描（构建期拒绝 fetch/document）+ 执行日志面板 |
+| L2 脚本失控拖垮页面 | Worker 隔离 + 钩子超时 `terminate()` 真硬中断 + 异常兜底 + 静态白名单扫描（构建期拒绝 fetch/document）+ 执行日志面板 |
 | 已删除字段的渲染兼容（PRD §3.1.1） | 元数据带 `fieldStatus`；渲染层统一在 `resolveProps` 前过滤 DELETED 字段；表达式中引用已删字段显式报错而非静默 undefined |
+| 短时凭证安全（预览/嵌入，PRD 06 §2.4） | 预览链接只含 grantId 不含 token（5min 单次可吊销，04BE §A.7）；嵌入宿主传一次性 code 换 token；URL 栏永不出现长期凭证 |
 
 ---
 
@@ -301,10 +309,12 @@ type UsageEvent =
 
 ---
 
-## 6. 分阶段交付建议（对应 PRD v0.2 MVP）
+## 6. 分阶段交付建议（对应 PRD v0.3 MVP）
 
-1. **Phase 1**：`schema-protocol` + `schema-renderer`（含轨道 A 动态解析）+ `schema-form` + 基础物料库 + ER 建模器（含影响面确认交互）+ 运行时容器 + **L2 脚本运行时（钩子 + 测试台）** + **用量埋点 SDK**
-2. **Phase 2**：Canvas 拖拽设计器完整版、流程设计器、多人协同（**乐观锁 + 心跳**，ADR-FE-003）、组件市场、**轨道 B 编译产物加载（自定义代码）**、L4 连接器配置界面、仪表盘设计器（ECharts，详细 PRD 02 §2.6）、主题品牌定制（详细 PRD 02 §2.10）
+> 上线等级：Phase 1 交付物验收以 **L-Pilot 受控试点门禁**（PRD §5.1 G1-G7）为准，其中前端直接承载 **G7 L2 隔离验收**（08FE §8 测试项）；服务保障前端触点（健康页/升级公告横幅）支撑 **G4 可观测**。
+
+1. **Phase 1**：`schema-protocol` + `schema-renderer`（含轨道 A 动态解析）+ `schema-form` + 基础物料库 + ER 建模器（含影响面确认交互）+ 运行时容器 + **L2 脚本运行时（Worker 隔离 + 钩子 + 测试台，G7 门禁项）** + **用量埋点 SDK（含席位三口径活跃漏斗）** + **成员建号/首次登录强制改密（PASSWORD_CHANGE_REQUIRED 拦截页）** + **流程设计器画布只读展示（flow-service 整体 Phase 2——P1 表单动作只触发数据写入与状态流转）** + **服务保障前端最小集（租户级健康页入口 + 维护窗口公告横幅）**
+2. **Phase 2**：Canvas 拖拽设计器完整版、**流程设计器完整版（审批执行闭环）**、多人协同（**乐观锁 + 心跳**，ADR-FE-003）、组件市场、**轨道 B 编译产物加载（自定义代码）**、**预览凭证交换流程（grant 签发/换取/吊销 UI）**、L4 连接器配置界面、仪表盘设计器（ECharts，详细 PRD 02 §2.6）、主题品牌定制（详细 PRD 02 §2.10）、**租户注销/恢复工单入口（详细 PRD 11 §2.2/§2.3）**、SLA 可用性看板（内部）
 3. **Phase 3**：微前端隔离增强（Web Component）、AI 辅助生成（自然语言 → Schema）、L3 脚本调试面板对接、**CRDT 协同预研（限页面设计器，结论前不进依赖树）**
 
 ---

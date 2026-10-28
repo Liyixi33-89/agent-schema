@@ -1,6 +1,6 @@
 # 详细前端技术文档 04 · 页面设计器 Canvas 引擎（designer-canvas）
 
-> 上游：《技术方案-前端(React).md》v0.2 §3.4/§3.2；详细 PRD 02（操作级需求全量）
+> 上游：《技术方案-前端(React).md》v0.3 §3.4/§3.2；详细 PRD 02（操作级需求全量）
 > 本文定位：**实现级技术设计**——设计器状态机、拖拽管线、撤销重做、属性面板生成、冲突处理
 > 包：`apps/designer`（画布引擎模块）+ `component-materials`（propsSchema 消费）
 

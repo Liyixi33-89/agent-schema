@@ -1,6 +1,6 @@
 # 详细前端技术文档 07 · 请求层与鉴权 SDK（request-sdk / auth-sdk）
 
-> 上游：《技术方案-前端(React).md》v0.2 §1/§5；后端技术方案 §5（统一 CRUD 协议）、§4（租户上下文）
+> 上游：《技术方案-前端(React).md》v0.3 §1/§5；后端技术方案 §5（统一 CRUD 协议）、§4（租户上下文）
 > 本文定位：**实现级技术设计**——OpenAPI 类型生成、通用数据 hooks、错误码体系、登录态与权限缓存
 > 包：`packages/request-sdk`、`packages/auth-sdk`（设计器与运行时共用）
 
@@ -66,6 +66,7 @@ ApiError {
 
 409 场景特殊化：VersionConflictError（携带 serverVersion）→ 设计器三方对比流程（§04 §7）
 QUOTA_EXCEEDED 场景：结构化升级引导 payload（后端 §09）→ 前端统一弹层组件消费
+PASSWORD_CHANGE_REQUIRED（403）：全局拦截重定向强制改密页（§5）——唯一不上抛业务层的错误码
 ```
 
 ## 5. auth-sdk
@@ -81,6 +82,13 @@ QUOTA_EXCEEDED 场景：结构化升级引导 payload（后端 §09）→ 前端
 权限快照：{ userId, roles, perms: Set<string>, dept } → hasPerm(perm) O(1)
 失效：登出/401 刷新失败/切换租户 → 清快照 + 跳登录
 多标签页：storage 事件广播登出（一端登出全端登出）
+
+首次登录强制改密（P1 成员生命周期，详细 PRD 04 §2.6；后端 03 §A.3.1）：
+  建号/管理员重置后 must_change_password=true → 除改密接口外全部请求 403
+  PASSWORD_CHANGE_REQUIRED——SDK 全局拦截该错误码 → 重定向强制改密页
+  （不弹 toast 不重试：改密前任何界面都不可用）；改密成功后恢复正常登录态
+  P1 无邮件通道：初始密码由管理员建号时设定/服务端生成一次性返回（线下交付）；
+  邀请邮件与自助找回 P2 随邮件通道上线
 ```
 
 ## 6. 单元测试硬性要求
@@ -91,6 +99,7 @@ QUOTA_EXCEEDED 场景：结构化升级引导 payload（后端 §09）→ 前端
 - [ ] 错误归一化：各 bizCode 映射正确异常类；409 携带 serverVersion
 - [ ] 权限缓存：hasPerm 命中/未命中；登出后失效
 - [ ] 多标签页登出广播生效
+- [ ] **PASSWORD_CHANGE_REQUIRED**：未改密账号访问任意接口被重定向强制改密页（非 toast 非重试）；改密成功后恢复
 
 ---
 
