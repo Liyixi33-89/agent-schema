@@ -16,6 +16,8 @@
 | 后端 | Java + Spring Boot 3 + PostgreSQL(JSONB) + Redis + Kafka + Flowable；Flyway；模块化单体（Maven 多 module） |
 | 契约 | Schema 协议双端镜像：前端 zod ↔ 后端 `schema-protocol-java`；API 类型由 OpenAPI 自动生成 |
 
+**UI 基线（用户定版）**：业务 UI 一律 React + TypeScript 函数组件；通用组件优先复用项目组件（shared-ui/物料库）及 Ant Design，**不得擅自引入其他通用 UI 库**；**禁止原生 DOM 操作或 HTML 字符串拼装业务页面**（原生浏览器 API 仅限 Worker/Canvas/文件读写等经 hook 封装的非 UI 场景）。细则见 skills：`react-component-discipline`、`antd-component-first`、`ui-design-consistency`。
+
 ## 3. 目录结构（规划骨架）
 
 ```
@@ -69,6 +71,9 @@ schema/
 4. 禁手写 API DTO：类型由 OpenAPI 生成（`api-types.gen.ts`）；请求统一走 request-sdk（禁裸 fetch）
 5. 属性面板必须由 propsSchema 自动生成（禁手写属性表单）；受控组件必须实现 value/onChange 契约
 6. 运行时产物不得包含设计器代码（双入口条件编译，CI bundle 断言）
+7. 组件选型三级序：项目已有组件 → Ant Design → 人类授权新库；禁引第二套通用 UI 库、禁重复造 AntD 已有基础件
+8. 禁裸 DOM 操作与 HTML 字符串拼装业务页面（`document.querySelector`/`innerHTML`/`dangerouslySetInnerHTML` 白名单外零容忍）；列表渲染用 JSX map
+9. 样式与视觉唯一真源 = 主题 token（ConfigProvider + CSS 变量），禁组件内硬编码色值/任意间距
 
 **后端**：
 1. 模块间只依赖对方 `*-api` 包（ArchUnit 门禁）；领域层无 Spring/MyBatis 注解依赖
