@@ -5,9 +5,11 @@
   "scripts": {
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
-    "test": "vitest run"
+    "test": "pnpm architecture && vitest run",
+    "architecture": "depcruise --config .dependency-cruiser.cjs apps packages"
   },
   "devDependencies": {
+    "dependency-cruiser": "16.10.2",
     "turbo": "2.5.4",
     "typescript": "5.8.3",
     "vitest": "3.2.4"
