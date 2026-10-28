@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:17.5
+    environment:
+      POSTGRES_DB: schema_dev
+      POSTGRES_USER: schema_dev
+      POSTGRES_PASSWORD: schema_local_only
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - schema_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U schema_dev -d schema_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  schema_postgres:

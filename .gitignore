@@ -7,3 +7,10 @@ output/
 
 # AI 工具产物
 *.log
+
+# 工程构建产物
+node_modules/
+target/
+dist/
+.turbo/
+coverage/
