@@ -15,7 +15,7 @@
 
 | 领域 | 选型 | 说明 |
 |---|---|---|
-| 语言/框架 | Java 17/21 + Spring Boot 3.x | 虚拟线程(Project Loom)可用于高并发元数据查询场景 |
+| 语言/框架 | Java 21 + Spring Boot 3.x | 虚拟线程正式可用（JDK21 已转 final）；**预览特性（含 ScopedValue）不进主干**，租户上下文存储接口化（详 03BE §2.1） |
 | 微服务框架 | Spring Cloud Alibaba（或自建网关+注册中心） | 服务拆分见 §2 |
 | API 网关 | Spring Cloud Gateway | 鉴权、租户路由、限流统一入口 |
 | 元数据存储 | PostgreSQL（主库，JSONB 存 Schema 定义） | JSONB 对半结构化的 Schema 定义天然友好，支持 GIN 索引查询 |
@@ -211,9 +211,10 @@ class BuildResult {
 **隔离级别**：行级隔离（默认，SaaS 标准租户）+ Schema级隔离（大客户可选）+ 独立实例（私有化部署）。
 
 ```java
-// ThreadLocal/虚拟线程 Scoped Value 存储当前租户上下文
-public class TenantContext {
-    private static final ScopedValue<TenantInfo> CURRENT = ScopedValue.newInstance();
+// 租户上下文存储接口化（M0 定版决策）：JDK21 的 ScopedValue 仍为预览特性，不进主干
+public final class TenantContext {
+    private static final TenantContextHolder HOLDER = TenantContextHolder.threadLocal();
+    // Holder 接口三方法 get/with/clear；JDK ScopedValue 转正式后切换实现，业务代码零改动
 }
 
 // MyBatis 拦截器自动给 SQL 注入租户过滤
@@ -442,8 +443,9 @@ CREATE TABLE usage_daily (
 
 ## 12. 分阶段交付建议（对应 PRD v0.2 MVP）
 
-1. **Phase 1**：`metadata-service`（建模 + 字段状态机 DELETED + 版本快照/回滚）+ `data-engine-service`（JSONB CRUD + 读时兼容 + 字段强过滤）+ `permission-service`（基础 RBAC）+ `page-service` + 影响面分析（页面引用 + 数据量）+ **L1 表达式引擎（Aviator 受限）** + **计量埋点采集链路（只采集不出账）** + 单租户
-2. **Phase 2**：多租户行级隔离、**代码编译服务（§3.4）**、字段级权限、`flow-service`（Flowable）、开放平台 API Key、**L4 连接器（§9.2，含 SSRF 防护）**、影响面全扫描兜底
+1. **Phase 1**：`metadata-service`（建模 + 字段状态机 DELETED + 版本快照/回滚）+ `data-engine-service`（JSONB CRUD + 读时兼容 + 字段强过滤）+ `permission-service`（基础 RBAC）+ `page-service` + **build-service 最小安全编译链路**（仅 L2 脚本：静态扫描 + esbuild 单文件编译 + artifactHash 回写，§3.4；Worker 单容器无 HPA）+ 影响面分析（页面引用 + 数据量）+ **L1 表达式引擎（Aviator 受限）** + **计量埋点采集链路（只采集不出账）** + 单租户
+   > 分期修正（2026-10-28）：前端 L2 脚本（08FE）列为 P1，其保存流程依赖 build-service 产出 `artifactHash`——若编译整体后置 P2，M14 无从交付。故把 **L2 所需最小编译链路前移 P1**（红线扫描 + esbuild + 产物上传三步即闭环）；自定义组件编译（多文件/依赖白名单注入/Worker 池 HPA）仍留 P2 完整版。
+2. **Phase 2**：多租户行级隔离、**代码编译服务完整版（§3.4：自定义组件多文件编译 + 白名单依赖 pre-bundle + Worker 池 HPA）**、字段级权限、`flow-service`（Flowable）、开放平台 API Key、**L4 连接器（§9.2，含 SSRF 防护）**、影响面全扫描兜底
 3. **Phase 3**：**L3 沙箱执行服务（§9.1）**、Schema 级隔离、配额与出账（§10.3/10.4）、性能优化（分区表/读写分离）、AI 辅助建模网关（P3 预留，骨架契约见《详细技术文档 14》——功能范围待需求确认，一期二期不交付）、私有化交付件（按需）
 
 ---

@@ -19,6 +19,7 @@ owner: 待定
 
 - 后端 `schema-platform`：Maven 多模块骨架（platform-common + 七业务模块的空壳 + bootstrap），模块目录即 00BE §3 结构；ArchUnit 依赖规则先注册为空跑
 - 后端 Flyway 基线：bootstrap 模块挂 Flyway，`V1__platform_baseline.sql`（空基线，仅验证链路）
+- 后端 JDK21 定版（2026-10-28 决策）：toolchain 锁 21、CI setup-java 升 21（已改 verify.yml）；**预览特性一律不开**——租户上下文存储按 03BE §2.1 接口化（TenantContextHolder，ThreadLocal 默认实现），ScopedValue 转正式后再切换实现
 - 前端 `schema-frontend`：pnpm workspace + Turborepo 骨架，apps/{designer,runtime,admin-console} 与 packages 按总纲 §2 分层表建空包；dependency-cruiser 规则先注册
 - CI 三档真实化：verify.ps1 的 frontend-tsc/backend-compile/frontend-build/frontend-test/backend-test 五个 [SKIP] 全部转 [PASS]
 
@@ -26,6 +27,8 @@ owner: 待定
 
 - 任何业务逻辑（元数据/数据引擎/协议类型都是后续 spec）
 - ArchUnit/dependency-cruiser 的具体规则编写（M0 只挂框架，规则随各模块首个实现 spec 落地）
+- contract-diff（属 M1.5——契约产物 schema-protocol/contract/ 在 M1 才存在，M0 无从 diff；验收明确排除，不算 SKIP 失败）
+- E2E（Playwright 属联调阶段；M0 无页面可测，ci 级 frontend-e2e 保持 [SKIP] 属合法降级——分阶段说明见 11FE §4 与 AGENTS.md §验证管线）
 
 ## 3. 接口契约
 
@@ -52,10 +55,11 @@ schema-frontend/
 
 ## 5. Acceptance
 
-- [ ] A1 `verify -Level commit` 全步 [PASS] 无 [SKIP]
-- [ ] A2 后端模块间依赖仅经 `*-api`（ArchUnit 空规则框架就位，占位用例可跑）
-- [ ] A3 前端跨包 import 走包名（dependency-cruiser 占位规则可跑）
-- [ ] A4 GitHub Actions 在 push 时真实执行（verify.yml 分支触发已修复的实证）
+- [ ] A1 `verify -Level commit` 全步 [PASS]；仅允许两类合法降级——contract-diff [SKIP]（M1.5 前无契约产物）、frontend-e2e [SKIP]（ci 级专属，commit 级不跑且 M0 无页面）；其余任何 [SKIP]/[FAIL] 均不通过
+- [ ] A2 后端模块间依赖仅经 `*-api`：ArchUnit 空规则框架就位 + **至少 1 条真实规则反向验证**（构造一个违规依赖样本证明会 FAIL——空规则挂而不知失效即腐烂）
+- [ ] A3 前端跨包 import 走包名：dependency-cruiser 占位规则可跑 + 同上反向验证（违规样本被拦截）
+- [ ] A4 GitHub Actions 在 push 时真实执行（verify.yml 分支触发已修复的实证；JDK21 镜像就位）
+- [ ] A5 Flyway 幂等：重复启动 checksum 通过（T2 同源验收）
 
 ## 6. 验证步骤
 

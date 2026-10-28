@@ -22,7 +22,7 @@ updated: 2026-10-28
 
 1. **新表三件套**：`tenant_id BIGINT NOT NULL` + 以 tenant_id 为前缀的复合索引 + UNIQUE 约束带 tenant_id（如 `UNIQUE(tenant_id, app_id, model_key)`，后端 01/03 各表 DDL 均此模式）。
 2. **双保险缺一不可**：MyBatis 拦截器兜底注入 + data-engine SQL 构建层显式注入（后端 03 §2.2）；新增查询路径时两层都要有用例。
-3. **接口签名不出现 tenantId 参数**：网关解析 → header X-Tenant-Id → Filter 还原 ScopedValue；内部 RPC 隐式附件透传（后端 03 §2.1）。Service 里需要租户一律 `TenantContext.get()`。
+3. **接口签名不出现 tenantId 参数**：网关解析 → header X-Tenant-Id → Filter 还原 TenantContext（存储实现接口化，后端 03 §2.1）；内部 RPC 隐式附件透传。Service 里需要租户一律 `TenantContext.get()`。
 4. **@TenantIgnore 纪律**：仅限平台级管理查询；每处使用必须注释理由并在 CR 说明；出现在业务查询上即红线。
 5. **CI 硬性项**：每个新增数据查询 Service 附带「伪造租户上下文被拦截」单测，无此用例不予合并（后端 03 §2.2）。
 6. **异步/定时链路显式还原租户**：MQ 消费与定时任务从消息体/任务参数还原 TenantContext，禁止默认租户跑批写库。
