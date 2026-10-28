@@ -175,7 +175,7 @@ if (Test-Path (Join-Path $fe 'package.json')) {
     Step 'frontend-tsc' {
         if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) { throw 'pnpm 未安装' }
         Push-Location $fe
-        try { pnpm exec tsc --noEmit; if ($LASTEXITCODE -ne 0) { throw "tsc 退出码 $LASTEXITCODE" } }
+        try { pnpm typecheck; if ($LASTEXITCODE -ne 0) { throw "typecheck 退出码 $LASTEXITCODE" } }
         finally { Pop-Location }
     }
 } else { Skip 'frontend-tsc' 'schema-frontend 尚未初始化（spec-001 落地后生效）' }
@@ -213,7 +213,7 @@ if (Test-Path (Join-Path $fe 'package.json')) {
     }
     Step 'frontend-test' {
         Push-Location $fe
-        try { pnpm test -- --run; if ($LASTEXITCODE -ne 0) { throw "test 退出码 $LASTEXITCODE" } }
+        try { pnpm run test; if ($LASTEXITCODE -ne 0) { throw "test 退出码 $LASTEXITCODE" } }
         finally { Pop-Location }
     }
 } else { Skip 'frontend-build/test' 'schema-frontend 尚未初始化' }

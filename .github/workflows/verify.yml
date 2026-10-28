@@ -15,20 +15,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 环境就绪（代码库落地后按实际锁版本；当前阶段仅文档体系，天然跳过）
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-        continue-on-error: true   # pnpm 未用到的阶段允许失败，由脚本内 [SKIP] 兜底
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-        continue-on-error: true
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-        continue-on-error: true
+      - name: Install frontend dependencies
+        working-directory: schema-frontend
+        run: pnpm install --frozen-lockfile
 
       # 与本地跑同一份脚本、同一套检查——AI 代码与人写代码无豁免通道
       - name: Run verify pipeline (commit level)
