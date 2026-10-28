@@ -21,7 +21,7 @@ updated: 2026-10-28
 
 ## 规则/经验
 
-1. **XSS 三防线**（安全体系定版）：富文本存储 tiptap JSON（不存 HTML）→ 渲染侧 DOMPurify 清洗 → 输出侧 React 转义。**禁 `dangerouslySetInnerHTML`**（lint 硬禁，白名单仅 rich-text 渲染器内部一处）。
+1. **XSS 三防线**（安全体系定版）：富文本存储 tiptap JSON（不存 HTML）→ 渲染侧 DOMPurify 清洗 → 输出侧 React 转义。**禁 `dangerouslySetInnerHTML`**（按既定安全策略执行，不自行给富文本或 Canvas 增加白名单；确需 HTML 注入必须先评审安全边界与清洗策略）。
 2. **用户数据永不信任**：字段值进页面一律走 React 组件 props（自动转义）；动态类名/样式先过白名单映射；URL 跳转校验协议（禁 `javascript:` 注入，`URL` 解析后检查 origin/协议）。
 3. **脚本红线三道闸**（08FE §3）：编译期红线扫描（`eval`/`new Function`/成员链拦截）→ Worker 消息桥 op 白名单 → 真实浏览器 CSP `connect-src 'none'` 兜底。业务代码不得绕过 script-host 直接 `new Worker`。
 4. **CSP 三态独立**（设计器/运行时/产物域）：由网关/后端响应头统一下发（非 meta），前端职责是**不写违反 CSP 的代码**（无内联事件、无内联 script、样式走文件）；Worker 脚本响应头独立策略。

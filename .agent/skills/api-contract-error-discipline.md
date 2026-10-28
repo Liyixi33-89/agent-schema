@@ -21,8 +21,8 @@ updated: 2026-10-28
 ## 规则/经验
 
 1. **契约先行**：接口先对齐 OpenAPI 导出（前端 `api-types.gen.ts` 由其生成），再写实现——**禁实现完再补文档**、禁手改生成物。新增字段 = 契约变更：双端同步 + diff 通过（schema-contract-first 联动）。
-2. **请求通用约定**（10BE §A.1）：分页 `{pageNo, pageSize}` + 排序白名单字段；过滤走 ConditionTree 协议（禁每个接口自造 filter 参数名）；幂等操作带 `Idempotency-Key` 头。
-3. **响应通用约定**（10BE §A.2）：统一 `{code, message, traceId, details?}`；列表响应统一 `{items, total, pageNo, pageSize}`；**禁 HTTP 200 包业务失败**（code 业务码≠成功码时必须对应 4xx/5xx）；禁裸返回数组/裸字符串。
+2. **请求约定**：分页与过滤按服务域接口契约（常用 `page/size`），排序字段走白名单；ConditionTree 按数据引擎协议解析。幂等键是否使用请求头、字段或业务唯一键，以对应接口契约为准，不擅自新增通用请求头。
+3. **响应通用约定**（10BE §A.2）：成功直接返回资源体，不包成功信封；分页统一 `{list, total, page, size}`；错误才返回 `{code, message, traceId, details?}` 并使用契约规定的 HTTP 状态码。数组、字符串等成功资源按 OpenAPI 定义返回，不强制改为对象。
 4. **参数校验三层**：DTO 注解校验（`@Valid` + jakarta.constraints）拦格式 → Service 前置校验拦业务前置条件（状态机不符等）→ 领域方法拦不变式。三层各司其职，禁全堆 Controller。
 5. **错误码分域登记**（10BE §A.3）：新错误码必须登记分域表（枚举专项 CI 比对对象，01 篇测试文档 §7）；错误信息面向用户可读 + 不泄露内部细节（表名/SQL/堆栈）；**403 vs 404 语义**：跨租户资源一律 404 不泄露存在性（02 篇 TC-ISO-02）。
 6. **异常处理收口**：全局 `@RestControllerAdvice` 统一转换（业务异常→错误码、校验异常→VALIDATION 子码、未知异常→500 + traceId）；业务异常用平台统一业务异常类携带错误码，**禁 `throw new RuntimeException("自定义中文")`**；禁 catch 后吞掉不打日志。
