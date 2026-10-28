@@ -124,7 +124,7 @@ undo(): 取 past 栈顶恢复；redo(): 取 future 栈顶
 | 2 | `PUT /api/pages/{id}/draft`（30s 节流自动保存 + 手动保存） | 保存 `{schema, baseDraftVersion}` → `{draftVersion}`；`409 {serverDraftVersion}` 进三方对比（§7） | 04 §A.1 |
 | 3 | `POST /api/pages/{id}/lock` / `lock/heartbeat`（10s）/ `DELETE lock` | 编辑锁获取/续期/释放；`409 {holder}` 显示持锁人 | 04 §A.3 |
 | 4 | `GET /api/models/{id}` | 属性面板字段绑定下拉（ACTIVE 过滤 + DELETED 置灰）；模型差异检测元数据源 | 01 §A.1 |
-| 5 | `POST /api/build/pages/{pageId}/code` | 轨道 B「自定义代码」保存即编译：成功更新 artifactHash；失败展示 `{errors:[{line, column, message}]}` | 04 §A.5 |
+| 5 | `POST /api/build/pages/{pageId}/code` | 轨道 B「自定义代码」保存即编译：成功更新 contentHash；失败展示 `{errors:[{line, column, message}]}` | 04 §A.5 |
 | 6 | `GET /api/build/tasks/{taskId}` | 编译任务轮询（2s+退避） | 04 §A.5 / 10 §A.4 |
 | 7 | `POST /api/pages/{id}`（复制）/ `DELETE`（删除）/ `PUT /path` | 页面列表操作（复制重生成节点 id；删除返回 `{menuRefs[]}` 提示） | 04 §A.1 |
 | 8 | `POST /internal/references`（经后端 page-service 代发） | 保存时字段引用登记——设计器只产出 dependsOn，不直调内部接口 | 01 §A.4 |

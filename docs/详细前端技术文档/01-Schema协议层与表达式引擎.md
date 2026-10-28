@@ -63,6 +63,12 @@ interface LayoutNode {
 }
 
 type PropValue = JsonPrimitive | ExpressionBinding | ActionBinding[] | LayoutNode[];
+// ⚠️ 判别规则（2026-10-28 校验一致性修正）：
+//   · JSON 对象先判 {kind:'expr'} → ExpressionBinding；元素均为合法 ActionBinding 的对象数组 → ActionBinding[]；
+//     元素均为合法 LayoutNode 的对象数组 → LayoutNode[]；其余普通对象/普通数组 → JsonValue（静态配置）
+//   · 三类绑定形态（expr/action/node）必须与普通 JSON 值**可判别**：绑定对象必含标识字段
+//     （kind:'expr' / type:动作枚举 / componentName），判别由 zod 判定顺序保证（下方 schema）
+type JsonValue = JsonPrimitive | { [k: string]: JsonValue } | JsonValue[];   // 普通静态配置（嵌套任意深）
 
 interface ExpressionBinding {                   // L1：唯一合法的表达式载体
   kind: 'expr';
@@ -104,17 +110,42 @@ type ActionBinding =
 ## 3. zod 运行时校验
 
 ```ts
+// PropValue 校验（2026-10-28 修正：与 §2 PropValue 联合类型逐支对齐——
+// 旧版漏了 ActionBinding[] 且普通嵌套对象/数组无法通过，合法物料配置会被误拒）
+const actionBindingSchema = z.union([
+  z.object({ type: z.literal('SUBMIT'), successBehavior: z.enum(['REFRESH','REDIRECT','TOAST']), redirectTo: z.string().optional() }),
+  z.object({ type: z.literal('TRIGGER_FLOW'), flowId: z.string(), bizKeyFrom: z.string() }),
+  z.object({ type: z.literal('CALL_API'), apiName: z.string(), paramsMapping: z.record(z.unknown()) }),
+  z.object({ type: z.literal('OPEN_PAGE'), targetPageId: z.string(), queryMapping: z.record(z.unknown()) }),
+  z.object({ type: z.literal('DELETE'), confirmText: z.string().optional() }),
+  z.object({ type: z.literal('CUSTOM_SCRIPT'), scriptId: z.string() }),
+]);
+
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
+  jsonPrimitiveSchema,
+  z.record(z.lazy(() => jsonValueSchema)),          // 普通嵌套对象（静态配置）
+  z.array(z.lazy(() => jsonValueSchema)),           // 普通数组
+]));
+
+const propValueSchema = z.union([
+  jsonPrimitiveSchema,
+  expressionSchema,                                 // {kind:'expr'} 判别
+  z.array(actionBindingSchema),                     // 动作数组（元素全部为合法 ActionBinding）
+  z.lazy(() => z.array(layoutNodeSchema)),          // 子节点数组（元素全部为合法 LayoutNode）
+  jsonValueSchema,                                  // 其余普通对象/数组（静态配置兜底）
+]);
+
 const layoutNodeSchema: z.ZodType<LayoutNode> = z.lazy(() => z.object({
   id: z.string().min(1),
   componentName: z.string().regex(/^[A-Za-z][\w.]*$/),
-  props: z.record(z.union([
-    jsonPrimitiveSchema, expressionSchema,
-    z.array(z.lazy(() => layoutNodeSchema)),
-  ])),
+  props: z.record(propValueSchema),
   children: z.array(z.lazy(() => layoutNodeSchema)).optional(),
   fieldRef: z.string().optional(),
 }));
 ```
+
+- ⚠️ **判定顺序即判别规则**：union 按声明顺序短路——表达式（kind 标识）与绑定数组（元素形态）先于普通 JSON 值匹配；「元素均为 ActionBinding」的数组不会被误判为 LayoutNode[]（ActionBinding 无 componentName 必填字段，反之 LayoutNode 无 type 字段，形态互斥）；
+- 混装数组（如 `[actionBinding, 42]`）不匹配任何绑定分支 → 落入 JsonValue 静态配置——设计器保存时对含动作的 props 做结构约定（动作数组元素必须纯粹），混装属非法配置由设计器阻断，运行时按静态值容错渲染。
 
 - **校验时机（双保险）**：设计器保存前必过；运行时拉取 Schema 后渲染前必过（防缓存投毒与前后端版本漂移）。
 - **错误定位**：zod 错误路径映射为 JSON Pointer（`/layout/2/children/0/props/visibleWhen`），设计器据此在画布定位标红节点。
@@ -153,6 +184,20 @@ interface ExprEngine {
 - 步数计数器：每求值一个 AST 节点 `steps++`，超过 1000 抛 `EvalBudgetError`（防深层嵌套/集合爆炸）。
 
 **双端一致性**：流程分支/数据权限条件由后端 Aviator 求值——两边共享同一份 `functions.json`；Java 侧从该文件生成 Aviator 函数注册表，CI 做 diff 校验（§6 契约同步）。
+
+**共享测试向量（2026-10-28 补——同名函数 ≠ 双端语义相同，CI 双端跑同一份向量断言结果一致）**：
+
+`expr-test-vectors.json`（与 functions.json 同目录，唯一真源；前端 Vitest 与后端 JUnit 各生成执行器跑全量）覆盖：
+
+| 类别 | 向量示例（源 → 期望值） | 锁定语义 |
+|---|---|---|
+| 日期时区 | `DATE_DIFF('2026-01-02','2026-01-01','DAY')` → 1；`NOW()` 断言为 UTC 还是本地时区（**定版：双端统一 UTC 存储 + 渲染层本地化**——向量冻结 `DATE_FORMAT(NOW(),'YYYY-MM-DD')` 在固定注入时钟下的输出） | 时区与单位语义 |
+| 空值传播 | `null + 1` → `null`（非 0 非 NaN）；`CONCAT(null,'a')` → `'a'` 还是 `null`（**定版：null 传染，CONCAT 跳过 null 拼接其余**）；`null == ''` → false | 空值判定 |
+| 数值精度 | `ROUND(0.1+0.2, 1)` → 0.3（双端同舍入模式：**银行家舍入定版为四舍五入 half-up**，Java BigDecimal 与 JS toFixed 语义对齐断言）；整数溢出边界 | 舍入与精度 |
+| 短路求值 | `false && (1/0)` → false（右操作数不求值——双端断言无异常抛出）；`INCLUDES(字段, 未定义)` → FieldMissingError vs false 的边界 | 求值顺序 |
+| 类型转换 | `'5' > 3` → compile 期报错（**不做隐式转换**，静态推断拦截）；`LENGTH(null)` → 0 还是 Error（定版 → 0） | 强类型边界 |
+
+向量格式：`{source, scope, expect: {value} | {error, code}}`；CI 双端跑差异即失败（M1.5 契约门禁组成件）。
 
 ## 5. schemaVersion 迁移管线
 

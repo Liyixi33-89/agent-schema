@@ -4,6 +4,7 @@
 > 本文定位：**实现级技术设计**——租户侧管理后台与平台侧运营后台的页面架构、路由域划分、鉴权分层
 > 应用：`apps/admin-console`（与 designer/runtime 平级的第三个 L4 组合根）
 > 红线：admin-console 是**普通 AntD 应用**（非低代码渲染）——管理界面低代码化是 P3 反射性需求，一期用代码写
+> **分期定版（2026-10-28 对齐依赖图）**：P1 = 租户域最小集（/console/**：用量配额页 + 成员管理 + 健康页 + 维护公告横幅——支撑 L-Pilot 门禁 G4 与席位口径展示）；P2 = 平台域 /admin/** 全部页面 + 租户域完整版（api-keys/connectors/templates/lifecycle）。两域同一构建产物，P1 期间 /admin/** 路由守卫直接重定向（页面模块未装配）。
 
 ---
 
@@ -127,10 +128,11 @@ apps/admin-console/
 
 ```
 数据面板：该租户接口错误率（近 1h/24h/7d 切换）/ 失败流程实例清单 / 编译失败记录
-  （数据源：后端 10 §4 租户级健康页聚合；只读后端口径，前端不计算）
-排障引导：错误聚类 TopN → 关联「脚本执行日志」入口（文档 08FE §7）
+  （数据源：后端 10 §4.1 健康页聚合接口——summary 按窗口聚合、清单接口独立分页；只读后端口径，前端不计算）
+排障引导：错误聚类 TopN（worstEndpoints）→ 关联「脚本执行日志」入口（文档 08FE §7）
   与「工单」入口——健康页定位问题，不替代工单
 可用性说明卡：SLA 承诺值与统计口径链接（PRD 11 §2.1）+ 当前维护窗口公告
+  （GET /api/tenant/maintenance/windows——横幅组件全应用挂载，不只健康页）
 ```
 
 **数据生命周期页（P2，详细 PRD 11 §2.2/§2.3；消费后端 13 §A.4.1）**：
@@ -172,8 +174,8 @@ apps/admin-console/
 - [ ] 域守卫：租户管理员访问 /admin/** 被重定向；无权限页面 403 占位
 - [ ] 明文 Key：创建弹层关闭后内存无明文残留（垃圾回收断言/无日志输出）；复制功能正常
 - [ ] **一次性初始密码**：服务端生成密码仅展示一次（同 Key 明文断言）；重置密码记审计提示
-- [ ] 用量页：quotaStatus 三态着色正确；席位清理确认弹层文案含「次日生效」
-- [ ] **席位三口径**：指标卡显授权口径（触限禁新增授权）、明细列显活跃口径、无任何账单口径数据渲染；两口径无换算代码
+- [ ] 用量页：quotaStatus 三态着色正确；席位清理确认弹层文案含「授权即时释放（若其在其他应用仍持设计能力角色则不释放）、活跃报表次日体现」（与后端 13BE §2.4/§3.2 口径一致）
+- [ ] **席位三口径**：指标卡显授权口径（licensedSeats——触限禁新增授权）、明细列显活跃口径（activeSeats 滚动 30 天标注）、无任何账单口径数据渲染；两口径字段直取 summary 响应、无换算代码
 - [ ] 平台通道：/admin 域请求不带 X-Tenant-Id（请求拦截器断言）；报表数据零缓存
 - [ ] 依赖断言：admin-console 不 import schema-renderer/component-materials（dependency-cruiser 规则）
 - [ ] 口径只读：用量页组件无任何配额派生计算（除百分比格式化外的计算代码扫描为零）
@@ -195,7 +197,8 @@ apps/admin-console/
 | 6 | `GET /api/admin/metrics/saturation\|idle\|funnel` | 商业化报表三榜 | 09 §A.2 扩展 |
 | 7 | 成员/应用/模板/连接器接口 | console 域各管理页 | 13 §A.1-A.4 / 07 §A |
 | 8 | `POST /api/org/members`（管理员建号，`initialPassword?` 缺省服务端生成一次性返回） | 成员管理页建号流程（§4a） | 03 §A.3/§A.3.1 |
-| 9 | `POST /api/tenant/recovery-requests` / `GET /{id}` | 恢复工单发起与状态跟踪（§5a，P2） | 13 §A.4.1 |
-| 10 | `GET /api/tenant/closure-certificate` | 注销证明文件下载（§5a，P2） | 13 §A.4.1 |
+| 9 | `GET /api/tenant/health/summary` / `failed-flows` / `build-failures` / `maintenance/windows` | 健康页数据面板与维护公告卡（§5a，P1） | 10 §4.1 |
+| 10 | `POST /api/tenant/recovery-requests` / `GET /{id}` / `POST /{id}/confirm`；`POST /api/admin/recovery-requests/{id}/approve\|reject` | 恢复工单发起/状态跟踪/回灌确认；平台审批（§5a，P2） | 13 §A.4.1 |
+| 11 | `POST /api/tenant/closure-request` / `cancel` / `GET closure-status` / `GET closure-certificate` | 注销发起/撤销/状态查询/证明下载（§5a，P2） | 13 §A.4.1 |
 
 **对接约束**：平台域接口鉴权失败（403）统一映射「无平台权限」占位而非跳登录（区分角色缺失与会话过期）；所有管理操作（停服/档位/席位清理）二次确认弹层文案与后端审计事件一一对应。

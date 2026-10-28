@@ -13,7 +13,7 @@
 | fetch 封装（拦截器链：租户/鉴权/trace/重试） | 登录/登出/token 刷新/一次性 code |
 | OpenAPI 生成的类型化 client（禁止手写 DTO） | 用户信息与权限快照缓存 |
 | 通用数据 hooks（useModelList/Detail 等，React Query） | 权限判断 API（hasPerm/hasRole） |
-| 统一错误归一化（业务码→异常类） | 多标签页登录态同步（storage 事件） |
+| 统一错误归一化（业务码→异常类） | 多标签页登录态同步（BroadcastChannel，§5） |
 | 计量请求走独立通道（不计入业务网关限流） | 不负责权限数据的服务端判定 |
 
 ## 2. request-sdk 分层
@@ -81,12 +81,22 @@ PASSWORD_CHANGE_REQUIRED（403）：全局拦截重定向强制改密页（§5�
 一次性 code（嵌入场景）：宿主传 code → POST 换 token → 走标准登录态（code 60s 单次失效）
 权限快照：{ userId, roles, perms: Set<string>, dept } → hasPerm(perm) O(1)
 失效：登出/401 刷新失败/切换租户 → 清快照 + 跳登录
-多标签页：storage 事件广播登出（一端登出全端登出）
+多标签页（2026-10-28 修正）：**BroadcastChannel('auth') 广播登出**（一端登出全端登出）
+  ⚠️ 原「storage 事件」方案不成立：sessionStorage 的 storage 事件**仅跨标签页触发且本页不触发**，
+  且 sessionStorage 本身按标签页隔离（A 页写入 B 页读不到）——不能做登录态广播通道。
+  定版：登出/失效时 `new BroadcastChannel('auth').postMessage({type:'logout'})`，
+  全部标签页监听 → 清内存凭证与权限快照 → 跳登录（降级：BC 不可用时轮询 sessionStorage
+  心跳戳，2s 超时视为登出——Safari 老版本兜底）
 
 首次登录强制改密（P1 成员生命周期，详细 PRD 04 §2.6；后端 03 §A.3.1）：
-  建号/管理员重置后 must_change_password=true → 除改密接口外全部请求 403
+  建号/管理员重置后 must_change_password=true → 除放行名单（改密/登出/me）外全部请求 403
   PASSWORD_CHANGE_REQUIRED——SDK 全局拦截该错误码 → 重定向强制改密页
-  （不弹 toast 不重试：改密前任何界面都不可用）；改密成功后恢复正常登录态
+  （不弹 toast 不重试：改密前任何界面都不可用）
+  改密成功恢复定版（2026-10-28 补）：改密接口响应内联返回新 token 对
+  （后端 03 §A.3.1）→ SDK 原地替换内存凭证与 sessionStorage 镜像 + 拉新权限快照
+  → 恢复完整登录态（不跳登录页不重新输入凭证）；广播 {type:'reauth'} 通知其他
+  标签页——旧凭证在其他标签页下一请求 401 REFRESH_REVOKED → 同步失效跳登录
+  （多设备踢出语义：改密者无感恢复，其他端强制下线）
   P1 无邮件通道：初始密码由管理员建号时设定/服务端生成一次性返回（线下交付）；
   邀请邮件与自助找回 P2 随邮件通道上线
 ```
@@ -98,8 +108,8 @@ PASSWORD_CHANGE_REQUIRED（403）：全局拦截重定向强制改密页（§5�
 - [ ] size clamp：超 200 自动截断；响应 total 透传正确
 - [ ] 错误归一化：各 bizCode 映射正确异常类；409 携带 serverVersion
 - [ ] 权限缓存：hasPerm 命中/未命中；登出后失效
-- [ ] 多标签页登出广播生效
-- [ ] **PASSWORD_CHANGE_REQUIRED**：未改密账号访问任意接口被重定向强制改密页（非 toast 非重试）；改密成功后恢复
+- [ ] 多标签页登出广播生效（BroadcastChannel：A 标签页登出 → B 标签页清凭证跳登录；BC 不可用降级心跳戳轮询生效）
+- [ ] **PASSWORD_CHANGE_REQUIRED**：未改密账号访问任意接口被重定向强制改密页（非 toast 非重试）；改密成功后响应 token 对原地替换、权限快照重拉、不跳登录页；其他标签页旧凭证触发 401 REFRESH_REVOKED 同步失效
 
 ---
 

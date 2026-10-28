@@ -5,7 +5,7 @@
 >
 > v0.2 变更：按 PRD §6 决策修订——新增 §3.9 双轨渲染实现、§3.10 L2 脚本运行时、§3.11 用量埋点 SDK；交付形态调整为纯 SaaS + 预留私有化。
 > v0.3 变更（对齐 PRD v0.3 服务保障补齐与安全攻防体系，2026-10-28）：
-> - §3.10 L2 执行隔离模型修正：废弃「ESM scope + freeze(ctx)」伪隔离，改 **Worker 执行 + 受控消息桥（op 白名单）+ terminate() 硬中断**；token 永不进 Worker；网络出口靠红线扫描 + CSP connect-src + 网关鉴权三层兜底（Worker 不天然禁用 fetch）——实现真源 08FE §3-5
+> - §3.10 L2 执行隔离模型修正：废弃「ESM scope + freeze(ctx)」伪隔离，改 **Worker 执行 + 受控消息桥（op 白名单）+ terminate() 硬中断**；token 永不进 Worker；网络出口靠红线扫描 + CSP 双层下发（宿主页面 CSP + Worker 脚本响应头独立 CSP）+ 网关鉴权三层兜底（Worker 不天然禁用 fetch）——实现真源 08FE §3-5
 > - §3.11 席位口径对齐三口径定版（授权/活跃/账单）；前端仅活跃漏斗参考
 > - §6 分期：P1 补成员建号/首次登录强制改密（PASSWORD_CHANGE_REQUIRED）、预览凭证签发/交换（PRD 06 §2.4 修正）、流程设计器画布只读（flow-service 整体 Phase 2）、服务保障前端触点（租户级健康页/状态页/SLA 看板，支撑 L-Pilot 门禁 G4）；L2 隔离验收（G7）未通过前功能整体关闭（feature flag）
 
@@ -192,7 +192,7 @@ function NodeRenderer({ node, ctx }: { node: LayoutNode; ctx: RenderCtx }) {
 - 设计态：Monaco 编辑源码 → 保存时提交给后端编译服务（返回 `{ artifactUrl, sourceHash, compileError? }`）；
 - 运行时：`const mod = await import(/* @vite-ignore */ artifactUrl)` 加载 ES chunk，产物必须按统一导出约定（`export default function render(ctx)`）实现，由渲染引擎在 `ErrorBoundary` 内挂载。
 - **脏编译防护**：编译失败时保留上一版产物继续服务（不允许一次错误提交把线上页面打白），控制台展示编译错误详情 + 回滚到指定版本按钮。
-- **缓存与版本**：产物 URL 带 content hash（`artifact-{hash}.js`），可长缓存；Schema 里记录 `artifactHash` 以便审计"这个页面跑的是哪版代码"。
+- **缓存与版本**：产物 URL 带 content hash（`artifact-{hash}.js`），可长缓存；Schema 里记录 `contentHash`（build-service 返回字段，2026-10-28 统一命名）以便审计"这个页面跑的是哪版代码"。
 - **CSP 约束**：不允许 `unsafe-eval`，所以产物必须是预编译 ES module，不能下发源码字符串在浏览器 `new Function` 执行。
 
 **两轨统一的物料协议**
@@ -220,7 +220,7 @@ interface ScriptHost {
 }
 ```
 
-> ⚠️ **隔离模型修正（2026-10-28 安全评审）**：本节原设计「ESM module scope + `Object.freeze(ctx)`」不成立——模块运行在主线程全局环境，`window`/`document`/`fetch` 均可达，freeze 锁不住原型链。现行定版：**Worker 执行 + 受控消息桥（op 白名单）+ `worker.terminate()` 真硬中断**；token 永不进 Worker（`api.call` 由主线程代理）；网络出口隔离靠红线扫描 + CSP `connect-src` + 网关鉴权三层兜底（普通 Worker 并不天然禁用 fetch/XHR/WebSocket）。实现真源见文档 08FE §3-5。
+> ⚠️ **隔离模型修正（2026-10-28 安全评审）**：本节原设计「ESM module scope + `Object.freeze(ctx)`」不成立——模块运行在主线程全局环境，`window`/`document`/`fetch` 均可达，freeze 锁不住原型链。现行定版：**Worker 执行 + 受控消息桥（op 白名单）+ `worker.terminate()` 真硬中断**；token 永不进 Worker（`api.call` 由主线程代理）；网络出口隔离靠红线扫描 + CSP 双层下发（宿主页面 + Worker 脚本响应头独立 CSP）+ 网关鉴权三层兜底（普通 Worker 并不天然禁用 fetch/XHR/WebSocket；不宣称「Worker 无全局对象」——WorkerGlobalScope 始终存在，隔离的是能力面）。实现真源见文档 08FE §3-5。
 
 - 编译期：L2 脚本在**设计态保存时**转译（TS→ES5 降级 + 白名单静态扫描），产出受限的模块，运行时在 Worker 内 `import()` 执行，不 eval。
 - 运行期：每个页面挂载一个 `ScriptHost` 实例（Worker 池上限 8，LRU 释放），按生命周期触发钩子；钩子超时（warn 500ms / hard 10s）后者 `terminate()` 真终止（同步死循环可被中断——Promise.race/AbortSignal 做不到）。
@@ -252,7 +252,7 @@ function createWorkerCtx(port: MessagePort): ScriptContext {
 
 | 红线 | 强制手段 |
 |---|---|
-| 禁止原生 `fetch`/`XHR`/`WebSocket` | 三层兜底：①构建期静态扫描禁标识符（编辑期 Monaco linter + 保存期 AST 扫描，redlines.json 双端同源）；②CSP `connect-src` 白名单（Worker 遵循所属文档 CSP）阻断越界请求；③网关对无凭证请求 401。⚠️ 不假设「Worker 里写 fetch 会报错」——普通 Worker 并不天然禁用网络 API |
+| 禁止原生 `fetch`/`XHR`/`WebSocket` | 三层兜底：①构建期静态扫描禁标识符（编辑期 Monaco linter + 保存期 AST 扫描，redlines.json 双端同源）；②CSP 双层下发阻断越界请求——宿主页面 CSP（`worker-src 'self'` + `connect-src` 白名单）+ **Worker 脚本响应头 CSP（`connect-src 'none'`，独立下发，不依赖宿主 CSP 传递**——Worker 的 CSP 由其脚本自身响应头控制，不是宿主文档 CSP 的自动继承）；③网关对无凭证请求 401。⚠️ 不假设「Worker 里写 fetch 会报错」——普通 Worker 并不天然禁用网络 API |
 | 禁止 DOM 操作 | Worker 环境级缺失（`window`/`document` 为 undefined）+ 静态扫描 `document`/`window`/`querySelector` 双保险 |
 | 禁止读其他租户数据 | `ctx.api.call` 走后端鉴权（主线程继承当前用户 perms 后代理转发），前端隔离不可信，必须在服务端拦 |
 | 禁止无限循环卡死页面 | 钩子超时 `worker.terminate()` 真硬中断（同步死循环可终止）；表单字段变更钩子节流 50ms；不向 Worker 注入定时器 |
@@ -313,9 +313,9 @@ type UsageEvent =
 
 > 上线等级：Phase 1 交付物验收以 **L-Pilot 受控试点门禁**（PRD §5.1 G1-G7）为准，其中前端直接承载 **G7 L2 隔离验收**（08FE §8 测试项）；服务保障前端触点（健康页/升级公告横幅）支撑 **G4 可观测**。
 
-1. **Phase 1**：`schema-protocol` + `schema-renderer`（含轨道 A 动态解析）+ `schema-form` + 基础物料库 + ER 建模器（含影响面确认交互）+ 运行时容器 + **L2 脚本运行时（Worker 隔离 + 钩子 + 测试台，G7 门禁项）** + **用量埋点 SDK（含席位三口径活跃漏斗）** + **成员建号/首次登录强制改密（PASSWORD_CHANGE_REQUIRED 拦截页）** + **流程设计器画布只读展示（flow-service 整体 Phase 2——P1 表单动作只触发数据写入与状态流转）** + **服务保障前端最小集（租户级健康页入口 + 维护窗口公告横幅）**
-2. **Phase 2**：Canvas 拖拽设计器完整版、**流程设计器完整版（审批执行闭环）**、多人协同（**乐观锁 + 心跳**，ADR-FE-003）、组件市场、**轨道 B 编译产物加载（自定义代码）**、**预览凭证交换流程（grant 签发/换取/吊销 UI）**、L4 连接器配置界面、仪表盘设计器（ECharts，详细 PRD 02 §2.6）、主题品牌定制（详细 PRD 02 §2.10）、**租户注销/恢复工单入口（详细 PRD 11 §2.2/§2.3）**、SLA 可用性看板（内部）
-3. **Phase 3**：微前端隔离增强（Web Component）、AI 辅助生成（自然语言 → Schema）、L3 脚本调试面板对接、**CRDT 协同预研（限页面设计器，结论前不进依赖树）**
+1. **Phase 1**：`schema-protocol` + `schema-renderer`（含轨道 A 动态解析）+ `schema-form` + 基础物料库 + ER 建模器（含影响面确认交互）+ 运行时容器 + **L2 脚本运行时（Worker 隔离 + 钩子 + 测试台，G7 门禁项）** + **用量埋点 SDK（含席位三口径活跃漏斗）** + **成员建号/首次登录强制改密（PASSWORD_CHANGE_REQUIRED 拦截页）** + **预览凭证交换流程（grant 换取 + 只读拦截 + 吊销占位页——PRD 06 §2.4 P1 最小集，06FE §5/04BE §A.7）** + **流程设计器画布只读展示（flow-service 整体 Phase 2——P1 表单动作只触发数据写入与状态流转）** + **服务保障前端最小集（租户级健康页入口 + 维护窗口公告横幅）**
+2. **Phase 2**：Canvas 拖拽设计器完整版、**流程设计器完整版（审批执行闭环）**、多人协同（**乐观锁 + 心跳**，ADR-FE-003）、组件市场、**轨道 B 编译产物加载（自定义代码）**、**预览沙箱完整版（数据源切换 mock/真实、「允许真实提交」开关、预览签发/吊销管理 UI）**、L4 连接器配置界面、仪表盘设计器（ECharts，详细 PRD 02 §2.6）、主题品牌定制（详细 PRD 02 §2.10）、**租户注销/恢复工单入口（详细 PRD 11 §2.2/§2.3）**、SLA 可用性看板（内部）、**Web Component 嵌入（与 06FE §5 P2 口径一致）**
+3. **Phase 3**：AI 辅助生成（自然语言 → Schema）、L3 脚本调试面板对接、**CRDT 协同预研（限页面设计器，结论前不进依赖树）**（微前端隔离增强/Web Component 已前移 Phase 2——与 06FE §5 P2 口径一致，2026-10-28 修正）
 
 ---
 

@@ -47,9 +47,9 @@ function NodeRenderer({ node, ctx }: { node: LayoutNode; ctx: RenderCtx }) {
 
   if (material.runtime === 'compiled') {
     // 轨道 B：异步加载编译产物，Suspense + ErrorBoundary + 旧版本兜底
-    const Artifact = useArtifact(material.artifactHash);   // import(artifactUrl) + 3 次重试
+    const Artifact = useArtifact(material.contentHash);   // import(artifactUrl) + 3 次重试
     return (
-      <ArtifactErrorBoundary fallback={<ArtifactFallback hash={material.artifactHash} />}>
+      <ArtifactErrorBoundary fallback={<ArtifactFallback hash={material.contentHash} />}>
         <Suspense fallback={<NodeSkeleton />}>
           <Artifact {...props} ctx={ctx} />
         </Suspense>
@@ -161,7 +161,7 @@ schema-renderer/
 | 5 | `DELETE /api/data/{modelId}/{id}` | DELETE 动作（逻辑删除） | 02 §A.1 |
 | 6 | `POST /api/data/{modelId}/unique-check` | 校验管线异步唯一性（经 schema-form 触发） | 02 §A.3 |
 | 7 | `POST /api/flows/{defId}/instances` | TRIGGER_FLOW 动作（携 `{modelId, recordId}`） | 05 §A.2 |
-| 8 | 轨道 B：`import(artifactUrl)` | 编译产物加载；URL 来自 Schema 的 `artifactHash`（后端构建 §2.3） | 04 §A.5 |
+| 8 | 轨道 B：`import(artifactUrl)` | 编译产物加载；URL 来自 Schema 的 `contentHash`（后端构建 §2.3） | 04 §A.5 |
 | 9 | 错误归一化依赖 | 全部接口错误体 `{code, message, traceId}` → `ApiError`；`QUOTA_EXCEEDED` 升级引导统一弹层 | 10 §A.2 / 09 §A.3 |
 
 **对接约束**：
