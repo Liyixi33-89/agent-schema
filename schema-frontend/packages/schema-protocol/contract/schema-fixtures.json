@@ -1,0 +1,177 @@
+[
+  {
+    "name": "minimal-valid",
+    "input": {
+      "id": "p1",
+      "pageKey": "page",
+      "name": "Page",
+      "type": "LIST",
+      "path": "/x",
+      "layout": [],
+      "actions": [],
+      "schemaVersion": 1
+    },
+    "valid": true,
+    "schema": "PageSchema"
+  },
+  {
+    "name": "expr-prop",
+    "input": {
+      "id": "p1",
+      "pageKey": "page",
+      "name": "Page",
+      "type": "FORM",
+      "path": "/f",
+      "schemaVersion": 1,
+      "layout": [
+        {
+          "id": "n1",
+          "componentName": "Input",
+          "props": {
+            "visibleWhen": {
+              "kind": "expr",
+              "source": "{{a>1}}"
+            }
+          }
+        }
+      ],
+      "actions": []
+    },
+    "valid": true,
+    "schema": "PageSchema"
+  },
+  {
+    "name": "bad-action",
+    "input": {
+      "id": "p1",
+      "pageKey": "page",
+      "name": "Page",
+      "type": "LIST",
+      "path": "/x",
+      "layout": [],
+      "actions": [
+        {
+          "type": "UNKNOWN"
+        }
+      ],
+      "schemaVersion": 1
+    },
+    "valid": false,
+    "schema": "PageSchema"
+  },
+  {
+    "name": "oversize-pagination",
+    "input": {
+      "id": "p1",
+      "pageKey": "page",
+      "name": "Page",
+      "type": "LIST",
+      "path": "/x",
+      "layout": [],
+      "actions": [],
+      "schemaVersion": 1,
+      "dataSource": {
+        "type": "MODEL_LIST",
+        "pagination": {
+          "page": 1,
+          "size": 201
+        }
+      }
+    },
+    "valid": false,
+    "schema": "PageSchema"
+  },
+  {
+    "name": "bad-component-name",
+    "input": {
+      "id": "p1",
+      "pageKey": "page",
+      "name": "Page",
+      "type": "LIST",
+      "path": "/x",
+      "actions": [],
+      "schemaVersion": 1,
+      "layout": [
+        {
+          "id": "n1",
+          "componentName": "Bad!",
+          "props": {}
+        }
+      ]
+    },
+    "valid": false,
+    "schema": "PageSchema"
+  },
+  {
+    "name": "agg-structure",
+    "input": {
+      "id": "p1",
+      "pageKey": "page",
+      "name": "Page",
+      "type": "DASHBOARD",
+      "path": "/d",
+      "layout": [],
+      "actions": [],
+      "schemaVersion": 1,
+      "dataSource": {
+        "type": "MODEL_AGG",
+        "aggregate": {
+          "measures": [
+            {
+              "fieldKey": "amount",
+              "func": "SUM"
+            }
+          ],
+          "timeBucket": {
+            "fieldKey": "createdAt",
+            "interval": "MONTH"
+          }
+        }
+      }
+    },
+    "valid": true,
+    "schema": "PageSchema"
+  },
+  {
+    "name": "model-valid",
+    "input": {
+      "id": "m1",
+      "modelKey": "orders",
+      "name": "Orders",
+      "fields": [
+        {
+          "key": "amount",
+          "label": "Amount",
+          "type": "number",
+          "fieldStatus": "ACTIVE",
+          "sortOrder": 0
+        }
+      ],
+      "version": 1,
+      "schemaVersion": 1
+    },
+    "valid": true,
+    "schema": "ModelSchema"
+  },
+  {
+    "name": "model-invalid-field-type",
+    "input": {
+      "id": "m1",
+      "modelKey": "orders",
+      "name": "Orders",
+      "fields": [
+        {
+          "key": "amount",
+          "label": "Amount",
+          "type": "datetime",
+          "fieldStatus": "ACTIVE",
+          "sortOrder": 0
+        }
+      ],
+      "version": 1,
+      "schemaVersion": 1
+    },
+    "valid": false,
+    "schema": "ModelSchema"
+  }
+]

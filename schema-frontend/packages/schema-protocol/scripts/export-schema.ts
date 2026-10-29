@@ -13,6 +13,7 @@ import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { validatePageSchema } from '../src/validate';
+import { FIELD_TYPES, FIELD_STATUSES, FILTER_OPS, PAGE_TYPES, DATA_SOURCE_TYPES, AGGREGATE_FUNCS, TIME_BUCKET_INTERVALS } from '../src/types';
 
 // ===== zod schema（与 01FE §3 定义逐支对齐） =====
 const jsonPrimitiveSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -37,9 +38,28 @@ const layoutNodeSchema: z.ZodType<unknown> = z.lazy(() =>
     fieldRef: z.string().optional(),
   }),
 );
+const filterSchema: z.ZodType<unknown> = z.lazy(() => z.union([
+  z.object({ field: z.string(), op: z.enum(FILTER_OPS), value: jsonValueSchema.optional() }),
+  z.object({ and: z.array(filterSchema) }),
+  z.object({ or: z.array(filterSchema) }),
+]));
+const fieldSchema = z.object({
+  key: z.string(), label: z.string(), type: z.enum(FIELD_TYPES), fieldStatus: z.enum(FIELD_STATUSES),
+  required: z.boolean().optional(), uniqueFlag: z.boolean().optional(), indexed: z.boolean().optional(),
+  defaultValue: jsonValueSchema.optional(), sortOrder: z.number(),
+  enumOptions: z.array(z.object({ value: z.string(), label: z.string(), color: z.string().optional(), status: z.enum(['ACTIVE', 'DEPRECATED']) })).optional(),
+  relation: z.object({ targetModelId: z.string(), cardinality: z.enum(['1:1', '1:n', 'n:n']), cascade: z.enum(['FORBID', 'SET_NULL', 'CASCADE_SOFT_DELETE']) }).optional(),
+  computed: z.object({ expr: expressionSchema, dependsOn: z.array(z.string()), persistMode: z.enum(['READ_TIME', 'PERSISTED']) }).optional(),
+});
+const modelSchema = z.object({
+  id: z.string().min(1), modelKey: z.string(), name: z.string(), fields: z.array(fieldSchema),
+  version: z.number().int().min(1), schemaVersion: z.number().int().min(1),
+});
 const dataSourceSchema = z.object({
-  type: z.enum(['MODEL_LIST', 'MODEL_DETAIL', 'MODEL_AGG', 'STATIC_JSON']),
+  type: z.enum(DATA_SOURCE_TYPES),
   modelId: z.string().optional(),
+  filter: filterSchema.optional(),
+  sort: z.array(z.object({ field: z.string(), order: z.enum(['asc', 'desc']) })).optional(),
   pagination: z.object({ page: z.number(), size: z.number().int().min(1).max(200) }).optional(),
   aggregate: z.object({
     measures: z.array(z.object({ fieldKey: z.string(), func: z.enum(['SUM', 'AVG', 'COUNT', 'COUNT_DISTINCT', 'MAX', 'MIN']) })).min(1).max(5),
@@ -108,6 +128,14 @@ const fixtures: Array<{ name: string; input: unknown; valid: boolean }> = [
   },
 ];
 
+const modelFixtures = [
+  { name: 'model-valid', input: { id: 'm1', modelKey: 'orders', name: 'Orders', fields: [{ key: 'amount', label: 'Amount', type: 'number', fieldStatus: 'ACTIVE', sortOrder: 0 }], version: 1, schemaVersion: 1 }, valid: true },
+  { name: 'model-invalid-field-type', input: { id: 'm1', modelKey: 'orders', name: 'Orders', fields: [{ key: 'amount', label: 'Amount', type: 'datetime', fieldStatus: 'ACTIVE', sortOrder: 0 }], version: 1, schemaVersion: 1 }, valid: false },
+];
+for (const f of modelFixtures) {
+  if (modelSchema.safeParse(f.input).success !== f.valid) throw new Error(`模型样本判定失败: ${f.name}`);
+}
+
 const disagreements: string[] = [];
 for (const f of fixtures) {
   const zodOk = pageSchema.safeParse(f.input).success;
@@ -126,6 +154,10 @@ const exported = {
   schemaVersion: 1,
   exportedAt: 'build-time',
   definitions: {
+    ModelSchema: zodToJsonSchema(modelSchema, { target: 'draft-7', name: 'ModelSchema' }),
+    FieldSchema: zodToJsonSchema(fieldSchema, { target: 'draft-7', name: 'FieldSchema' }),
+    LayoutNode: zodToJsonSchema(layoutNodeSchema, { target: 'draft-7', name: 'LayoutNode' }),
+    FilterNode: zodToJsonSchema(filterSchema, { target: 'draft-7', name: 'FilterNode' }),
     PageSchema: zodToJsonSchema(pageSchema, { target: 'draft-7', name: 'PageSchema' }),
     DataSourceBinding: zodToJsonSchema(dataSourceSchema, { target: 'draft-7', name: 'DataSourceBinding' }),
     ActionBinding: zodToJsonSchema(actionBindingSchema, { target: 'draft-7', name: 'ActionBinding' }),
@@ -139,4 +171,8 @@ const outDir = resolve(here, '../contract/export');
 mkdirSync(outDir, { recursive: true });
 const outFile = resolve(outDir, 'schema.json');
 writeFileSync(outFile, `${JSON.stringify(exported, null, 2)}\n`, 'utf8');
+writeFileSync(resolve(here, '../contract/schema-fixtures.json'), `${JSON.stringify([
+  ...fixtures.map((f) => ({ ...f, schema: 'PageSchema' })),
+  ...modelFixtures.map((f) => ({ ...f, schema: 'ModelSchema' })),
+], null, 2)}\n`, 'utf8');
 console.log(`[export-schema] ${fixtures.length} fixtures 双判一致，导出 ${Object.keys(exported.definitions).length} 组定义 -> ${outFile}`);
