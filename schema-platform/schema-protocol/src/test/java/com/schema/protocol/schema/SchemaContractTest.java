@@ -47,11 +47,26 @@ class SchemaContractTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void sharedFixturesAreActuallyValidated() throws Exception {
+        Path fixturesPath = SCHEMA_JSON.getParent().getParent().resolve("schema-fixtures.json");
+        List<Map<String, Object>> fixtures = GSON.fromJson(Files.readString(fixturesPath, StandardCharsets.UTF_8),
+                new TypeToken<List<Map<String, Object>>>() {}.getType());
+        JsonObject definitions = load().getAsJsonObject("definitions");
+        for (Map<String, Object> fixture : fixtures) {
+            Map<String, Object> schema = GSON.fromJson(definitions.get((String) fixture.get("schema")),
+                    new TypeToken<Map<String, Object>>() {}.getType());
+            assertEquals(fixture.get("valid"), SchemaValidator.accepts(schema, fixture.get("input")),
+                    "双端判定不一致: " + fixture.get("name"));
+        }
+    }
+
+    @Test
     void fourCoreDefinitionsExported() throws Exception {
         JsonObject root = load();
         assertEquals(1, root.get("schemaVersion").getAsInt(), "协议版本应为 1");
         JsonObject defs = root.getAsJsonObject("definitions");
-        for (String name : List.of("PageSchema", "DataSourceBinding", "ActionBinding", "ExpressionBinding")) {
+        for (String name : List.of("ModelSchema", "FieldSchema", "LayoutNode", "FilterNode", "PageSchema", "DataSourceBinding", "ActionBinding", "ExpressionBinding")) {
             assertTrue(defs.has(name), "缺少定义 " + name);
             JsonObject def = defs.getAsJsonObject(name);
             assertTrue(def.has("$ref"), name + " 应为 $ref 包装结构");
