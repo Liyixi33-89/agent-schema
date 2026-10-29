@@ -72,4 +72,36 @@ public class BizException extends RuntimeException {
     public static BizException relationTargetNotFound(String targetModelId) {
         return new BizException("RELATION_TARGET_NOT_FOUND", "关系目标模型不存在: " + targetModelId);
     }
+
+    // 03BE §A.4 IAM 域错误码工厂
+    /** 登录失败统一文案（防账号枚举）。 */
+    public static BizException unauthorized(String message) {
+        return new BizException("UNAUTHORIZED", message);
+    }
+
+    /** 账号锁定（423 ACCOUNT_LOCKED，03BE §A.4）。 */
+    public static BizException unauthorizedOrLocked(java.time.OffsetDateTime lockedUntil) {
+        return new BizException("ACCOUNT_LOCKED", "账号已锁定，请稍后重试",
+                lockedUntil == null ? Map.of() : Map.of("lockedUntil", lockedUntil.toString()));
+    }
+
+    /** 黑名单内 refresh（401 REFRESH_REVOKED——前端清快照跳登录）。 */
+    public static BizException refreshRevoked() {
+        return new BizException("REFRESH_REVOKED", "登录态已失效，请重新登录");
+    }
+
+    /** 请求头租户与 JWT claim 不一致（403 TENANT_MISMATCH，记安全审计）。 */
+    public static BizException tenantMismatch() {
+        return new BizException("TENANT_MISMATCH", "请求租户与登录租户不一致");
+    }
+
+    /** 建号/重置后未改密（403 PASSWORD_CHANGE_REQUIRED——仅放行改密/登出/me）。 */
+    public static BizException passwordChangeRequired() {
+        return new BizException("PASSWORD_CHANGE_REQUIRED", "首次登录需修改密码");
+    }
+
+    /** 功能权限不足（403 PERM_DENIED）。 */
+    public static BizException permDenied() {
+        return new BizException("PERM_DENIED", "权限不足");
+    }
 }

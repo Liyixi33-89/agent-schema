@@ -238,7 +238,7 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         try { mvn -q test; if ($LASTEXITCODE -ne 0) { throw "mvn test 退出码 $LASTEXITCODE" } }
         finally { Pop-Location }
     }
-    # M2 集成测试门禁（01BE §7 硬性要求：真实 PG）：引擎就绪才执行，缺环境降级说明
+    # M2/M3 集成测试门禁（01BE §7 / 03BE §7 硬性要求：真实 PG）：引擎就绪才执行，缺环境降级说明
     Step 'backend-it' {
         $pgUp = $false
         try {
@@ -250,7 +250,7 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         if (-not $pgUp) { throw '本地 PG 未就绪（docker compose up -d postgres）——集成测试门禁不可跳过' }
         Push-Location $be
         try {
-            mvn -q -pl bootstrap -am test "-Dtest=MetadataCommandServiceIT" "-Dsurefire.failIfNoSpecifiedTests=false"
+            mvn -q -pl bootstrap -am test "-Dtest=MetadataCommandServiceIT,IamServiceIT" "-Dsurefire.failIfNoSpecifiedTests=false"
             if ($LASTEXITCODE -ne 0) { throw "集成测试退出码 $LASTEXITCODE" }
         } finally { Pop-Location }
     }
