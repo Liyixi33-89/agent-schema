@@ -238,7 +238,23 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         try { mvn -q test; if ($LASTEXITCODE -ne 0) { throw "mvn test 退出码 $LASTEXITCODE" } }
         finally { Pop-Location }
     }
-} else { Skip 'backend-test' 'schema-platform 尚未初始化' }
+    # M2 集成测试门禁（01BE §7 硬性要求：真实 PG）：引擎就绪才执行，缺环境降级说明
+    Step 'backend-it' {
+        $pgUp = $false
+        try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $tcp.Connect('127.0.0.1', 5432)
+            $pgUp = $true
+            $tcp.Close()
+        } catch { $pgUp = $false }
+        if (-not $pgUp) { throw '本地 PG 未就绪（docker compose up -d postgres）——集成测试门禁不可跳过' }
+        Push-Location $be
+        try {
+            mvn -q -pl bootstrap -am test "-Dtest=MetadataCommandServiceIT" "-Dsurefire.failIfNoSpecifiedTests=false"
+            if ($LASTEXITCODE -ne 0) { throw "集成测试退出码 $LASTEXITCODE" }
+        } finally { Pop-Location }
+    }
+} else { Skip 'backend-test/backend-it' 'schema-platform 尚未初始化' }
 
 # commit 通过后：刷新 active spec 的 last_verified_at（活文档闭环）
 # 读写均显式 UTF8；写回用 .NET WriteAllText 保持无 BOM（PS5.1 的 Set-Content -Encoding UTF8 会加 BOM）

@@ -112,6 +112,63 @@ public class MetadataCommandService {
         models.updateProfile(model.id(), tenant.tenantId(), name, icon);
     }
 
+    /** 删除模型 precheck（01BE §4.1「走确认协议」+ §4.3 高风险档）：删模型固定 TYPE_MODEL_NAME。 */
+    @Transactional
+    public Map<String, Object> deleteModelPrecheck(long modelId) {
+        TenantInfo tenant = TenantContext.get();
+        ModelAggregate model = loadForTenant(modelId);
+        List<Risk> risks = analyzeImpact(tenant, model, List.of());
+        // 全模型引用面：该模型全部字段被谁引用（复用影响面聚合路径）
+        List<String> allKeys = new ArrayList<>();
+        for (var f : model.activeFields()) {
+            allKeys.add(f.fieldKey());
+        }
+        for (Map<String, Object> ref : versions.findReferences(tenant.tenantId(), model.id(), allKeys)) {
+            String refType = (String) ref.get("ref_type");
+            String severity = switch (refType) {
+                case "PAGE", "SCRIPT", "COMPUTED" -> Risk.HIGH;
+                default -> Risk.MEDIUM;
+            };
+            risks.add(new Risk(refType + "_REF", asLong(ref.get("ref_id")), null, null, null, null, severity));
+        }
+
+        String token = newToken();
+        // 绑定串带模型名摘要：防止 token 被挪用到改名后的其他模型（复用 meta_confirm_token 基建）
+        versions.issueToken(token, modelId, "delete-model:" + model.name(), model.currentVersion(),
+                ConfirmMode.TYPE_MODEL_NAME.code(), OffsetDateTime.now().plus(TOKEN_TTL));
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        List<Map<String, Object>> riskMaps = new ArrayList<>();
+        for (Risk r : risks) {
+            riskMaps.add(r.toMap());
+        }
+        resp.put("risks", riskMaps);
+        resp.put("maxSeverity", Risk.maxSeverity(risks));
+        resp.put("confirmMode", ConfirmMode.TYPE_MODEL_NAME.code());
+        resp.put("confirmToken", token);
+        return resp;
+    }
+
+    /** 删除模型确认提交（01BE §4.3）：confirmValue = 模型名原文，token 一次性消费。 */
+    @Transactional
+    public void deleteModelConfirm(long modelId, String confirmToken, String confirmValue) {
+        TenantInfo tenant = TenantContext.get();
+        ModelAggregate model = loadForTenant(modelId);
+        // token 先校验再幂等返回：已删除模型上重放已消费 token 必须拒绝（而非静默成功）
+        if (confirmValue == null || !confirmValue.equals(model.name())) {
+            throw BizException.confirmTokenInvalid("confirmValue 与模型名不一致");
+        }
+        if (!versions.consumeToken(confirmToken, "delete-model:" + model.name(), model.currentVersion())) {
+            throw BizException.confirmTokenInvalid("token 未签发/已消费/绑定不一致/已过期");
+        }
+        if (model.deletedModel()) {
+            return; // token 有效前提下的幂等返回（并发重复提交场景）
+        }
+        models.markDeleted(model.id(), tenant.tenantId());
+        // 物理表改名 biz_model_{id}_archived 由 DDL 执行器消费删除事件执行（M5 联调，本 spec 只发事件形态）
+    }
+
+    /** 兼容入口：无 token 直接删除（仅限内部测试/种子数据，生产路径必须走两段式）。 */
     @Transactional
     public void deleteModel(long modelId) {
         TenantInfo tenant = TenantContext.get();
@@ -120,7 +177,6 @@ public class MetadataCommandService {
             return; // 幂等
         }
         models.markDeleted(model.id(), tenant.tenantId());
-        // 物理表改名 biz_model_{id}_archived 由 DDL 执行器消费删除事件执行（M5 联调，本 spec 只发事件形态）
     }
 
     // ---------- 两段式保存 ----------
@@ -132,7 +188,7 @@ public class MetadataCommandService {
     public Map<String, Object> precheck(long modelId, List<ChangeOp> changes) {
         TenantInfo tenant = TenantContext.get();
         ModelAggregate model = loadForTenant(modelId);
-        validateChanges(model, changes);
+        validateChanges(tenant, model, changes);
 
         List<Risk> risks = analyzeImpact(tenant, model, changes);
         ConfirmMode mode = decideConfirmMode(model, changes, risks);
@@ -182,7 +238,7 @@ public class MetadataCommandService {
         }
 
         // 3. 逐条应用 changes（内存构建新字段集合）
-        validateChanges(model, changes);
+        validateChanges(tenant, model, changes);
         int targetVersion = baseVersion + 1;
         List<Map<String, Object>> diff = new ArrayList<>();
         List<ModelAggregate.FieldDef> promoted = new ArrayList<>();
@@ -223,6 +279,7 @@ public class MetadataCommandService {
 
         // 5-6. 元数据落库 + 快照
         persistChanges(model, tenant, changes, targetVersion);
+        registerComputedReferences(tenant, model, changes);
         snapshot(model, diff, tenant.operatorId(), null);
 
         Map<String, Object> resp = new LinkedHashMap<>();
@@ -379,8 +436,8 @@ public class MetadataCommandService {
         return model;
     }
 
-    /** 变更合法性前置校验：MODIFY 拦截 field_key/field_type 改动；操作对象存在性。 */
-    private void validateChanges(ModelAggregate model, List<ChangeOp> changes) {
+    /** 变更合法性前置校验：存在性 / field_key/field_type 冻结 / 配置类型相关性（01BE §4.2 步骤 3-4）。 */
+    private void validateChanges(TenantInfo tenant, ModelAggregate model, List<ChangeOp> changes) {
         for (ChangeOp change : changes) {
             switch (change) {
                 case ChangeOp.ModifyField mod -> {
@@ -389,8 +446,9 @@ public class MetadataCommandService {
                             || mod.patch().containsKey("type")) {
                         throw BizException.fieldKeyImmutable();
                     }
-                    model.findField(mod.fieldKey())
+                    ModelAggregate.FieldDef f = model.findField(mod.fieldKey())
                             .orElseThrow(() -> new BizException("FIELD_NOT_FOUND", "字段不存在: " + mod.fieldKey()));
+                    validateFieldConfig(tenant, f.fieldType(), mod.patch());
                 }
                 case ChangeOp.DeleteField del -> model.findField(del.fieldKey())
                         .orElseThrow(() -> new BizException("FIELD_NOT_FOUND", "字段不存在: " + del.fieldKey()));
@@ -398,9 +456,82 @@ public class MetadataCommandService {
                     if (model.findField(add.fieldKey()).isPresent()) {
                         throw new BizException("FIELD_KEY_DUPLICATED", "字段已存在: " + add.fieldKey());
                     }
+                    validateFieldConfig(tenant, add.fieldType(), add.field());
                 }
                 case ChangeOp.PromoteColumn pro -> model.findField(pro.fieldKey())
                         .orElseThrow(() -> new BizException("FIELD_NOT_FOUND", "字段不存在: " + pro.fieldKey()));
+            }
+        }
+    }
+
+    /**
+     * 配置类型相关性校验（01BE §4.2 步骤 4）：枚举值引用、关系目标存在、计算配置结构——
+     * 规则与前端 validate.ts 同构（双端同判）；MODIFY 场景 patch 为整体替换值，按替换后形态校验。
+     */
+    private void validateFieldConfig(TenantInfo tenant, String fieldType, Map<String, Object> config) {
+        Object enumOptions = config.get("enumOptions");
+        if (enumOptions != null) {
+            if (!"enum".equals(fieldType)) {
+                throw BizException.fieldConfigInvalid("enumOptions 仅 enum 类型字段可配置（当前 " + fieldType + "）");
+            }
+            if (!(enumOptions instanceof List<?> opts)) {
+                throw BizException.fieldConfigInvalid("enumOptions 必须为数组");
+            }
+            java.util.Set<String> values = new java.util.HashSet<>();
+            for (Object o : opts) {
+                if (!(o instanceof Map<?, ?> m) || !(m.get("value") instanceof String v) || v.isBlank()
+                        || !(m.get("label") instanceof String)
+                        || !("ACTIVE".equals(m.get("status")) || "DEPRECATED".equals(m.get("status")))) {
+                    throw BizException.fieldConfigInvalid("enumOptions[].{value,label,status} 结构非法");
+                }
+                if (!values.add(v)) {
+                    throw BizException.fieldConfigInvalid("enumOptions[].value 重复: " + v);
+                }
+            }
+        }
+        Object relation = config.get("relation");
+        if (relation != null) {
+            if (!"relation".equals(fieldType)) {
+                throw BizException.fieldConfigInvalid("relation 仅 relation 类型字段可配置（当前 " + fieldType + "）");
+            }
+            if (!(relation instanceof Map<?, ?> rm) || !(rm.get("targetModelId") instanceof String target)
+                    || target.isBlank()) {
+                throw BizException.fieldConfigInvalid("relation.targetModelId 结构非法");
+            }
+            if (!List.of("1:1", "1:n", "n:n").contains(rm.get("cardinality"))
+                    || !List.of("FORBID", "SET_NULL", "CASCADE_SOFT_DELETE").contains(rm.get("cascade"))) {
+                throw BizException.fieldConfigInvalid("relation.{cardinality,cascade} 取值非法");
+            }
+            long targetId;
+            try {
+                targetId = Long.parseLong(target);
+            } catch (NumberFormatException e) {
+                throw BizException.fieldConfigInvalid("relation.targetModelId 必须为模型 ID");
+            }
+            if (!models.existsByIdAndTenant(targetId, tenant.tenantId())) {
+                throw BizException.relationTargetNotFound(target);
+            }
+        }
+        Object computed = config.get("computed");
+        if (computed != null) {
+            if (!"computed".equals(fieldType)) {
+                throw BizException.fieldConfigInvalid("computed 仅 computed 类型字段可配置（当前 " + fieldType + "）");
+            }
+            if (!(computed instanceof Map<?, ?> cm) || !(cm.get("expr") instanceof Map<?, ?> em)
+                    || !"expr".equals(em.get("kind")) || !(em.get("source") instanceof String src)
+                    || src.isBlank()) {
+                throw BizException.fieldConfigInvalid("computed.{expr.kind,expr.source} 结构非法");
+            }
+            if (!(cm.get("dependsOn") instanceof List<?> deps)) {
+                throw BizException.fieldConfigInvalid("computed.dependsOn 必须为数组");
+            }
+            for (Object d : deps) {
+                if (!(d instanceof String s) || s.isBlank()) {
+                    throw BizException.fieldConfigInvalid("computed.dependsOn 元素必须为非空字符串");
+                }
+            }
+            if (!List.of("READ_TIME", "PERSISTED").contains(cm.get("persistMode"))) {
+                throw BizException.fieldConfigInvalid("computed.persistMode 取值非法");
             }
         }
     }
@@ -547,12 +678,33 @@ public class MetadataCommandService {
         return result;
     }
 
-    /** 快照（01BE §4.2 步骤 5）：完整字段定义可整体还原。 */
+    /** 计算字段引用登记（01BE §4.5：COMPUTED 引用在字段保存时由本服务自己登记）。 */
+    private void registerComputedReferences(TenantInfo tenant, ModelAggregate model, List<ChangeOp> changes) {
+        for (ChangeOp change : changes) {
+            Map<String, Object> computed = null;
+            if (change instanceof ChangeOp.AddField add) {
+                computed = add.computedConfig();
+            } else if (change instanceof ChangeOp.ModifyField mod && mod.patch().containsKey("computed")) {
+                computed = castMap(mod.patch().get("computed"));
+            }
+            if (computed != null && computed.get("dependsOn") instanceof List<?> deps) {
+                List<String> dependsOn = new ArrayList<>();
+                for (Object d : deps) {
+                    if (d instanceof String s && !s.isBlank()) {
+                        dependsOn.add(s);
+                    }
+                }
+                versions.upsertComputedReferences(tenant.tenantId(), model.id(), change.fieldKey(), dependsOn);
+            }
+        }
+    }
+
+    /** 快照（01BE §4.2 步骤 5）：完整字段定义可整体还原（含 fieldStatus——回滚需还原删除语义）。 */
     private void snapshot(ModelAggregate model, List<Map<String, Object>> diff, long operatorId,
             Integer rollbackFrom) {
         List<Map<String, Object>> fieldSnapshots = new ArrayList<>();
         for (ModelAggregate.FieldDef f : model.allFields()) {
-            fieldSnapshots.add(fieldView(f, false));
+            fieldSnapshots.add(fieldView(f, true));
         }
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("modelKey", model.modelKey());
@@ -585,7 +737,7 @@ public class MetadataCommandService {
         return m;
     }
 
-    /** 快照 → 变更集：目标快照与当前活跃集合的差异（01BE §4.4）。 */
+    /** 快照 → 变更集：目标快照与当前活跃集合的差异（01BE §4.4）；快照含 fieldStatus，DELETED 条目按删除语义处理。 */
     private List<ChangeOp> diffSnapshotToChanges(ModelAggregate model, Map<String, Object> snapshotFields) {
         List<ChangeOp> changes = new ArrayList<>();
         Map<String, Map<String, Object>> target = new LinkedHashMap<>();
@@ -597,12 +749,19 @@ public class MetadataCommandService {
                 }
             }
         }
-        // 目标有、当前无（或已删除）→ 复活/新增
+        // 目标有、当前无（或状态不同）→ 复活/新增/补删除；状态以快照记录为准（历史快照无 fieldStatus 键时视为 ACTIVE）
         for (var entry : target.entrySet()) {
+            boolean targetDeleted = "DELETED".equals(entry.getValue().get("fieldStatus"));
             var current = model.findField(entry.getKey());
+            if (targetDeleted) {
+                // 目标版本该字段已是删除态：当前若活跃 → 补一条删除（还原删除语义）
+                if (current.isPresent() && current.get().isActive()) {
+                    changes.add(new ChangeOp.DeleteField(entry.getKey()));
+                }
+                continue;
+            }
             if (current.isEmpty() || current.get().deleted()) {
-                Map<String, Object> f = entry.getValue();
-                changes.add(new ChangeOp.AddField(entry.getKey(), f));
+                changes.add(new ChangeOp.AddField(entry.getKey(), entry.getValue()));
             } else if (!sameField(current.get(), entry.getValue())) {
                 changes.add(new ChangeOp.ModifyField(entry.getKey(), diffPatch(current.get(), entry.getValue())));
             }
@@ -617,8 +776,11 @@ public class MetadataCommandService {
     }
 
     private boolean sameField(ModelAggregate.FieldDef f, Map<String, Object> target) {
-        Map<String, Object> view = fieldView(f, false);
+        Map<String, Object> view = fieldView(f, true);
         for (var e : target.entrySet()) {
+            if ("fieldStatus".equals(e.getKey())) {
+                continue; // 状态差异由 diffSnapshotToChanges 显式分支处理，不进 MODIFY patch
+            }
             Object mine = view.get(e.getKey());
             if (!java.util.Objects.equals(normalize(mine), normalize(e.getValue()))) {
                 return false;
@@ -638,9 +800,12 @@ public class MetadataCommandService {
     }
 
     private Map<String, Object> diffPatch(ModelAggregate.FieldDef current, Map<String, Object> target) {
-        Map<String, Object> view = fieldView(current, false);
+        Map<String, Object> view = fieldView(current, true);
         Map<String, Object> patch = new LinkedHashMap<>();
         for (var e : target.entrySet()) {
+            if ("fieldStatus".equals(e.getKey())) {
+                continue; // 状态迁移走 ADD（复活）/DELETE 分支，不进 MODIFY patch
+            }
             if (!java.util.Objects.equals(normalize(view.get(e.getKey())), normalize(e.getValue()))) {
                 patch.put(e.getKey(), e.getValue());
             }

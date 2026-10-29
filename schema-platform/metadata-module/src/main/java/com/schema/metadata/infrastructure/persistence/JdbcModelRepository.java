@@ -130,4 +130,11 @@ public class JdbcModelRepository implements ModelRepository {
                 Long.class, tenantId, appId, modelKey);
         return count != null && count > 0;
     }
+
+    @Override
+    public boolean existsByIdAndTenant(long modelId, long tenantId) {
+        Long count = jdbc.queryForObject(
+                "SELECT count(*) FROM meta_model WHERE id=? AND tenant_id=?", Long.class, modelId, tenantId);
+        return count != null && count > 0;
+    }
 }

@@ -26,8 +26,8 @@ public class GlobalExceptionHandler {
         String traceId = UUID.randomUUID().toString();
         HttpStatus status = switch (e.code()) {
             case "MODEL_VERSION_CONFLICT" -> HttpStatus.CONFLICT;
-            case "CONFIRM_TOKEN_INVALID", "FIELD_KEY_IMMUTABLE", "CIRCULAR_DEPENDENCY", "ROLLBACK_NOOP" ->
-                    HttpStatus.UNPROCESSABLE_ENTITY;
+            case "CONFIRM_TOKEN_INVALID", "FIELD_KEY_IMMUTABLE", "CIRCULAR_DEPENDENCY", "ROLLBACK_NOOP",
+                 "FIELD_CONFIG_INVALID", "RELATION_TARGET_NOT_FOUND" -> HttpStatus.UNPROCESSABLE_ENTITY;
             case "MODEL_LIMIT_EXCEEDED" -> HttpStatus.FORBIDDEN;
             case "MODEL_NOT_FOUND" -> HttpStatus.NOT_FOUND;
             default -> HttpStatus.BAD_REQUEST;

@@ -254,6 +254,206 @@ class MetadataCommandServiceIT {
         assertEquals("CIRCULAR_DEPENDENCY", e.code(), "依赖成环必须 422");
     }
 
+    // ---------- 保存校验器（01BE §4.2 步骤 4）：类型相关性 ----------
+
+    @Test
+    void enumOptionsRejectedOnNonEnumType() {
+        ChangeOp.AddField bad = new ChangeOp.AddField("score",
+                Map.of("label", "评分", "type", "number", "enumOptions", List.of(Map.of("value", "a", "label", "A"))));
+        BizException e = expectBiz(() -> service.precheck(modelId, List.of(bad)));
+        assertEquals("FIELD_CONFIG_INVALID", e.code(), "非 enum 字段携带 enumOptions 必须 422");
+    }
+
+    @Test
+    void enumOptionDuplicateValueRejected() {
+        ChangeOp.AddField bad = new ChangeOp.AddField("grade", Map.of(
+                "label", "等级", "type", "enum",
+                "enumOptions", List.of(
+                        Map.of("value", "A", "label", "优", "status", "ACTIVE"),
+                        Map.of("value", "A", "label", "良", "status", "ACTIVE"))));
+        BizException e = expectBiz(() -> service.precheck(modelId, List.of(bad)));
+        assertEquals("FIELD_CONFIG_INVALID", e.code(), "enumOptions.value 重复必须 422");
+    }
+
+    @Test
+    void relationTargetMustExistInTenant() {
+        // 跨租户目标：租户 1 引用租户 2 的模型 ID → 同判不存在（RELATION_TARGET_NOT_FOUND）
+        long otherTenantModel = createModelFor(2);
+        ChangeOp.AddField bad = new ChangeOp.AddField("buyer", Map.of(
+                "label", "买方", "type", "relation",
+                "relation", Map.of("targetModelId", String.valueOf(otherTenantModel),
+                        "cardinality", "1:n", "cascade", "FORBID")));
+        BizException e = expectBiz(() -> service.precheck(modelId, List.of(bad)));
+        assertEquals("RELATION_TARGET_NOT_FOUND", e.code(), "跨租户关系目标必须被拒");
+
+        // 同租户目标：通过
+        long ownModel = createModelFor(1);
+        ChangeOp.AddField ok = new ChangeOp.AddField("seller", Map.of(
+                "label", "卖方", "type", "relation",
+                "relation", Map.of("targetModelId", String.valueOf(ownModel),
+                        "cardinality", "1:n", "cascade", "FORBID")));
+        TenantContext.with(new TenantInfo(1, 1, 1), () -> {
+            service.precheck(modelId, List.of(ok));
+            return null;
+        });
+    }
+
+    @Test
+    void computedConfigStructureValidated() {
+        // persistMode 非法
+        ChangeOp.AddField bad = new ChangeOp.AddField("total", Map.of(
+                "label", "合计", "type", "computed",
+                "computed", Map.of("expr", Map.of("kind", "expr", "source", "1+1"),
+                        "dependsOn", List.of(), "persistMode", "ALWAYS")));
+        BizException e = expectBiz(() -> service.precheck(modelId, List.of(bad)));
+        assertEquals("FIELD_CONFIG_INVALID", e.code(), "computed.persistMode 非法必须 422");
+    }
+
+    // ---------- 删除模型两段式（01BE §4.1/§4.3） ----------
+
+    @Test
+    void deleteModelRequiresModelNameConfirm() {
+        // precheck：固定 TYPE_MODEL_NAME
+        Map<String, Object> pre = TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.deleteModelPrecheck(modelId));
+        assertEquals("TYPE_MODEL_NAME", pre.get("confirmMode"), "删模型必须 TYPE_MODEL_NAME");
+        String token = (String) pre.get("confirmToken");
+
+        // confirmValue 错误 → 拒绝且 token 不消费
+        BizException wrong = expectBizVoid(() -> service.deleteModelConfirm(modelId, token, "错误的名字"));
+        assertEquals("CONFIRM_TOKEN_INVALID", wrong.code());
+
+        // confirmValue 正确 → 删除成功
+        TenantContext.with(new TenantInfo(1, 1, 1), () -> {
+            service.deleteModelConfirm(modelId, token, "订单管理");
+            return null;
+        });
+        // 默认列表不再返回
+        Map<String, Object> list = TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.listModels(null, false));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) list.get("list");
+        assertTrue(items.stream().noneMatch(m -> String.valueOf(m.get("id")).equals(String.valueOf(modelId))),
+                "删除后默认列表不得返回该模型");
+
+        // token 一次性：重放被拒
+        BizException replay = expectBizVoid(() -> service.deleteModelConfirm(modelId, token, "订单管理"));
+        assertEquals("CONFIRM_TOKEN_INVALID", replay.code());
+    }
+
+    // ---------- 回滚删除语义还原（快照含 fieldStatus） ----------
+
+    @Test
+    void rollbackRestoresDeletionSemantics() {
+        saveTwoFields(); // v2: amount + status
+        // v3: 删除 amount
+        Map<String, Object> pre = precheck(List.of(new ChangeOp.DeleteField("amount")));
+        TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.saveSchema(modelId, List.of(new ChangeOp.DeleteField("amount")),
+                        2, (String) pre.get("confirmToken"), null));
+        // v4: 加回 amount（新定义）——注意 ADD_FIELD 要求字段不在集合中，但软删后 findField 存在（DELETED）
+        // validateChanges 的 FIELD_KEY_DUPLICATED 只对「存在」抛——先复活流程见回滚，此处直接走回滚语义验证
+
+        // 回滚到 v2：amount 复活（草稿态）
+        Map<String, Object> rbPre = TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.rollbackPrecheck(modelId, 2));
+        String modelName = "订单管理";
+        TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.rollback(modelId, 2, (String) rbPre.get("confirmToken"), modelName));
+        // v5: 回滚到 v3（amount 为 DELETED 态）——复活后的 amount 必须重新删除（还原删除语义）
+        Map<String, Object> rbPre2 = TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.rollbackPrecheck(modelId, 3));
+        TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.rollback(modelId, 3, (String) rbPre2.get("confirmToken"), modelName));
+
+        Map<String, Object> detail = TenantContext.with(new TenantInfo(1, 1, 1), () -> service.getModel(modelId));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> fields = (List<Map<String, Object>>) detail.get("fields");
+        Map<String, Object> amount = fields.stream()
+                .filter(f -> "amount".equals(f.get("fieldKey"))).findFirst().orElseThrow();
+        assertEquals("DELETED", amount.get("fieldStatus"), "回滚到含 DELETED 的版本必须还原删除语义");
+    }
+
+    // ---------- 乐观锁：真实并发竞争 ----------
+
+    @Test
+    void concurrentSaveOnlyOneWins() throws Exception {
+        // 两方各自 precheck 同一 baseVersion 的不同变更
+        Map<String, Object> pre1 = precheck(List.of(addAmount()));
+        Map<String, Object> pre2 = precheck(List.of(addStatus()));
+        String token1 = (String) pre1.get("confirmToken");
+        String token2 = (String) pre2.get("confirmToken");
+
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.List<Throwable> errors = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        java.util.concurrent.atomic.AtomicInteger wins = new java.util.concurrent.atomic.AtomicInteger();
+        Runnable racer = () -> {
+            try {
+                start.await();
+                TenantContext.with(new TenantInfo(1, 1, 1), () -> {
+                    try {
+                        if (Thread.currentThread().getName().contains("racer-1")) {
+                            service.saveSchema(modelId, List.of(addAmount()), 1, token1, null);
+                        } else {
+                            service.saveSchema(modelId, List.of(addStatus()), 1, token2, null);
+                        }
+                        wins.incrementAndGet();
+                        return null;
+                    } catch (BizException ex) {
+                        if ("MODEL_VERSION_CONFLICT".equals(ex.code())) {
+                            return null; // 预期输家
+                        }
+                        throw ex;
+                    }
+                });
+            } catch (Throwable t) {
+                errors.add(t);
+            }
+        };
+        Thread t1 = new Thread(racer, "racer-1");
+        Thread t2 = new Thread(racer, "racer-2");
+        t1.start();
+        t2.start();
+        start.countDown();
+        t1.join(10_000);
+        t2.join(10_000);
+        assertTrue(errors.isEmpty(), "并发保存不应产生预期外异常: " + errors);
+        assertEquals(1, wins.get(), "同一 baseVersion 并发提交恰好一方成功（乐观锁）");
+    }
+
+    // ---------- COMPUTED 引用登记（01BE §4.5：保存时由本服务登记） ----------
+
+    @Test
+    void computedReferencesRegisteredOnSave() {
+        // 加普通字段 + 计算字段（依赖普通字段）
+        Map<String, Object> amountDef = Map.of("label", "金额", "type", "number");
+        Map<String, Object> totalDef = Map.of(
+                "label", "翻倍", "type", "computed",
+                "computed", Map.of("expr", Map.of("kind", "expr", "source", "amount * 2"),
+                        "dependsOn", List.of("amount"), "persistMode", "READ_TIME"));
+        Map<String, Object> pre = precheck(List.of(
+                new ChangeOp.AddField("amount", amountDef),
+                new ChangeOp.AddField("double_amount", totalDef)));
+        TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.saveSchema(modelId, List.of(
+                        new ChangeOp.AddField("amount", amountDef),
+                        new ChangeOp.AddField("double_amount", totalDef)),
+                        1, (String) pre.get("confirmToken"), null));
+
+        // 引用表登记：amount ← double_amount（COMPUTED）
+        Long refs = jdbc.queryForObject(
+                "SELECT count(*) FROM meta_field_reference WHERE model_id=? AND field_key='amount' "
+                        + "AND ref_type='COMPUTED'", Long.class, modelId);
+        assertEquals(1L, refs, "计算字段保存后必须登记 COMPUTED 引用");
+
+        // 删除被依赖字段时 precheck 必须给出 COMPUTED_REF 高风险
+        Map<String, Object> delPre = precheck(List.of(new ChangeOp.DeleteField("amount")));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> risks = (List<Map<String, Object>>) delPre.get("risks");
+        assertTrue(risks.stream().anyMatch(r -> "COMPUTED_REF".equals(r.get("type"))),
+                "删除被计算字段依赖的字段必须暴露 COMPUTED_REF 风险");
+    }
+
     // ---------- 辅助 ----------
 
     private Map<String, Object> precheck(List<ChangeOp> changes) {
@@ -283,6 +483,14 @@ class MetadataCommandServiceIT {
             } catch (BizException ex) {
                 return ex;
             }
+        });
+    }
+
+    /** void 动作包装（deleteModelConfirm 等无返回值方法）。 */
+    private BizException expectBizVoid(Runnable action) {
+        return expectBiz(() -> {
+            action.run();
+            return null;
         });
     }
 }

@@ -54,9 +54,13 @@ public class ModelController {
     }
 
     @DeleteMapping("/{id}")
-    public Map<String, Object> delete(@PathVariable long id) {
-        service.deleteModel(id);
-        return Map.of();
+    public Map<String, Object> delete(@PathVariable long id, @RequestBody(required = false) Map<String, Object> body) {
+        // 两段式（01BE §4.1/§4.3）：带 confirmToken = 确认提交；不带 = precheck 签发
+        if (body != null && body.get("confirmToken") != null) {
+            service.deleteModelConfirm(id, str(body.get("confirmToken")), str(body.get("confirmValue")));
+            return Map.of();
+        }
+        return service.deleteModelPrecheck(id);
     }
 
     @PostMapping("/{id}/precheck")

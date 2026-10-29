@@ -62,4 +62,14 @@ public class BizException extends RuntimeException {
     public static BizException notFound(String what) {
         return new BizException("MODEL_NOT_FOUND", what + " 不存在");
     }
+
+    /** 字段配置非法（01BE §4.2 步骤 4 校验器）。 */
+    public static BizException fieldConfigInvalid(String reason) {
+        return new BizException("FIELD_CONFIG_INVALID", "字段配置非法: " + reason);
+    }
+
+    /** relation.targetModelId 指向不存在/跨租户模型。 */
+    public static BizException relationTargetNotFound(String targetModelId) {
+        return new BizException("RELATION_TARGET_NOT_FOUND", "关系目标模型不存在: " + targetModelId);
+    }
 }

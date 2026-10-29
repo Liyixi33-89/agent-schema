@@ -35,4 +35,7 @@ public interface ModelRepository {
     long countByTenant(long tenantId);
 
     boolean existsByModelKey(long tenantId, long appId, String modelKey);
+
+    /** 关系目标存在性（01BE §4.2 步骤 4 校验器）：租户内显式谓词，跨租户目标同判不存在。 */
+    boolean existsByIdAndTenant(long modelId, long tenantId);
 }
