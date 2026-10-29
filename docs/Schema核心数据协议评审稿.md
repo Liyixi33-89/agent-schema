@@ -190,7 +190,7 @@ Schema 协议是全平台的"单一事实来源"：建模、渲染、流程、�
 2. **zod→json-schema 结构 diff**——前端 `scripts/export-schema.ts` 双定义同断言（zod schema 与运行时校验器对 6 组 fixture 判定必须一致才允许导出）→ `contract/export/schema.json` → 后端 `SchemaContractTest` 锁定四组核心定义、枚举嵌入、分页硬限 200、fixture 判定表；
 3. **functions.json diff + expr-test-vectors 双端执行**——前端 Vitest 与后端 JUnit 跑同一份向量文件（28 条五类语义 + 步数预算），结果与错误码逐条断言一致；白名单 15 函数双端注册表与 functions.json 逐名比对。
 
-**已知边界（非漂移，设计内差异）**：后端 JSON Schema 运行时校验器（01BE 保存链路消费）随 M2 元数据服务落地，本期锁结构与判定一致性；OpenAPI DTO 生成链路（C-API 组）依赖后端首个 Controller 出现，排 M2。
+**已知边界（2026-10-29 清尾更新）**：后端 JSON Schema 校验器（`SchemaValidator.java`）与 DTO 镜像（`ProtocolDtos.java`，与前端 types.ts 逐字段对应）已于 M1 清尾批次交付，共享样本 `schema-fixtures.json` 由双端真实执行锁定判定一致；其**运行时消费方**（01BE 保存链路的业务接线）仍随 M2 元数据服务落地。OpenAPI DTO 生成链路（C-API 组）依赖后端首个 Controller 出现，排 M2。
 ## 8. 评审结论
 
 | 评审问题 | 结论 |
