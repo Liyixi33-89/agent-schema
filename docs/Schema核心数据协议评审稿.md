@@ -1,6 +1,6 @@
-# Schema 核心数据协议评审稿
+﻿# Schema 核心数据协议评审稿
 
-> 版本：v1.1 | 日期：2026-10-27 首发 / 2026-10-28 全量复核修订 | 状态：**评审通过**（v1.1：修正 v1.0 两处误判，新增 #6-#9 四项修复，见 §7）
+> 版本：v1.2 | 日期：2026-10-27 首发 / 2026-10-28 全量复核修订 / 2026-10-29 冻结（M1.6） | 状态：**已冻结**（v1.2：行动项 #1 落地闭环，全部契约 CI 生效，见 §7.3/§8）
 > 定位：本稿是《PRD-低代码平台产品规划》§10 待办项的交付物——把分散在三篇技术文档中的 Schema 协议定义**汇总为一份可独立评审的权威视图**。
 > 原则：**本稿不是协议的第二份定义**，不重复维护类型代码；每个协议元素标注唯一真源（Source of Truth）位置，本稿只做汇总、关联与一致性核验。新增/修改协议字段一律回到真源文档，本稿同步更新引用版本号。
 
@@ -113,7 +113,7 @@ Schema 协议是全平台的"单一事实来源"：建模、渲染、流程、�
 
 ## 5. 表达式协议（ExpressionBinding / L1 表达式引擎）
 
-**权威定义**：前端 01FE §4（Tokenizer→Pratt Parser→AST→Evaluator）。`functions.json` 是白名单函数表的**唯一真源文件**，Java 侧（Aviator 注册表）从该文件生成，CI 做 diff 校验——**⚠️ 状态修正（2026-10-28 审查）：本机制目前是设计约定而非已落地事实**，当前仓库尚无 functions.json 文件与对应 CI 任务（契约导出链路整体处于 SKIP 状态，verify[quick] 仅文档防腐检查）。落地排期归 M1.5（依赖图 §3.2：契约 CI 三件套 = zod-to-json-schema diff + 枚举值专项 diff + functions.json diff + expr-test-vectors.json 双端向量——前端 01FE §4）；M1.6 协议冻结评审前必须全部生效。此前版本将本条表述为「唯一已经落地自动化防漂移机制」属超前声称，特此修正。
+**权威定义**：前端 01FE §4（Tokenizer→Pratt Parser→AST→Evaluator）。`functions.json` 是白名单函数表的**唯一真源文件**，Java 侧注册表从该文件同步，CI 做 diff 校验——**✅ 状态更新（2026-10-29 M1.5 落地）**：本机制已从设计约定变为已落地事实。落地形态：① `packages/schema-protocol/contract/functions.json`（15 函数四类）；② 前端 `expression.ts` 白名单与该文件同源断言（Vitest）；③ 后端 `ExprEngine.FUNCTION_NAMES`（schema-platform/schema-protocol）与该文件逐名比对（JUnit `ExprVectorTest.whitelistMatchesFunctionsContract`）；④ `expr-test-vectors.json` 五类语义向量 28 条双端执行一致性测试（前端 Vitest + 后端 JUnit 同一份文件，结果与错误码逐条断言）。⚠️ 实现注记：后端宿主采用与前端同构的递归下降求值器（约 400 行）而非 Aviator 内核——Aviator 语法面（赋值/三元/正则字面量）宽于 L1 白名单，受限模式逐项裁剪成本高于直接同构实现；Aviator 依赖保留给流程引擎条件分支场景（05BE §2.2 Flowable conditionExpression），届时其函数注册表从同一 functions.json 生成。
 
 **跨消费场景**（同一 AST 引擎，不同宿主）：
 
@@ -148,7 +148,7 @@ Schema 协议是全平台的"单一事实来源"：建模、渲染、流程、�
 
 | # | 协议对象 | 一致性机制现状 | 风险等级 | 行动项 | 状态 |
 |---|---|---|---|---|---|
-| 1 | 字段类型枚举（12 种） | 人工对齐，zod diff 只校验结构不校验枚举值集合 | 🟡 中 | 补充枚举值专项 diff 测试（CI） | 待排期（§7.3） |
+| 1 | 字段类型枚举（12 种） | 人工对齐，zod diff 只校验结构不校验枚举值集合 | 🟡 中 | 补充枚举值专项 diff 测试（CI） | ✅ 已落地（2026-10-29 M1.5：contract/export/enums.json ↔ 后端枚举 JUnit 逐组比对，见 §7.3） |
 | 2 | `DataSourceBinding.aggregate` vs 后端 `AggregateRequest` | 结构不一致（前端简化版未跟进后端 02BE §3.6 冻结结构） | 🔴 高（真实漂移，影响仪表盘数据绑定） | 前端 01FE §2 更新 `aggregate` 字段结构，与 `AggregateRequest` 对齐 | ✅ 已修复（§7.1） |
 | 3 | 流程 Schema 结构 | 无独立 TS interface 定义点 | 🟢 低（功能不缺，只缺"一眼定义"） | 10FE 补充 `FlowSchema` 类型定义小节 | ✅ 已修复（§7.2） |
 | 4 | `functions.json` 双端生成 | 已有 CI diff | ✅ 无风险 | 无需行动，作为治理样本 | — |
@@ -178,14 +178,19 @@ Schema 协议是全平台的"单一事实来源"：建模、渲染、流程、�
 
 **结论**：行动项 #3 已闭环。此后流程协议与模型/页面协议具备同等的"一眼看到完整结构"可读性。
 
-### 7.3 遗留行动项（非本次评审阻塞项，按风险等级排期）
+### 7.3 遗留行动项（已于 2026-10-29 全部闭环）
 
-| # | 行动项 | 建议时机 | 原因 |
+| # | 行动项 | 落地形态 | 状态 |
 |---|---|---|---|
-| 1 | 字段类型枚举值集合专项 CI diff | Schema 引擎开发阶段（配套 §6 契约同步机制一并实现） | 需要在 CI 脚本中新增一条校验逻辑，属于工程基建任务而非文档任务，已在前端 01FE §6 登记待办，排入 MVP 任务依赖图（见《MVP 开发任务依赖顺序图》Schema 引擎阶段的"契约测试"子任务） |
+| 1 | 字段类型枚举值集合专项 CI diff | 前端 `scripts/export-enums.mjs` 导出 `contract/export/enums.json`（8 组枚举真源，types.ts 常量数组直接引用保证同源）→ 后端 `schema-protocol` 模块 `EnumContractTest` 逐组比对 Java 枚举（FieldType 12 种 / FilterOp 11 个 / ActionType 6 种，缺失即 FAIL）；已挂入 `verify.ps1` contract-diff 门禁，任何一侧漂移阻断提交 | ✅ 已落地（M1.5） |
 
----
+**契约 CI 三件套生效清单（M1.6 冻结前置条件，全部已生效）**：
 
+1. **枚举值专项 diff**——上述 #1，C-ENUM-01 存量一致性首跑即绿（文档期人工对齐无漏）；
+2. **zod→json-schema 结构 diff**——前端 `scripts/export-schema.ts` 双定义同断言（zod schema 与运行时校验器对 6 组 fixture 判定必须一致才允许导出）→ `contract/export/schema.json` → 后端 `SchemaContractTest` 锁定四组核心定义、枚举嵌入、分页硬限 200、fixture 判定表；
+3. **functions.json diff + expr-test-vectors 双端执行**——前端 Vitest 与后端 JUnit 跑同一份向量文件（28 条五类语义 + 步数预算），结果与错误码逐条断言一致；白名单 15 函数双端注册表与 functions.json 逐名比对。
+
+**已知边界（非漂移，设计内差异）**：后端 JSON Schema 运行时校验器（01BE 保存链路消费）随 M2 元数据服务落地，本期锁结构与判定一致性；OpenAPI DTO 生成链路（C-API 组）依赖后端首个 Controller 出现，排 M2。
 ## 8. 评审结论
 
 | 评审问题 | 结论 |
@@ -196,3 +201,18 @@ Schema 协议是全平台的"单一事实来源"：建模、渲染、流程、�
 | 本稿是否需要持续维护？ | 是，但**低频**——仅当新增协议对象（如 AI 网关的 Prompt 协议，P3）或发现新的跨端漂移时更新；日常协议字段增删改不动本稿，只动各真源文档 |
 
 **评审通过**。《PRD-低代码平台产品规划》§10 待办「输出《Schema 核心数据协议》评审稿」自本文档产出之日起标记为**已完成**（顶层 PRD 同步更新）。
+
+### 8.1 冻结声明（M1.6 协议冻结评审，2026-10-29）
+
+按《MVP 开发任务依赖顺序图》§3.2 M1.6 与 §4.3 MS1 验收门（「双端契约 CI 绿 + 评审稿无遗留高危项」）执行冻结评审：
+
+| 冻结前置条件 | 证据 | 结论 |
+|---|---|---|
+| 行动项 #1 枚举专项 diff 落地 | §7.3 行动项 #1 → EnumContractTest 4 用例绿 | ✅ |
+| 结构 diff 生效 | SchemaContractTest 4 用例绿（fixture 双判一致） | ✅ |
+| functions.json 双端 diff | ExprVectorTest.whitelistMatchesFunctionsContract 绿 | ✅ |
+| expr-test-vectors 双端执行一致 | 前端 Vitest 31 用例 + 后端 JUnit 5 用例，同一份向量文件 | ✅ |
+| 评审稿无遗留高危项 | §7 矩阵 9 项全部 ✅，§7.3 清零 | ✅ |
+| verify 管线全绿 | contract-diff 门禁已点亮并纳入 commit/ci 级 | ✅ |
+
+**结论：协议冻结评审通过（MS1 达成）**。自本日起 Schema 协议进入冻结态——M2/M4/M6 解锁开工；协议字段变更须走破坏性升级流程（新增 schemaVersion + 迁移函数 + 双端同步发版，01FE §5），不允许静默改既有字段含义；本稿维持低频维护（仅新增协议对象或发现新漂移时更新）。

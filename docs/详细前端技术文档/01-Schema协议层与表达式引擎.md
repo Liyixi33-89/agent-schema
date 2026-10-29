@@ -1,4 +1,4 @@
-# 详细前端技术文档 01 · Schema 协议层与表达式引擎（schema-protocol）
+﻿# 详细前端技术文档 01 · Schema 协议层与表达式引擎（schema-protocol）
 
 > 上游：《技术方案-前端(React).md》v0.3 §3.1；PRD §7.1（L1 表达式）；《技术方案-后端(Java).md》§2（schema-protocol-java 镜像）
 > 本文定位：**实现级技术设计**——类型体系、zod 运行时校验、受限表达式解释器、版本迁移管线
@@ -224,7 +224,7 @@ migrate(schema):
 | 契约 | 同步方式 | CI 校验 |
 |---|---|---|
 | Schema 协议 | zod → `zod-to-json-schema` 导出 ↔ 后端 `schema-protocol-java` 校验规则文件 | diff 不一致即失败（**仅校验结构，不校验枚举值集合**——见下一行） |
-| 字段类型枚举值集合 | `FieldType` 联合类型 ↔ 后端 `field_type` 枚举 **12 种**（textarea/datetime 为控件配置不进枚举，评审稿 §7 #9） | **待补**：结构 diff 之外追加枚举值集合专项比对（Schema 核心数据协议评审稿 §7 行动项 #1） |
+| 字段类型枚举值集合 | `FieldType` 联合类型 ↔ 后端 `field_type` 枚举 **12 种**（textarea/datetime 为控件配置不进枚举，评审稿 §7 #9） | **✅ 已落地（2026-10-29 M1.5）**：枚举值集合专项比对已生效（contract/export/enums.json ↔ EnumContractTest） |
 | 过滤操作符集合 | `FilterNode.op` ↔ 后端 ConditionTree 白名单 **11 个**（含 `nin`；`isnull` 全小写统一拼写，评审稿 §7 #5 已修复） | 纳入枚举值集合专项比对（与上一行同一 CI 任务） |
 | API DTO | 后端动态 OpenAPI JSON → `openapi-typescript` → `api-types.gen.ts`（禁止手写 DTO） | 后端发版触发 diff → 自动 PR |
 | 表达式白名单 | `functions.json` 双端共享 | Java 生成物 diff 为空 |
