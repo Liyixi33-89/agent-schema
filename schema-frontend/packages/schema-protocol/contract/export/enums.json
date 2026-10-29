@@ -1,0 +1,66 @@
+{
+  "FieldType": [
+    "text",
+    "number",
+    "date",
+    "enum",
+    "boolean",
+    "file",
+    "richtext",
+    "relation",
+    "geo",
+    "user",
+    "dept",
+    "computed"
+  ],
+  "FieldStatus": [
+    "ACTIVE",
+    "DELETED"
+  ],
+  "FilterOp": [
+    "eq",
+    "ne",
+    "in",
+    "nin",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "like",
+    "between",
+    "isnull"
+  ],
+  "ActionType": [
+    "SUBMIT",
+    "TRIGGER_FLOW",
+    "CALL_API",
+    "OPEN_PAGE",
+    "DELETE",
+    "CUSTOM_SCRIPT"
+  ],
+  "AggregateFunc": [
+    "SUM",
+    "AVG",
+    "COUNT",
+    "COUNT_DISTINCT",
+    "MAX",
+    "MIN"
+  ],
+  "TimeBucketInterval": [
+    "DAY",
+    "WEEK",
+    "MONTH"
+  ],
+  "PageType": [
+    "FORM",
+    "LIST",
+    "DETAIL",
+    "DASHBOARD"
+  ],
+  "DataSourceType": [
+    "MODEL_LIST",
+    "MODEL_DETAIL",
+    "MODEL_AGG",
+    "STATIC_JSON"
+  ]
+}

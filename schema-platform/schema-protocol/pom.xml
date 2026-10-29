@@ -1,0 +1,19 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent><groupId>com.schema</groupId><artifactId>schema-platform</artifactId><version>0.1.0-SNAPSHOT</version></parent>
+  <artifactId>schema-protocol</artifactId>
+  <name>schema-protocol</name>
+  <description>M1.4 后端协议镜像：枚举与校验规则（前端 contract/ 生成物为唯一真源，CI diff）</description>
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.google.code.gson</groupId>
+      <artifactId>gson</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

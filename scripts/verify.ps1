@@ -191,12 +191,22 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
 $contractDir = Join-Path $fe 'packages\schema-protocol\contract'
 if (Test-Path $contractDir) {
     Step 'contract-diff' {
-        # 前端导出的 json-schema 与后端生成物需一致；后端产物位置随 schema-protocol-java 落地确定
-        $beContract = Join-Path $be 'schema-protocol-java\src\main\resources\contract'
-        if (-not (Test-Path $beContract)) { throw '后端契约产物缺失：schema-protocol-java 未生成 contract/' }
-        $diff = Compare-Object (Get-ChildItem $contractDir -Recurse -File | ForEach-Object { (Get-FileHash $_.FullName).Hash + ' ' + $_.Name }) `
-                               (Get-ChildItem $beContract -Recurse -File | ForEach-Object { (Get-FileHash $_.FullName).Hash + ' ' + $_.Name })
-        if ($diff) { throw ("契约漂移: " + (($diff | ForEach-Object { $_.InputObject }) -join ', ')) }
+        # M1.5 枚举专项 diff（评审稿 §7.3 遗留项闭环）：
+        # 前端 export:enums 生成 contract/export/enums.json（唯一真源）
+        # → 后端 EnumContractTest 逐组比对 Java 枚举与前端导出（漂移即 FAIL）
+        # 完整 zod→json-schema 结构 diff 随 M1.5 后续批次点亮（spec-001 T6）
+        Push-Location $fe
+        try {
+            pnpm --filter @schema/schema-protocol run export:enums
+            if ($LASTEXITCODE -ne 0) { throw "前端枚举导出退出码 $LASTEXITCODE" }
+        } finally { Pop-Location }
+        $enumsJson = Join-Path $contractDir 'export\enums.json'
+        if (-not (Test-Path $enumsJson)) { throw "枚举导出文件缺失: $enumsJson" }
+        Push-Location $be
+        try {
+            mvn -q -pl schema-protocol test "-Dtest=EnumContractTest"
+            if ($LASTEXITCODE -ne 0) { throw "后端枚举比对退出码 $LASTEXITCODE" }
+        } finally { Pop-Location }
     }
 } else { Skip 'contract-diff' 'contract/ 尚未导出（spec-001 T6 落地后生效）' }
 

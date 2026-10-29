@@ -3,7 +3,7 @@ spec_id: 001-schema-protocol-foundation
 status: active
 milestone: M1                # 依赖图 §3.2 Schema 协议层（关键路径首段）
 created: 2026-10-26
-last_verified_at: 2026-10-28
+last_verified_at: 2026-10-29
 owner: 待定
 ---
 

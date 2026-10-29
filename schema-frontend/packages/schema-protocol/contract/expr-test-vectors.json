@@ -1,0 +1,35 @@
+[
+  { "id": "DATE_DIFF-DAY", "category": "日期时区", "source": "DATE_DIFF('2026-01-02','2026-01-01','DAY')", "scope": {}, "expect": { "value": 1 } },
+  { "id": "DATE_DIFF-MONTH", "category": "日期时区", "source": "DATE_DIFF('2026-03-15','2026-01-10','MONTH')", "scope": {}, "expect": { "value": 2 } },
+  { "id": "DATE_DIFF-WEEK", "category": "日期时区", "source": "DATE_DIFF('2026-01-15','2026-01-01','WEEK')", "scope": {}, "expect": { "value": 2 } },
+  { "id": "DATE_FORMAT-FIXED-CLOCK", "category": "日期时区", "source": "DATE_FORMAT(NOW(),'YYYY-MM-DD')", "scope": {}, "clock": "2026-02-03T05:06:07.000Z", "expect": { "value": "2026-02-03" } },
+  { "id": "DATE_FORMAT-FULL", "category": "日期时区", "source": "DATE_FORMAT('2026-02-03T05:06:07Z','YYYY-MM-DD HH:mm:ss')", "scope": {}, "expect": { "value": "2026-02-03 05:06:07" } },
+  { "id": "DATE_FORMAT-NULL", "category": "日期时区", "source": "DATE_FORMAT(null,'YYYY-MM-DD')", "scope": {}, "expect": { "value": null } },
+
+  { "id": "NULL-PLUS", "category": "空值传播", "source": "missing + 1", "scope": { "missing": null }, "expect": { "value": null } },
+  { "id": "NULL-EQ-EMPTY", "category": "空值传播", "source": "missing == ''", "scope": { "missing": null }, "expect": { "value": false } },
+  { "id": "CONCAT-SKIP-NULL", "category": "空值传播", "source": "CONCAT(missing,'a')", "scope": { "missing": null }, "expect": { "value": "a" } },
+  { "id": "NULL-GT", "category": "空值传播", "source": "missing > 5", "scope": { "missing": null }, "expect": { "value": null } },
+  { "id": "NULL-COMPARE-EQ", "category": "空值传播", "source": "missing == other", "scope": { "missing": null, "other": null }, "expect": { "value": true } },
+  { "id": "UPPER-NULL", "category": "空值传播", "source": "UPPER(missing)", "scope": { "missing": null }, "expect": { "value": null } },
+  { "id": "NULL-LITERAL", "category": "空值传播", "source": "null != 0", "scope": {}, "expect": { "value": true } },
+
+  { "id": "ROUND-HALF-UP", "category": "数值精度", "source": "ROUND(0.1+0.2, 1)", "scope": {}, "expect": { "value": 0.3 } },
+  { "id": "ROUND-DEFAULT-DIGITS", "category": "数值精度", "source": "ROUND(2.5)", "scope": {}, "expect": { "value": 3 } },
+  { "id": "ROUND-NEGATIVE", "category": "数值精度", "source": "ROUND(-2.5)", "scope": {}, "expect": { "value": -3 } },
+  { "id": "ABS-NEGATIVE", "category": "数值精度", "source": "ABS(-42)", "scope": {}, "expect": { "value": 42 } },
+  { "id": "CEIL", "category": "数值精度", "source": "CEIL(2.1)", "scope": {}, "expect": { "value": 3 } },
+  { "id": "FLOOR", "category": "数值精度", "source": "FLOOR(2.9)", "scope": {}, "expect": { "value": 2 } },
+
+  { "id": "SHORT-CIRCUIT-AND", "category": "短路求值", "source": "false && (1/0)", "scope": {}, "expect": { "value": false } },
+  { "id": "SHORT-CIRCUIT-OR", "category": "短路求值", "source": "true || (1/0)", "scope": {}, "expect": { "value": true } },
+  { "id": "NOT-OPERATOR", "category": "短路求值", "source": "!flag", "scope": { "flag": false }, "expect": { "value": true } },
+
+  { "id": "INCLUDES-HIT", "category": "类型转换", "source": "INCLUDES(tags,'a')", "scope": { "tags": ["a", "b"] }, "expect": { "value": true } },
+  { "id": "INCLUDES-NULL-LIST", "category": "类型转换", "source": "INCLUDES(missing,'a')", "scope": { "missing": null }, "expect": { "value": false } },
+  { "id": "LENGTH-NULL", "category": "类型转换", "source": "LENGTH(null)", "scope": {}, "expect": { "value": 0 } },
+  { "id": "LENGTH-STRING", "category": "类型转换", "source": "LENGTH('abcd')", "scope": {}, "expect": { "value": 4 } },
+  { "id": "LENGTH-ARRAY", "category": "类型转换", "source": "LENGTH(items)", "scope": { "items": [1, 2, 3] }, "expect": { "value": 3 } },
+  { "id": "FIELD-MISSING", "category": "类型转换", "source": "notExist", "scope": {}, "expect": { "error": "FieldMissingError" } },
+  { "id": "TYPE-MISMATCH-COMPARE", "category": "类型转换", "source": "'5' > 3", "scope": {}, "expect": { "error": "EvalError" } }
+]

@@ -9,6 +9,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
+    "export:enums": "node scripts/export-enums.mjs",
     "test": "vitest run"
   }
 }
