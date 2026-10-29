@@ -1,4 +1,4 @@
-import type { FieldSchema, LayoutNode, PageSchema } from './types';
+import type { FieldSchema, LayoutNode, ModelSchema, PageSchema } from './types';
 
 /** zod 未引入前的手写结构校验器——零运行时依赖门禁（AGENTS.md），结构定义与 types.ts 同源 */
 export class SchemaValidationError extends Error {
@@ -94,6 +94,65 @@ export function checkLayoutNode(node: unknown, pointer: string, errs: string[], 
 function collectFields(page: PageSchema): string[] {
   const keys = page['fields' as keyof PageSchema] as unknown as FieldSchema[] | undefined;
   return Array.isArray(keys) ? keys.map((f) => f.key) : [];
+}
+
+const FIELD_TYPES = ['text', 'number', 'date', 'enum', 'boolean', 'file', 'richtext', 'relation', 'geo', 'user', 'dept', 'computed'];
+const CARDINALITIES = ['1:1', '1:n', 'n:n'];
+const CASCADES = ['FORBID', 'SET_NULL', 'CASCADE_SOFT_DELETE'];
+const PERSIST_MODES = ['READ_TIME', 'PERSISTED'];
+const ENUM_OPTION_STATUSES = ['ACTIVE', 'DEPRECATED'];
+const FIELD_STATUSES = ['ACTIVE', 'DELETED'];
+
+/** 模型校验（01FE §2）：字段类型 12 种冻结枚举、字段状态机、关系/计算字段配置结构 */
+export function validateModelSchema(input: unknown): ModelSchema {
+  const errs: string[] = [];
+  if (!isObject(input)) throw new SchemaValidationError(['/: 必须为对象']);
+  if (typeof input.id !== 'string' || !input.id) errs.push('/id: 必填');
+  if (typeof input.modelKey !== 'string' || !input.modelKey) errs.push('/modelKey: 必填');
+  if (typeof input.name !== 'string' || !input.name) errs.push('/name: 必填');
+  if (!Number.isInteger(input.version) || Number(input.version) < 1) errs.push('/version: 必须为正整数');
+  if (!Number.isInteger(input.schemaVersion) || Number(input.schemaVersion) < 1) errs.push('/schemaVersion: 必须为正整数');
+  if (!Array.isArray(input.fields)) errs.push('/fields: 必须为数组');
+  else {
+    const seen = new Set<string>();
+    (input.fields as unknown[]).forEach((f, i) => {
+      const pointer = `/fields/${i}`;
+      if (!isObject(f)) { errs.push(`${pointer}: 字段必须为对象`); return; }
+      for (const key of ['key', 'label', 'type', 'fieldStatus', 'sortOrder']) {
+        if (f[key] === undefined) errs.push(`${pointer}: 缺少必填字段 ${key}`);
+      }
+      if (typeof f.key === 'string') {
+        if (seen.has(f.key)) errs.push(`${pointer}/key: 重复字段 key ${f.key}`);
+        seen.add(f.key);
+      }
+      if (!FIELD_TYPES.includes(String(f.type))) errs.push(`${pointer}/type: 非法字段类型 ${String(f.type)}`);
+      if (!FIELD_STATUSES.includes(String(f.fieldStatus))) errs.push(`${pointer}/fieldStatus: 非法字段状态`);
+      if (f.enumOptions !== undefined) {
+        if (!Array.isArray(f.enumOptions)) errs.push(`${pointer}/enumOptions: 必须为数组`);
+        else if (String(f.type) !== 'enum') errs.push(`${pointer}/enumOptions: 仅 enum 类型字段可配置选项`);
+        else (f.enumOptions as unknown[]).forEach((o, oi) => {
+          if (!isObject(o) || typeof o.value !== 'string' || typeof o.label !== 'string'
+            || !ENUM_OPTION_STATUSES.includes(String(o.status))) errs.push(`${pointer}/enumOptions/${oi}: 结构非法`);
+        });
+      }
+      if (f.relation !== undefined) {
+        if (String(f.type) !== 'relation') errs.push(`${pointer}/relation: 仅 relation 类型字段可配置关系`);
+        else if (!isObject(f.relation) || typeof f.relation.targetModelId !== 'string'
+          || !CARDINALITIES.includes(String(f.relation.cardinality))
+          || !CASCADES.includes(String(f.relation.cascade))) errs.push(`${pointer}/relation: 结构非法`);
+      }
+      if (f.computed !== undefined) {
+        if (String(f.type) !== 'computed') errs.push(`${pointer}/computed: 仅 computed 类型字段可配置计算表达式`);
+        else if (!isObject(f.computed) || !isObject(f.computed.expr) || (f.computed.expr as Record<string, unknown>).kind !== 'expr'
+          || typeof (f.computed.expr as Record<string, unknown>).source !== 'string'
+          || !Array.isArray(f.computed.dependsOn) || !PERSIST_MODES.includes(String(f.computed.persistMode))) {
+          errs.push(`${pointer}/computed: 结构非法`);
+        }
+      }
+    });
+  }
+  if (errs.length) throw new SchemaValidationError(errs);
+  return input as unknown as ModelSchema;
 }
 
 export function validatePageSchema(input: unknown): PageSchema {

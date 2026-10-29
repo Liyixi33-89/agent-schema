@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { validatePageSchema } from '../src/validate';
+import { validatePageSchema, validateModelSchema } from '../src/validate';
 import { FIELD_TYPES, FIELD_STATUSES, FILTER_OPS, PAGE_TYPES, DATA_SOURCE_TYPES, AGGREGATE_FUNCS, TIME_BUCKET_INTERVALS } from '../src/types';
 
 // ===== zod schema（与 01FE §3 定义逐支对齐） =====
@@ -133,7 +133,10 @@ const modelFixtures = [
   { name: 'model-invalid-field-type', input: { id: 'm1', modelKey: 'orders', name: 'Orders', fields: [{ key: 'amount', label: 'Amount', type: 'datetime', fieldStatus: 'ACTIVE', sortOrder: 0 }], version: 1, schemaVersion: 1 }, valid: false },
 ];
 for (const f of modelFixtures) {
-  if (modelSchema.safeParse(f.input).success !== f.valid) throw new Error(`模型样本判定失败: ${f.name}`);
+  const zodOk = modelSchema.safeParse(f.input).success;
+  let runtimeOk = true;
+  try { validateModelSchema(f.input); } catch { runtimeOk = false; }
+  if (zodOk !== f.valid || runtimeOk !== f.valid) throw new Error(`模型样本双判不一致: ${f.name} zod=${zodOk} runtime=${runtimeOk}`);
 }
 
 const disagreements: string[] = [];
