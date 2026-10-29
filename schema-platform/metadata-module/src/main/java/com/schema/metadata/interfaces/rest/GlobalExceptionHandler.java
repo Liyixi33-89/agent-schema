@@ -14,9 +14,11 @@ import java.util.UUID;
 /**
  * 统一错误体（10BE §A.2）：{code, message, traceId, details?}。
  * HTTP 映射：MODEL_VERSION_CONFLICT → 409；CONFIRM_TOKEN_INVALID/FIELD_KEY_IMMUTABLE/CIRCULAR_DEPENDENCY → 422；
- * MODEL_LIMIT_EXCEEDED → 403；*_NOT_FOUND → 404；其余业务异常 → 400。
+ * MODEL_LIMIT_EXCEEDED → 403；*_NOT_FOUND → 404；认证类（UNAUTHORIZED/ACCOUNT_LOCKED/REFRESH_REVOKED/
+ * TENANT_MISMATCH/PERM_DENIED/PASSWORD_CHANGE_REQUIRED）已由 IAM 域 advice 处理，本类限定 metadata 包——
+ * 无包限定的全局 advice 会与其竞争同一次 BizException 解析（同优先级排序不确定，实测曾把 401 压成 400）。
  */
-@RestControllerAdvice
+@RestControllerAdvice(basePackages = "com.schema.metadata")
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);

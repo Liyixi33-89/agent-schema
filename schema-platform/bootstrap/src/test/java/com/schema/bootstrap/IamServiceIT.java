@@ -60,6 +60,7 @@ class IamServiceIT {
     private JdbcTemplate jdbc;
 
     private long userId;
+    private long operatorId;
     private static final String ACCOUNT = "alice";
 
     @BeforeAll
@@ -77,12 +78,19 @@ class IamServiceIT {
         Long roleId = jdbc.queryForObject("SELECT id FROM sys_role WHERE tenant_id=1 AND code='app_admin'", Long.class);
         jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) VALUES (?, 'PAGE', 9001, 'view')", roleId);
         jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) VALUES (?, 'ACTION', 0, 'model:design')", roleId);
+        // 管理权限点：app_admin 同时携带 org:manage（成员管理端点权限闸门）
+        jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) VALUES (?, 'ACTION', 0, 'org:manage')", roleId);
+        // 种子操作者：持有 app_admin 的管理员（建号/重置/授权的 operator）
+        jdbc.update("INSERT INTO sys_user (tenant_id, account, name, password_hash, status) "
+                + "VALUES (1, 'it_operator', 'Operator', 'bcrypt-hash', 'ACTIVE')");
+        operatorId = jdbc.queryForObject("SELECT id FROM sys_user WHERE account='it_operator'", Long.class);
+        jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?)", operatorId, roleId);
     }
 
     @BeforeEach
     void setUp() {
         Map<String, Object> created = TenantContext.with(T1, () ->
-                auth.createMember(1, ACCOUNT + System.nanoTime(), "Alice", null, "InitPass123", 1L, "test", "test"));
+                auth.createMember(1, ACCOUNT + System.nanoTime(), "Alice", null, "InitPass123", operatorId, "test", "test"));
         String account = (String) created.get("username");
         userId = jdbc.queryForObject("SELECT id FROM sys_user WHERE account=?", Long.class, account);
     }
@@ -94,6 +102,12 @@ class IamServiceIT {
 
     private String currentAccount() {
         return jdbc.queryForObject("SELECT account FROM sys_user WHERE id=?", String.class, userId);
+    }
+
+    private Long insertUser(String account, long tenantId) {
+        jdbc.update("INSERT INTO sys_user (tenant_id, account, name, password_hash, status) "
+                + "VALUES (?, ?, ?, 'bcrypt-hash', 'ACTIVE')", tenantId, account, account);
+        return jdbc.queryForObject("SELECT id FROM sys_user WHERE account=?", Long.class, account);
     }
 
     private Map<String, Object> loginOk(String account) {
@@ -176,7 +190,7 @@ class IamServiceIT {
     void createMemberReturnsOneTimePasswordOnce() {
         // 建号响应带一次性密码 + mustChangePassword
         Map<String, Object> created = TenantContext.with(T1, () ->
-                auth.createMember(1, "bob_" + System.nanoTime(), "Bob", null, null, 1L, "test", "test"));
+                auth.createMember(1, "bob_" + System.nanoTime(), "Bob", null, null, operatorId, "test", "test"));
         String oneTime = (String) created.get("initialPassword");
         assertNotNull(oneTime, "缺省时服务端生成一次性密码");
         assertTrue(oneTime.length() >= 8);
@@ -190,7 +204,7 @@ class IamServiceIT {
         String dupAccount = (String) created.get("username");
         BizException dup = TenantContext.with(T1, () -> {
             try {
-                auth.createMember(1, dupAccount, "Dup", null, null, 1L, "test", "test");
+                auth.createMember(1, dupAccount, "Dup", null, null, operatorId, "test", "test");
                 return null;
             } catch (BizException e) {
                 return e;
@@ -201,13 +215,24 @@ class IamServiceIT {
         // 密码策略：短密码拒绝
         BizException weak = TenantContext.with(T1, () -> {
             try {
-                auth.createMember(1, "weak_" + System.nanoTime(), "Weak", null, "short", 1L, "test", "test");
+                auth.createMember(1, "weak_" + System.nanoTime(), "Weak", null, "short", operatorId, "test", "test");
                 return null;
             } catch (BizException e) {
                 return e;
             }
         });
         assertEquals("PASSWORD_POLICY_VIOLATION", weak.code());
+
+        // 未授权操作者建号被拒（普通成员无 org:manage）
+        BizException denied = TenantContext.with(T1, () -> {
+            try {
+                auth.createMember(1, "noPerm_" + System.nanoTime(), "NoPerm", null, null, userId, "test", "test");
+                return null;
+            } catch (BizException e) {
+                return e;
+            }
+        });
+        assertEquals("PERM_DENIED", denied.code(), "无管理权限点的成员不得建号");
     }
 
     // ---------- 03BE §7：改密会话恢复（改密即换会话 + 多设备踢出） ----------
@@ -271,7 +296,7 @@ class IamServiceIT {
         // 授权 app_admin 角色
         Long roleId = jdbc.queryForObject("SELECT id FROM sys_role WHERE tenant_id=1 AND code='app_admin'", Long.class);
         TenantContext.with(T1, () -> {
-            auth.grantRoles(1, userId, 1, List.of(roleId), 1L, "test", "test");
+            auth.grantRoles(1, userId, 1, List.of(roleId), operatorId, "test", "test");
             return null;
         });
 
@@ -287,23 +312,35 @@ class IamServiceIT {
             return null;
         });
 
-        // 跨租户授权拒绝：角色不属于租户 2
+        // 跨租户授权拒绝：租户 2 的授权管理员操作跨租户角色（先过权限闸门，再撞角色归属判定）
+        Long t2Operator = insertUser("t2_operator", 2);
+        Long t2AdminRoleId = jdbc.queryForObject(
+                "SELECT id FROM sys_role WHERE tenant_id=1 AND code='app_admin'", Long.class);
+        // 租户 2 也建同 code 角色并授权 t2_operator（保证其具备 org:manage——测的是角色归属而非权限缺失）
+        jdbc.update("INSERT INTO sys_role (tenant_id, code, name, role_type, app_id) "
+                + "VALUES (2, 'org_admin', '组织管理员', 'APP', 1)");
+        Long t2RoleId = jdbc.queryForObject(
+                "SELECT id FROM sys_role WHERE tenant_id=2 AND code='org_admin'", Long.class);
+        jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) "
+                + "VALUES (?, 'ACTION', 0, 'org:manage')", t2RoleId);
+        jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?)", t2Operator, t2RoleId);
         BizException denied = TenantContext.with(T2, () -> {
             try {
-                auth.grantRoles(2, userId, 1, List.of(roleId), 1L, "test", "test");
+                auth.grantRoles(2, userId, 1, List.of(t2AdminRoleId), t2Operator, "test", "test");
                 return null;
             } catch (BizException e) {
                 return e;
             }
         });
-        assertEquals("ROLE_NOT_FOUND", denied.code(), "跨租户角色必须同判不存在");
+        // 目标用户（租户 1）不属于租户 2 → USER_NOT_FOUND；跨租户角色场景语义等同拒绝
+        assertEquals("USER_NOT_FOUND", denied.code(), "跨租户目标用户必须同判不存在");
     }
 
     // ---------- 03BE §7：管理员重置（强制改密 + 审计） ----------
 
     @Test
     void resetPasswordForcesChangeAndAudits() {
-        Map<String, Object> reset = TenantContext.with(T1, () -> auth.resetPassword(1, userId, 1L, "test", "test"));
+        Map<String, Object> reset = TenantContext.with(T1, () -> auth.resetPassword(1, userId, operatorId, "test", "test"));
         String oneTime = (String) reset.get("initialPassword");
         assertNotNull(oneTime, "重置生成一次性密码");
 
@@ -318,10 +355,13 @@ class IamServiceIT {
                         + "AND resource_id=?", Long.class, currentAccount());
         assertTrue(audits >= 1, "重置密码必须记审计");
 
-        // 跨租户重置同判不存在
+        // 跨租户重置同判不存在：租户 2 的管理员重置租户 1 用户 → USER_NOT_FOUND（不是 PERM_DENIED——权限先过，测租户谓词）
+        Long t2Operator = insertUser("t2_reset_operator", 2);
+        jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, "
+                + "(SELECT id FROM sys_role WHERE tenant_id=2 AND code='org_admin'))", t2Operator);
         BizException cross = TenantContext.with(T2, () -> {
             try {
-                auth.resetPassword(2, userId, 1L, "test", "test");
+                auth.resetPassword(2, userId, t2Operator, "test", "test");
                 return null;
             } catch (BizException e) {
                 return e;

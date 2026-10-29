@@ -3,7 +3,6 @@ package com.schema.bootstrap;
 import com.schema.iam.domain.model.UserAccount;
 import com.schema.iam.domain.repository.IamRepository;
 import com.schema.iam.infrastructure.security.JwtCodec;
-import com.schema.platform.common.web.BizException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,13 +17,13 @@ import java.io.IOException;
 import java.util.Set;
 
 /**
- * JWT 认证过滤器（03BE §3.2/§4）：
- * 1) Authorization: Bearer 验签（access token）；
- * 2) JWT claim 与 X-Tenant-Id 绑定——不一致 403 TENANT_MISMATCH 记安全审计（防伪造租户头）；
- * 3) must_change_password=true 时除放行名单外全部 403 PASSWORD_CHANGE_REQUIRED（§A.3.1）。
+ * JWT 认证过滤器（03BE §3.2/§4）——认证边界闭环：
+ * 1) 无凭证：仅公开端点放行，其余一律 401（无绕过通道——强制改密拦截同样不可绕过）；
+ * 2) Bearer 验签：access 型 + 用户存在 + ACTIVE + 租户与 claim 一致，任一不满足 401；
+ * 3) JWT claim 与 X-Tenant-Id 绑定——不一致 403 TENANT_MISMATCH 记安全审计（防伪造租户头）；
+ * 4) must_change_password=true 时除放行名单外全部 403 PASSWORD_CHANGE_REQUIRED（§A.3.1）。
  *
- * 放行集：登录/刷新/登出（无登录态端点）+ CSP 上报。其余端点无 token 也放行但
- * operatorId 退化为头值（M2 兼容期；前端接入 auth-sdk 后收紧为强制 401——M6 前端联调开关）。
+ * 放行集：登录/刷新/登出（无登录态端点）+ CSP 上报。
  */
 @Component
 @Order(1)
@@ -53,14 +52,26 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            // 未携带 token：公开端点直接过；其余放行但上下文由 TenantContextFilter 退化兜底（兼容期）
-            chain.doFilter(request, response);
+            // 无凭证：公开端点放行；其余 401（不再走 TenantContextFilter 头值退化——退化路径仅剩公开端点）
+            if (PUBLIC_PATHS.contains(path)) {
+                chain.doFilter(request, response);
+                return;
+            }
+            writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "未登录或缺少访问凭证");
             return;
         }
 
         String token = authHeader.substring(7);
         JwtCodec.Claims claims = jwt.verify(token);
         if (claims == null || !"access".equals(claims.tokenType())) {
+            writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "登录态无效或已过期");
+            return;
+        }
+
+        // 凭证主体有效性（03BE §4「逐请求走判定链」）：用户不存在 / 停用 / 与 claim 租户不一致 → 401
+        UserAccount user = iam.findUserById(claims.userId()).orElse(null);
+        if (user == null || "DISABLED".equals(user.status())
+                || user.tenantId() != claims.tenantId()) {
             writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "登录态无效或已过期");
             return;
         }
@@ -82,8 +93,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         // 强制改密拦截（§A.3.1）
-        UserAccount user = iam.findUserById(claims.userId()).orElse(null);
-        if (user != null && user.mustChangePassword() && !PASSWORD_CHANGE_ALLOWLIST.contains(path)
+        if (user.mustChangePassword() && !PASSWORD_CHANGE_ALLOWLIST.contains(path)
                 && !PUBLIC_PATHS.contains(path)) {
             writeError(response, HttpServletResponse.SC_FORBIDDEN, "PASSWORD_CHANGE_REQUIRED",
                     "首次登录需修改密码");

@@ -23,6 +23,9 @@ public interface IamRepository {
 
     void updateUser(UserAccount user);       // 登录计数/锁定/改密/重置
 
+    /** 登录失败计数原子递增（+1 并按阈值写锁定）；返回递增后计数——并发失败不丢计数。 */
+    int incrementFailedAttempts(UserAccount user);
+
     boolean userExists(long tenantId, String account);
 
     // ---------- 角色/权限点 ----------
@@ -53,6 +56,12 @@ public interface IamRepository {
 
     /** 刷新 token 归属行（user_id/tenant_id）——刷新时定位会话主人。 */
     Optional<Map<String, Object>> findRefreshRow(String tokenHash);
+
+    /**
+     * 原子吊销未吊销的 refresh（一次性消费语义）：
+     * 条件 UPDATE 未吊销行并返回受影响行数——同一 token 并发刷新只有一个事务得到 1。
+     */
+    boolean consumeRefreshToken(String tokenHash);
 
     /** 吊销用户全部 refresh（改密/登出全部设备/停用）。 */
     void revokeAllRefreshTokens(long userId);

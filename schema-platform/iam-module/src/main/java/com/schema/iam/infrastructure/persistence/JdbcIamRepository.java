@@ -92,6 +92,20 @@ public class JdbcIamRepository implements IamRepository {
     }
 
     @Override
+    public int incrementFailedAttempts(UserAccount user) {
+        // 原子递增（读改写并发丢计数在所难免——计数与锁定判定合一写回）
+        jdbc.update("""
+                UPDATE sys_user SET failed_attempts = failed_attempts + 1,
+                    locked_until = CASE WHEN failed_attempts + 1 >= ? THEN ? ELSE locked_until END
+                WHERE id=?
+                """, UserAccount.MAX_FAILED_ATTEMPTS,
+                toTs(OffsetDateTime.now().plusMinutes(UserAccount.LOCK_MINUTES)), user.id());
+        Integer attempts = jdbc.queryForObject("SELECT failed_attempts FROM sys_user WHERE id=?",
+                Integer.class, user.id());
+        return attempts != null ? attempts : 0;
+    }
+
+    @Override
     public List<Map<String, Object>> findRolesOfUser(long tenantId, long userId) {
         return jdbc.queryForList("""
                 SELECT r.id, r.code, r.name, r.role_type, r.app_id FROM sys_role r
@@ -198,6 +212,13 @@ public class JdbcIamRepository implements IamRepository {
     public void revokeAllRefreshTokens(long userId) {
         jdbc.update("UPDATE sys_refresh_token SET revoked=true, revoked_at=now() "
                 + "WHERE user_id=? AND revoked=false", userId);
+    }
+
+    @Override
+    public boolean consumeRefreshToken(String tokenHash) {
+        // 条件 UPDATE：只有未吊销行会被置 revoked——并发刷新同一 token 仅一个事务返回 true
+        return jdbc.update("UPDATE sys_refresh_token SET revoked=true, revoked_at=now() "
+                + "WHERE token_hash=? AND revoked=false AND expires_at > now()", tokenHash) == 1;
     }
 
     @Override

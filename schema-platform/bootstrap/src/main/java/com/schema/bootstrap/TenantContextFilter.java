@@ -15,7 +15,7 @@ import java.io.IOException;
 /**
  * 租户上下文还原（03BE §2.1）。
  * M3 起（JwtAuthFilter 前置）：优先取 JWT claim（auth.* 属性——claim 为鉴权真源）；
- * 无 token 时退化默认租户/头值（M2 集成测试与种子脚本兼容期）。
+ * 无 claim 的头值退化仅在公开端点（登录/刷新/登出/CSP）可达——业务端点已被 401 挡在前面。
  */
 @Component
 @Order(2)

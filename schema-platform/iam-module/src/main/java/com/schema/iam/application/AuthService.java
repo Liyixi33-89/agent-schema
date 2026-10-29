@@ -49,15 +49,14 @@ public class AuthService {
 
         // 统一 401：不存在/停用/锁定/密码错同一文案同一码（防枚举）
         if (user == null) {
-            iam.insertAudit("SECURITY", tenantId, null, "USER", account,
-                    Map.of("reason", "LOGIN_UNKNOWN_ACCOUNT"), ip, ua);
+            // 经代理调用（REQUIRES_NEW 独立提交）——直接 this. 调用绕过代理，审计会随主事务回滚
+            selfRef.auditSecurity(tenantId, null, account, "LOGIN_UNKNOWN_ACCOUNT", ip, ua);
             throw BizException.unauthorized(LOGIN_FAILED_MSG);
         }
         if (user.loginBlocked(OffsetDateTime.now())) {
-            // 锁定也返回统一文案；审计记真实原因
-            iam.insertAudit("SECURITY", tenantId, user.id(), "USER", user.account(),
-                    Map.of("reason", "DISABLED".equals(user.status()) ? "LOGIN_DISABLED" : "LOGIN_LOCKED"),
-                    ip, ua);
+            // 锁定也返回统一文案；审计记真实原因（独立事务——主流程抛异常回滚不丢审计）
+            selfRef.auditSecurity(tenantId, user.id(), user.account(),
+                    "DISABLED".equals(user.status()) ? "LOGIN_DISABLED" : "LOGIN_LOCKED", ip, ua);
             throw BizException.unauthorizedOrLocked(user.lockedUntil());
         }
         if (!encoder.matches(password, user.passwordHash())) {
@@ -80,10 +79,18 @@ public class AuthService {
     /** 失败计数持久化（独立提交——login 主事务抛异常回滚不影响计数累积）。 */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordLoginFailure(UserAccount user, String ip, String ua) {
-        user.loginFailed(OffsetDateTime.now());
-        iam.updateUser(user);
+        // 原子递增（并发失败不丢计数）；锁定阈值判定在 SQL 内完成
+        int attempts = iam.incrementFailedAttempts(user);
         iam.insertAudit("SECURITY", user.tenantId(), user.id(), "USER", user.account(),
-                Map.of("reason", "LOGIN_BAD_PASSWORD", "failedAttempts", user.failedAttempts()), ip, ua);
+                Map.of("reason", "LOGIN_BAD_PASSWORD", "failedAttempts", attempts), ip, ua);
+    }
+
+    /** 安全审计（独立事务）——拒绝路径的主事务必然回滚，审计必须另行提交。 */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void auditSecurity(Long tenantId, Long userId, String account, String reason,
+            String ip, String ua) {
+        iam.insertAudit("SECURITY", tenantId, userId, "USER", account,
+                Map.of("reason", reason), ip, ua);
     }
 
     /** 自注入引用（Spring 代理 REQUIRES_NEW 必须经代理调用，直接内部调用不生效）。 */
@@ -96,10 +103,6 @@ public class AuthService {
     @Transactional
     public Map<String, Object> refresh(String refreshToken, String ip, String ua) {
         String hash = JwtCodec.hashRefreshToken(refreshToken);
-        if (!iam.isRefreshTokenActive(hash)) {
-            throw BizException.refreshRevoked();   // 401 REFRESH_REVOKED（前端清快照跳登录）
-        }
-        // 查回 token 归属用户（哈希索引查行）
         Map<String, Object> row = findRefreshRow(hash);
         long userId = ((Number) row.get("user_id")).longValue();
         long tenantId = ((Number) row.get("tenant_id")).longValue();
@@ -108,8 +111,12 @@ public class AuthService {
         if ("DISABLED".equals(user.status())) {
             throw BizException.refreshRevoked();
         }
-        // 滚动：旧 token 吊销 + 新对签发（重放检测：旧 token 再来命中 revoked → SECURITY 审计）
-        iam.revokeRefreshToken(hash);
+        // 滚动：原子一次性消费（并发刷新同一 token 仅一个成功）+ 新对签发；
+        // 消费失败 = 已吊销/过期 → SECURITY 审计（重放检测）
+        if (!iam.consumeRefreshToken(hash)) {
+            selfRef.auditSecurity(tenantId, userId, user.account(), "REFRESH_REPLAY", ip, ua);
+            throw BizException.refreshRevoked();   // 401 REFRESH_REVOKED（前端清快照跳登录）
+        }
         issueSession(tenantId, userId);
         return sessionResponse(user, jwt.issueAccess(userId, tenantId));
     }
@@ -118,6 +125,9 @@ public class AuthService {
 
     @Transactional
     public void logout(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return;   // 无 token 登出幂等成功
+        }
         String hash = JwtCodec.hashRefreshToken(refreshToken);
         iam.revokeRefreshToken(hash);
     }
@@ -128,6 +138,7 @@ public class AuthService {
         TenantInfo ctx = TenantContext.get();
         UserAccount user = iam.findUserById(ctx.operatorId())
                 .orElseThrow(() -> BizException.unauthorized("未登录"));
+        assertTenantMatches(user, ctx.tenantId());
         List<Map<String, Object>> roles = iam.findRolesOfUser(ctx.tenantId(), user.id());
         List<Long> roleIds = roles.stream().map(r -> ((Number) r.get("id")).longValue()).toList();
         List<Perm> perms = iam.findPermsOfRoles(roleIds);
@@ -152,11 +163,12 @@ public class AuthService {
         return resp;
     }
 
-    // ---------- 成员建号（§A.3.1：一次性初始密码） ----------
+    // ---------- 成员建号（§A.3.1：一次性初始密码；仅管理员） ----------
 
     @Transactional
     public Map<String, Object> createMember(long tenantId, String account, String name, Long deptId,
             String initialPassword, Long operatorId, String ip, String ua) {
+        requireOrgManagePerm(tenantId, operatorId);
         if (iam.userExists(tenantId, account)) {
             throw new BizException("ACCOUNT_DUPLICATED", "账号已存在: " + account);
         }
@@ -179,10 +191,11 @@ public class AuthService {
         return resp;
     }
 
-    // ---------- 管理员重置（§A.3.1：强制下次登录改密 + 记审计） ----------
+    // ---------- 管理员重置（§A.3.1：强制下次登录改密 + 记审计；仅管理员） ----------
 
     @Transactional
     public Map<String, Object> resetPassword(long tenantId, long userId, Long operatorId, String ip, String ua) {
+        requireOrgManagePerm(tenantId, operatorId);
         UserAccount user = iam.findUserById(userId)
                 .orElseThrow(() -> new BizException("USER_NOT_FOUND", "用户不存在"));
         if (user.tenantId() != tenantId) {
@@ -206,6 +219,7 @@ public class AuthService {
             String newPassword, String ip, String ua) {
         UserAccount user = iam.findUserById(userId)
                 .orElseThrow(() -> BizException.unauthorized("未登录"));
+        assertTenantMatches(user, tenantId);
         if (!encoder.matches(oldPassword, user.passwordHash())) {
             throw BizException.unauthorized("原密码错误");
         }
@@ -222,11 +236,16 @@ public class AuthService {
         return resp;
     }
 
-    // ---------- 成员授权（§A.3：覆盖式） ----------
+    // ---------- 成员授权（§A.3：覆盖式；仅管理员） ----------
 
     @Transactional
     public void grantRoles(long tenantId, long userId, long appId, List<Long> roleIds, Long operatorId,
             String ip, String ua) {
+        requireOrgManagePerm(tenantId, operatorId);
+        // 目标用户必须属于本租户（跨租户同判不存在）
+        UserAccount target = iam.findUserById(userId)
+                .orElseThrow(() -> new BizException("USER_NOT_FOUND", "用户不存在"));
+        assertTenantMatches(target, tenantId);
         // 校验角色属于租户 + 应用
         for (Long roleId : roleIds) {
             boolean owned = iam.findRoleIdsOfApp(tenantId, appId).contains(roleId);
@@ -240,6 +259,37 @@ public class AuthService {
     }
 
     // ---------- 内部 ----------
+
+    /** 组织管理权限点（03BE §A.3 管理端；perms 串形态 action:org:manage）。 */
+    private static final String ORG_MANAGE_PERM = "action:org:manage";
+
+    /**
+     * 管理端权限闸门（03BE §3.2「逐请求走判定链」）：操作者必须持有 org:manage 权限点。
+     * perms 快照仅供前端展示/路由；后端逐请求从角色实时判定，快照不作数。
+     */
+    private void requireOrgManagePerm(long tenantId, Long operatorId) {
+        if (operatorId == null || operatorId <= 0) {
+            throw BizException.permDenied();
+        }
+        UserAccount operator = iam.findUserById(operatorId).orElse(null);
+        if (operator == null || operator.tenantId() != tenantId) {
+            throw BizException.permDenied();
+        }
+        List<Map<String, Object>> roles = iam.findRolesOfUser(tenantId, operatorId);
+        List<Long> roleIds = roles.stream().map(r -> ((Number) r.get("id")).longValue()).toList();
+        boolean granted = iam.findPermsOfRoles(roleIds).stream()
+                .anyMatch(p -> ORG_MANAGE_PERM.equals(p.toPermString()));
+        if (!granted) {
+            throw BizException.permDenied();
+        }
+    }
+
+    /** 用户与当前租户一致性（上下文租户为真源；不一致视同未授权——不给跨租户存在性线索）。 */
+    private static void assertTenantMatches(UserAccount user, long tenantId) {
+        if (user.tenantId() != tenantId) {
+            throw new BizException("USER_NOT_FOUND", "用户不存在");
+        }
+    }
 
     private void issueSession(long tenantId, long userId) {
         String refresh = JwtCodec.newRefreshToken();
