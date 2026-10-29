@@ -24,6 +24,12 @@ created: 2026-10-29
 | T8 | 预览凭证：grant 5min 单次（条件 UPDATE 一次性消费）→ exchange 15min 会话 → 吊销闭环 | 04BE §A.7 | done |
 | T9 | JwtCodec.issuePreview（typ=preview + previewSessionId claim）+ JwtAuthFilter 预览态会话校验 | 04BE §A.7 | done |
 | T10 | REST 三控制器 + PageExceptionHandler（包限定，域错误码→HTTP 映射） | 04BE §A.1/A.2/A.7 | done |
+| T11 | 页面管理授权闸门（PagePermGate：page:design/app:publish，逐请求判定） | 03BE §5 接线 | done |
+| T12 | 预览 token 端点隔离 + exchange 公开放行 + 预览限页 | 04BE §A.7 | done |
+| T13 | PageSchemaValidator 协议校验接线（zod 导出真源，保存/发布前置） | 01FE 契约面 | done |
+| T14 | 引用登记全量重建 + REQUIRES_NEW 事务隔离 | 04BE §1.4 | done |
+| T15 | V5 路径部分唯一索引 + path 单一真源同步 | 04BE §A.1 | done |
+| T16 | 发布/回滚快照 modelRefs 聚合 + 回滚版本引用修正 | 04BE §1.3 | done |
 
 ## 2. 验收记录（04BE §4 硬性要求）
 
@@ -33,6 +39,13 @@ created: 2026-10-29
 - [x] **预览凭证 grant→exchange→吊销全链（重放 401 GRANT_CONSUMED；吊销后下一请求 401 PREVIEW_SESSION_REVOKED）** —— PageServiceIT.previewGrantLifecycle
 - [x] 草稿乐观锁 409 / 路径租户内唯一 422 / 跨租户同判 404 —— PageServiceIT 其余三用例
 - [x] backend-it 门禁纳入 PageServiceIT（verify.ps1 backend-it 步骤）
+- [x] **匿名 exchange 公开放行**（此前 JwtAuthFilter 401 挡死公开兑换）—— PageSecurityChainIT.anonymousExchangeIsOpen
+- [x] **预览 token 不得进入设计面/管理面**（端点白名单 403 PREVIEW_SCOPE_DENIED）—— PageSecurityChainIT.previewTokenCannotAccessDesignOrAdminEndpoints
+- [x] **预览限页**（会话绑定 pageId 时其他页 404）—— PageSecurityChainIT.previewSessionIsPageScoped
+- [x] **页面管理授权闸门**（无 page:design/app:publish 的成员 403）—— PageSecurityChainIT.plainMemberCannotDesignOrPublishPages
+- [x] **路径并发唯一**（6 线程抢同路径恰一成功，其余 422）—— PageSecurityChainIT.concurrentPathClaimHasExactlyOneWinner
+- [x] **引用移除不残留**（fieldRef 移除后重保存旧引用清理）—— PageSecurityChainIT.removedFieldReferencesArePurgedOnResave
+- [x] **跨应用发布拒绝**（appId 不一致同判 404）—— PageSecurityChainIT.crossAppPublishIsRejected
 
 ## 3. 设计决策与妥协
 
@@ -46,11 +59,11 @@ created: 2026-10-29
 
 ## 4. 延后项登记
 
-- Outbox 化引用登记（当前 catch-all 静默）→ 随 M5 事件基建。
+- Outbox 化引用登记（当前 catch-all WARN 日志）→ 随 M5 事件基建。
 - 预览会话 Redis 化（当前库表）+ allowRealWrite 数据面执行拦截（写操作代理判定）→ M5/M6。
 - artifact_hash 产物链路（轨道 B 自定义代码编译）→ build-service M14。
-- 页面 Schema 完整结构校验（当前信任前端导出契约，PageSchema zod 镜像未落 Java）→ 随 M6 渲染消费方。
-- 发布快照 modelRefs 聚合（当前空数组占位）→ M5 模型引用快照落地后补。
+- ~~页面 Schema 完整结构校验~~ 已收口：PageSchemaValidator 接 zod 导出真源（M1 契约面）；模型归属判定（schema.modelId 与页面登记 modelId 一致）随 M6 设计器消费方接线。
+- ~~发布快照 modelRefs 聚合~~ 已收口（发布/回滚双路径）。
 
 ## 5. 沉淀（2026-10-29）
 
@@ -58,4 +71,9 @@ created: 2026-10-29
 - **聚合查询空集 NPE**：`jdbc.query(...).stream().findFirst()` 对 SELECT MAX 空集行返回 NULL 值时会 Optional.of(NPE)——聚合列永远有行但值可 NULL，RowMapper 里 `instanceof Number` 兜 0 而非返回 null。
 - **吊销语义与测试顺序**：revokeAll 语义是「未用 grant 全部作废」——测试若先 revokeAll 再 exchange 未用 grant，正确断言是 GRANT_CONSUMED 而非成功兑换；生命周期测试的操作顺序必须与语义图一致，不能按直觉排列。
 - **PER_CLASS 测试的种子数据漂移**：依赖其他 IT 种下的用户/角色 ID（user_id=1）会在库重置后失效——测试自建专用操作者（固定 account 幂等查找），不依赖兄弟测试的副作用。
+- **公开端点清单是安全边界的一部分**（本轮实证）：PreviewGrantController 声明兑换无需登录，但 JwtAuthFilter.PUBLIC_PATHS 没收录——服务层测试全绿而 HTTP 链 401。教训：**每新增「无需登录」端点必须同步过滤器公开集，且必须有走真实过滤器链的测试**（MockMvc addFilters 显式挂全量 Filter）。
+- **预览凭证 = 受限凭证而非登录凭证**：此前 preview token 过会话校验后直接进普通链路（签发人完整权限面）。收口原则：**短时会话凭证必须带范围白名单**（端点级 + 资源级 pageId），过滤器先行拦截越界（403 ≠ 401：403 表达「已认证但越权」，前端可区分展示）。
+- **引用登记的事务语义**：「失败不阻断保存」不仅是 catch-all——metadata.registerReference 同线程调用会加入外层保存事务，异常时 rollback-only 连带回滚保存。教训：**旁路副作用（登记/计数/审计）与主事务必须 REQUIRES_NEW 隔离**（与 M3 登录失败计数同构），否则「不阻断」契约只在无异常时成立。
+- **DB 唯一约束是并发唯一性的唯一真源**：应用层「先查再写」存在 TOCTOU 窗口（先查无冲突→并发插入→双写成功）。教训：**唯一性必须落到部分唯一索引**（WHERE status='ACTIVE' 兼容逻辑删除释放路径），DuplicateKeyException 统一转 422 语义异常。
+- **回滚快照必须指向新固化版本**：回滚生成的新 release 若沿用历史 pageVersionRef，该 release 再次作为回滚目标时取的是历史版本内容而非本次固化内容——**每次发布/回滚的版本引用必须指向本次动作实际固化的版本号**。
 - **PS 管道下 mvn Exit code 1 误报（再现）**：看 `BUILD SUCCESS` 与 `Tests run: ... Failures: 0` 为准。
