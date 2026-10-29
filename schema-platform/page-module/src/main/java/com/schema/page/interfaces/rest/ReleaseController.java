@@ -57,7 +57,15 @@ public class ReleaseController {
 
     @GetMapping("/api/runtime/pages/{pageId}")
     public ResponseEntity<Map<String, Object>> runtimePage(@PathVariable long pageId,
-            @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch) {
+            @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch,
+            jakarta.servlet.http.HttpServletRequest request) {
+        // 预览限页（04BE §A.7 绑定约束：pageId 存在时仅该页面可见）
+        Object previewPageId = request.getAttribute("auth.previewPageId");
+        if (previewPageId instanceof Number allowed
+                && allowed.longValue() != pageId) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.NOT_FOUND, "页面不在预览范围");
+        }
         PageCommandService.RuntimePage page = service.getPublished(pageId,
                 normalize(ifNoneMatch));
         if (page.notModified()) {

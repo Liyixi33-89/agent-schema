@@ -25,10 +25,15 @@ public class PageCommandService {
 
     private final PageRepository pages;
     private final FieldReferencePort references;
+    private final PagePermGate perms;
+    private final PageSchemaValidator validator;
 
-    public PageCommandService(PageRepository pages, FieldReferencePort references) {
+    public PageCommandService(PageRepository pages, FieldReferencePort references,
+            PagePermGate perms, PageSchemaValidator validator) {
         this.pages = pages;
         this.references = references;
+        this.perms = perms;
+        this.validator = validator;
     }
 
     // ---------- 页面 CRUD（§A.1） ----------
@@ -37,6 +42,7 @@ public class PageCommandService {
     public Map<String, Object> createPage(long appId, String pageKey, String name, String pageType,
             Long modelId, String path) {
         TenantInfo tenant = TenantContext.get();
+        perms.requireDesign(tenant);
         PageAggregate page;
         try {
             page = PageAggregate.create(tenant.tenantId(), appId, pageKey, name, pageType, modelId, path);
@@ -81,9 +87,16 @@ public class PageCommandService {
     @Transactional
     public Map<String, Object> saveDraft(long pageId, Map<String, Object> schema, int baseDraftVersion) {
         TenantInfo tenant = TenantContext.get();
+        perms.requireDesign(tenant);
         PageAggregate page = loadForTenant(pageId);
         if (schema == null) {
             throw new BizException("PAGE_VALIDATION_FAILED", "schema 缺失");
+        }
+        // 协议结构校验（M1 契约面接线：draft 不合法即 422，不落库）
+        List<String> schemaErrors = validator.validate(schema);
+        if (!schemaErrors.isEmpty()) {
+            throw new BizException("PAGE_VALIDATION_FAILED",
+                    "Schema 协议校验失败: " + String.join("; ", schemaErrors));
         }
         // path 以 schema 为真源（draft 内嵌路由），校验唯一性（排除自身）
         Object pathVal = schema.get("path");
@@ -110,6 +123,7 @@ public class PageCommandService {
     @Transactional
     public void deletePage(long pageId) {
         TenantInfo tenant = TenantContext.get();
+        perms.requireDesign(tenant);
         PageAggregate page = loadForTenant(pageId);
         if (page.deleted()) {
             return; // 幂等
@@ -122,6 +136,7 @@ public class PageCommandService {
     @Transactional
     public void updatePath(long pageId, String path, String name) {
         TenantInfo tenant = TenantContext.get();
+        perms.requireDesign(tenant);
         PageAggregate page = loadForTenant(pageId);
         if (pages.existsByPath(tenant.tenantId(), path, pageId)) {
             throw BizException.pathDuplicated();
@@ -144,6 +159,7 @@ public class PageCommandService {
     @Transactional
     public Map<String, Object> publish(long appId, List<Long> pageIds, String changelog) {
         TenantInfo tenant = TenantContext.get();
+        perms.requirePublish(tenant);
         if (pageIds == null || pageIds.isEmpty()) {
             pageIds = new ArrayList<>();
             for (PageAggregate p : pages.listByApp(tenant.tenantId(), appId, null)) {
@@ -154,9 +170,16 @@ public class PageCommandService {
         List<Map<String, Object>> pageEntries = new ArrayList<>();
         for (Long pageId : pageIds) {
             PageAggregate page = loadForTenant(pageId);
+            assertAppConsistent(page, appId);
             String draftJson = pages.findDraft(tenant.tenantId(), pageId)
                     .orElseThrow(() -> BizException.pageNotFound("页面 " + pageId));
             Map<String, Object> schema = Json.readMap(draftJson);
+            // 发布前协议结构校验（发布面比草稿面严格一档——不合法 Schema 不得进入 published）
+            List<String> schemaErrors = validator.validate(schema);
+            if (!schemaErrors.isEmpty()) {
+                throw new BizException("PAGE_VALIDATION_FAILED",
+                        "页面 " + pageId + " Schema 协议校验失败: " + String.join("; ", schemaErrors));
+            }
 
             int targetVersion = page.nextPublishedVersion();
             // 页面发布版本先落（不可变，§1.3 步骤 3——先写页面版本再聚合应用快照）
@@ -176,13 +199,19 @@ public class PageCommandService {
             entry.put("pageVersionRef", targetVersion);
             entry.put("schemaVersion", schema.get("schemaVersion"));
             entry.put("contentHash", page.artifactHash());
+            entry.put("modelId", page.modelId() == null ? null : Long.toString(page.modelId()));
             pageEntries.add(entry);
         }
 
         int releaseVersion = pages.nextReleaseVersion(tenant.tenantId(), appId);
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("pages", pageEntries);
-        snapshot.put("modelRefs", List.of());
+        // modelRefs 聚合（04BE §1.3 快照结构）：发布集内去重模型引用——影响面/运行时消费
+        snapshot.put("modelRefs", pageEntries.stream()
+                .map(e -> e.get("modelId"))
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList());
         pages.insertAppRelease(tenant.tenantId(), appId, releaseVersion, Json.write(snapshot),
                 changelog, tenant.operatorId());
 
@@ -234,6 +263,7 @@ public class PageCommandService {
     @Transactional
     public Map<String, Object> rollback(long appId, int targetReleaseVersion) {
         TenantInfo tenant = TenantContext.get();
+        perms.requirePublish(tenant);
         Map<String, Object> release = pages.findRelease(tenant.tenantId(), appId, targetReleaseVersion)
                 .orElseThrow(() -> BizException.pageNotFound("发布版本 v" + targetReleaseVersion));
         if (!"ACTIVE".equals(release.get("status"))) {
@@ -242,6 +272,7 @@ public class PageCommandService {
         Map<String, Object> snapshot = Json.readMap((String) release.get("snapshot"));
         Object rawPages = snapshot.get("pages");
 
+        List<Map<String, Object>> rebuiltEntries = new ArrayList<>();
         if (rawPages instanceof List<?> entries) {
             for (Object e : entries) {
                 if (!(e instanceof Map<?, ?> entry)) {
@@ -250,6 +281,7 @@ public class PageCommandService {
                 long pageId = Long.parseLong(String.valueOf(entry.get("pageId")));
                 int pageVersion = ((Number) entry.get("pageVersionRef")).intValue();
                 PageAggregate page = loadForTenant(pageId);
+                assertAppConsistent(page, appId);
                 Map<String, Object> fixed = pages.findPageVersion(pageId, pageVersion)
                         .orElseThrow(() -> BizException.pageNotFound(
                                 "页面 " + pageId + " 版本 v" + pageVersion));
@@ -265,14 +297,29 @@ public class PageCommandService {
                     throw BizException.publishConflict();
                 }
                 // 回滚后引用面按固化快照重扫（快照自包含）
-                syncFieldReferences(tenant, page, Json.readMap(schemaJson));
+                Map<String, Object> schemaMap = Json.readMap(schemaJson);
+                syncFieldReferences(tenant, page, schemaMap);
+
+                // 新 release 快照指向本次新固化版本（非沿用历史 pageVersionRef——
+                // 否则该 release 再次作为回滚目标时取的是历史版本而非本次固化内容）
+                Map<String, Object> rebuilt = new LinkedHashMap<>();
+                rebuilt.put("pageId", Long.toString(pageId));
+                rebuilt.put("pageVersionRef", targetVersion);
+                rebuilt.put("schemaVersion", schemaMap.get("schemaVersion"));
+                rebuilt.put("contentHash", artifactHash instanceof String ah ? ah : null);
+                rebuilt.put("modelId", page.modelId() == null ? null : Long.toString(page.modelId()));
+                rebuiltEntries.add(rebuilt);
             }
         }
         // 目标版本置 ROLLED_BACK；本次回滚生成新 release（status=ACTIVE）
         pages.markReleaseRolledBack(tenant.tenantId(), appId, targetReleaseVersion);
         Map<String, Object> newSnapshot = new LinkedHashMap<>();
-        newSnapshot.put("pages", rawPages);
-        newSnapshot.put("modelRefs", List.of());
+        newSnapshot.put("pages", rebuiltEntries);
+        newSnapshot.put("modelRefs", rebuiltEntries.stream()
+                .map(e -> e.get("modelId"))
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList());
         newSnapshot.put("rolledBackFrom", targetReleaseVersion);
         int releaseVersion = pages.nextReleaseVersion(tenant.tenantId(), appId);
         pages.insertAppRelease(tenant.tenantId(), appId, releaseVersion, Json.write(newSnapshot),
@@ -317,25 +364,38 @@ public class PageCommandService {
                 .orElseThrow(() -> BizException.pageNotFound("页面 " + pageId));
     }
 
-    /** 引用登记（04BE §1.4）：全量重扫 → upsert；登记失败不阻断保存。 */
-    private void syncFieldReferences(TenantInfo tenant, PageAggregate page, Map<String, Object> schema) {
-        if (page.modelId() == null) {
-            return;
+    /** 页面归属一致性：跨应用页面 ID 不得混入发布集（404 同判——不给跨应用存在性线索）。 */
+    private static void assertAppConsistent(PageAggregate page, long appId) {
+        if (page.appId() != appId) {
+            throw BizException.pageNotFound("页面 " + page.id());
         }
+    }
+
+    /** 引用登记（04BE §1.4）：全量重扫 → 全量重建；登记失败不阻断保存。 */
+    private void syncFieldReferences(TenantInfo tenant, PageAggregate page, Map<String, Object> schema) {
         try {
             FieldRefScanner.ScanResult result = FieldRefScanner.scan(schema);
             references.syncReferences(tenant.tenantId(), page.id(), page.modelId(),
                     List.copyOf(result.pageRefs()), List.copyOf(result.scriptRefs()));
         } catch (Exception e) {
-            // 影响面数据允许短暂滞后（不可用阻断发布——登记失败不阻断保存/发布）
+            // 影响面数据允许短暂滞后（登记失败不阻断保存/发布）；WARN 供告警消费，重试队列随 M5
+            org.slf4j.LoggerFactory.getLogger(PageCommandService.class).warn(
+                    "字段引用登记失败（不阻断保存）: pageId={} modelId={} cause={}",
+                    page.id(), page.modelId(), e.getMessage());
         }
     }
 
-    /** 新建页面默认草稿（空布局 + 协议字段齐备）。 */
+    /**
+     * 引用登记事务边界修复（04BE §1.4「失败不阻断保存」的事务语义）：
+     * metadata.registerReference 为 @Transactional——同线程同步调用会加入页面保存外层事务，
+     * 引用登记中途异常会把外层事务标记 rollback-only（保存被连带回滚，违背「不阻断」契约）。
+     * 登记动作统一走 FieldReferencePort 的 REQUIRES_NEW 实现（MetadataFieldReferenceAdapter
+     * 逐条登记仍可能部分成功——全量重建语义保证下次保存自愈）。
+     */
     private static Map<String, Object> defaultDraft(PageAggregate page, String pageKey, String name,
             String pageType, Long modelId, String path) {
         Map<String, Object> draft = new LinkedHashMap<>();
-        draft.put("id", "pending");
+        draft.put("id", "page_" + java.util.UUID.randomUUID());
         draft.put("pageKey", pageKey);
         draft.put("name", name);
         draft.put("type", pageType);

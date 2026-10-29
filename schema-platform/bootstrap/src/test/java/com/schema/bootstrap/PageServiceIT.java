@@ -67,6 +67,39 @@ class PageServiceIT {
         jdbc.update("DELETE FROM page_release_version");
         jdbc.update("DELETE FROM page_schema");
         jdbc.update("DELETE FROM meta_field_reference");
+        // 授权接线后：操作者(1,1,1) 需持页面设计/发布权限（M4 收口——perm gate 生效）
+        grantPagePermsToDefaultOperator();
+    }
+
+    /** 默认操作者(userId=1)授 page:design + app:publish（角色幂等种子；用户不存在则建号）。 */
+    private void grantPagePermsToDefaultOperator() {
+        // 操作者 userId=1 必须存在于 sys_user（PagePermGate 逐请求校验主体存在/ACTIVE/租户一致）
+        List<Long> users = jdbc.query(
+                "SELECT id FROM sys_user WHERE tenant_id=1 AND id=1 LIMIT 1", (rs, i) -> rs.getLong(1));
+        if (users.isEmpty()) {
+            var encoder = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
+            jdbc.update("INSERT INTO sys_user (id, tenant_id, account, name, password_hash, status, "
+                            + "must_change_password) VALUES (1, 1, 'page_default_op', '页面默认操作员', ?, "
+                            + "'ACTIVE', false)",
+                    encoder.encode("PageOp!2026x"));
+        }
+        List<Long> roleIds = jdbc.query(
+                "SELECT id FROM sys_role WHERE tenant_id=1 AND code='page-test-operator' LIMIT 1",
+                (rs, i) -> rs.getLong(1));
+        long roleId;
+        if (roleIds.isEmpty()) {
+            jdbc.update("INSERT INTO sys_role (tenant_id, code, name, role_type, app_id) "
+                    + "VALUES (1, 'page-test-operator', '页面测试操作员', 'TENANT', 1)");
+            roleId = jdbc.queryForObject(
+                    "SELECT id FROM sys_role WHERE tenant_id=1 AND code='page-test-operator'", Long.class);
+        } else {
+            roleId = roleIds.get(0);
+        }
+        jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) "
+                        + "VALUES (?, 'ACTION', 0, 'page:design') ON CONFLICT DO NOTHING", roleId);
+        jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) "
+                        + "VALUES (?, 'ACTION', 0, 'app:publish') ON CONFLICT DO NOTHING", roleId);
+        jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (1, ?) ON CONFLICT DO NOTHING", roleId);
     }
 
     @BeforeEach
@@ -88,21 +121,28 @@ class PageServiceIT {
         return new TenantInfo(1, 1, 1);
     }
 
-    /** 构造带五位置引用的页面草稿（fieldRef / dependsOn / filter / aggregate / script）。 */
+    /** 构造带五位置引用的页面草稿（fieldRef / dependsOn / filter / aggregate / script）——过 PageSchema 结构校验。 */
     private Map<String, Object> richDraft() {
+        Map<String, Object> scriptNode = Map.of(
+                "id", "n3", "componentName", "Button",
+                "props", Map.of("scripts", List.of(Map.of("content",
+                        "function onSubmit(ctx) { const a = ctx.form.get('amount'); ctx.form.set('remark', a); }"))));
+        Map<String, Object> tableNode = Map.of(
+                "id", "n1", "componentName", "Table", "fieldRef", "amount",
+                "props", Map.of(
+                        "title", Map.of("kind", "expr", "source", "amount", "dependsOn", List.of("title")),
+                        "children", List.of()));
+        Map<String, Object> inputNode = Map.of(
+                "id", "n2", "componentName", "Input", "fieldRef", "owner", "props", Map.of());
         return Map.of(
+                "id", "rich_" + System.nanoTime(),
                 "pageKey", "rich",
                 "name", "富引用页",
                 "type", "LIST",
                 "modelId", Long.toString(modelId),
-                "path", "/rich",
+                "path", "/rich/" + pageId,
                 "schemaVersion", 1,
-                "layout", List.of(
-                        Map.of("id", "n1", "componentName", "Table", "fieldRef", "amount",
-                                "props", Map.of(
-                                        "title", Map.of("kind", "expr", "source", "amount", "dependsOn", List.of("title")),
-                                        "children", List.of())),
-                        Map.of("id", "n2", "componentName", "Input", "fieldRef", "owner")),
+                "layout", List.of(tableNode, inputNode, scriptNode),
                 "dataSource", Map.of(
                         "type", "MODEL_LIST",
                         "modelId", Long.toString(modelId),
@@ -115,9 +155,7 @@ class PageServiceIT {
                                         Map.of("fieldKey", "__count", "func", "COUNT")),
                                 "group", Map.of("fieldKey", "dept"),
                                 "timeBucket", Map.of("fieldKey", "createdAt", "interval", "DAY"))),
-                "actions", List.of(),
-                "scripts", List.of(Map.of("content",
-                        "function onSubmit(ctx) { const a = ctx.form.get('amount'); ctx.form.set('remark', a); }")));
+                "actions", List.of());
     }
 
     // ---------- 04BE §4：发布后运行时返回新版 ETag；未发布 draft 不影响 published 读取 ----------

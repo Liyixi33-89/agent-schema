@@ -42,11 +42,11 @@ public final class FieldRefScanner {
             return new ScanResult(pageRefs, scriptRefs);
         }
 
-        // 位置 1/2：layout 树（fieldRef + props 内递归表达式依赖）
+        // 位置 1/2：layout 树（fieldRef + props 内递归表达式依赖 + props 内钩子脚本）
         if (schema.get("layout") instanceof List<?> layout) {
             for (Object node : layout) {
                 if (node instanceof Map<?, ?> m) {
-                    scanNode((Map<String, Object>) m, pageRefs);
+                    scanNode((Map<String, Object>) m, pageRefs, scriptRefs);
                 }
             }
         }
@@ -70,49 +70,59 @@ public final class FieldRefScanner {
             }
         }
 
-        // 位置 5：scripts[] 静态扫描
+        // 位置 5：顶层 scripts[] 静态扫描（兼容形态——PageSchema v1 协议内脚本挂 props，
+        // 顶层键为历史/导入兼容保留）
         if (schema.get("scripts") instanceof List<?> scripts) {
             for (Object s : scripts) {
-                String content = null;
-                if (s instanceof Map<?, ?> sm && sm.get("content") instanceof String c) {
-                    content = c;
-                } else if (s instanceof String str) {
-                    content = str;
-                }
+                String content = s instanceof Map<?, ?> sm && sm.get("content") instanceof String c
+                        ? c : (s instanceof String str ? str : null);
                 if (content != null) {
-                    Matcher matcher = SCRIPT_FIELD.matcher(content);
-                    while (matcher.find()) {
-                        scriptRefs.add(matcher.group(1));
-                    }
+                    scanScriptContent(content, scriptRefs);
                 }
             }
         }
-        // scripts 亦可为 props 内 CUSTOM_SCRIPT 引用之外的独立顶层键；PageSchema 协议 v1
-        // 未顶层定义 scripts——L2 钩子脚本挂在节点 props（08FE）。此处兼容两种形态。
 
         return new ScanResult(pageRefs, scriptRefs);
     }
 
-    private static void scanNode(Map<String, Object> node, Set<String> pageRefs) {
+    private static void scanNode(Map<String, Object> node, Set<String> pageRefs, Set<String> scriptRefs) {
         if (node.get("fieldRef") instanceof String fieldRef && !fieldRef.isBlank()) {
             pageRefs.add(fieldRef);
         }
         if (node.get("props") instanceof Map<?, ?> props) {
-            scanProps((Map<String, Object>) props, pageRefs);
+            scanProps((Map<String, Object>) props, pageRefs, scriptRefs);
         }
         if (node.get("children") instanceof List<?> children) {
             for (Object child : children) {
                 if (child instanceof Map<?, ?> m) {
-                    scanNode((Map<String, Object>) m, pageRefs);
+                    scanNode((Map<String, Object>) m, pageRefs, scriptRefs);
                 }
             }
         }
     }
 
-    /** props 递归：表达式绑定 dependsOn + ActionBinding.paramsMapping/queryMapping 内嵌表达式。 */
+    /** props 递归：表达式绑定 dependsOn + ActionBinding.paramsMapping/queryMapping 内嵌表达式
+     *  + props.scripts[] 内容静态扫描（L2 钩子挂点 08FE——PageSchema v1 顶层无 scripts 键）。 */
     @SuppressWarnings("unchecked")
-    private static void scanProps(Map<String, Object> props, Set<String> pageRefs) {
+    private static void scanProps(Map<String, Object> props, Set<String> pageRefs, Set<String> scriptRefs) {
+        if (props.get("scripts") instanceof List<?> scripts) {
+            for (Object s : scripts) {
+                String content = s instanceof Map<?, ?> sm && sm.get("content") instanceof String c
+                        ? c : (s instanceof String str ? str : null);
+                if (content != null) {
+                    scanScriptContent(content, scriptRefs);
+                }
+            }
+        }
         scanValue(props, pageRefs);
+    }
+
+    /** ctx.form.get/set 字面量扫描 → SCRIPT 位置引用面。 */
+    private static void scanScriptContent(String content, Set<String> pageRefs) {
+        Matcher matcher = SCRIPT_FIELD.matcher(content);
+        while (matcher.find()) {
+            pageRefs.add(matcher.group(1));
+        }
     }
 
     @SuppressWarnings("unchecked")

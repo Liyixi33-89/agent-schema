@@ -27,12 +27,20 @@ public class JdbcPageRepository implements PageRepository {
 
     @Override
     public long insertPage(PageAggregate p, String draftJson) {
-        jdbc.update("""
-                INSERT INTO page_schema (tenant_id, app_id, page_key, name, page_type, model_id, path,
-                  draft, draft_version, status, updated_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, 'ACTIVE', ?)
-                """, p.tenantId(), p.appId(), p.pageKey(), p.name(), p.pageType(), p.modelId(), p.path(),
-                draftJson, p.draftVersion(), operator());
+        try {
+            jdbc.update("""
+                    INSERT INTO page_schema (tenant_id, app_id, page_key, name, page_type, model_id, path,
+                      draft, draft_version, status, updated_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, 'ACTIVE', ?)
+                    """, p.tenantId(), p.appId(), p.pageKey(), p.name(), p.pageType(), p.modelId(), p.path(),
+                    draftJson, p.draftVersion(), operator());
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            // V5 唯一索引兜底：并发 create 撞路径/撞 pageKey（应用层先查后写的 TOCTOU 窗口）
+            if (e.getMessage() != null && e.getMessage().contains("uq_page_path_active")) {
+                throw com.schema.platform.common.web.BizException.pathDuplicated();
+            }
+            throw e;
+        }
         return jdbc.queryForObject("SELECT id FROM page_schema WHERE tenant_id=? AND app_id=? AND page_key=?",
                 Long.class, p.tenantId(), p.appId(), p.pageKey());
     }
@@ -74,6 +82,29 @@ public class JdbcPageRepository implements PageRepository {
 
     @Override
     public int saveDraft(long tenantId, long pageId, String draftJson, int baseDraftVersion, long operatorId) {
+        // path 单一真源同步：draft 内嵌路由为真源，保存时同步 page_schema.path
+        // （此前双真源漂移——draft.path 改了但页面表 path 不动，existsByPath 判定基于旧值）
+        String pathInDraft = null;
+        try {
+            com.google.gson.JsonObject node = com.schema.platform.common.json.Json.parseObject(draftJson);
+            if (node != null && node.has("path") && !node.get("path").isJsonNull()) {
+                pathInDraft = node.get("path").getAsString();
+            }
+        } catch (Exception ignored) {
+            // draft 非法 JSON 走原路径（应用层已先行校验，此处兜底不吞语义异常）
+        }
+        if (pathInDraft != null && !pathInDraft.isBlank()) {
+            try {
+                return jdbc.update("""
+                        UPDATE page_schema SET draft=?::jsonb, draft_version=draft_version+1, path=?,
+                          updated_by=?, updated_at=now()
+                        WHERE id=? AND tenant_id=? AND draft_version=? AND status='ACTIVE'
+                        """, draftJson, pathInDraft, operatorId, pageId, tenantId, baseDraftVersion);
+            } catch (org.springframework.dao.DuplicateKeyException e) {
+                // V5 唯一索引兜底：并发保存撞他人路径（先查后写 TOCTOU 窗口）
+                throw com.schema.platform.common.web.BizException.pathDuplicated();
+            }
+        }
         return jdbc.update("""
                 UPDATE page_schema SET draft=?::jsonb, draft_version=draft_version+1, updated_by=?, updated_at=now()
                 WHERE id=? AND tenant_id=? AND draft_version=? AND status='ACTIVE'
@@ -137,12 +168,17 @@ public class JdbcPageRepository implements PageRepository {
 
     @Override
     public void updatePath(long tenantId, long pageId, String path, String name) {
-        if (name != null && !name.isBlank()) {
-            jdbc.update("UPDATE page_schema SET path=?, name=?, updated_at=now() WHERE id=? AND tenant_id=?",
-                    path, name, pageId, tenantId);
-        } else {
-            jdbc.update("UPDATE page_schema SET path=?, updated_at=now() WHERE id=? AND tenant_id=?",
-                    path, pageId, tenantId);
+        try {
+            if (name != null && !name.isBlank()) {
+                jdbc.update("UPDATE page_schema SET path=?, name=?, updated_at=now() WHERE id=? AND tenant_id=?",
+                        path, name, pageId, tenantId);
+            } else {
+                jdbc.update("UPDATE page_schema SET path=?, updated_at=now() WHERE id=? AND tenant_id=?",
+                        path, pageId, tenantId);
+            }
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            // V5 唯一索引兜底（并发改名撞他人路径）
+            throw com.schema.platform.common.web.BizException.pathDuplicated();
         }
     }
 

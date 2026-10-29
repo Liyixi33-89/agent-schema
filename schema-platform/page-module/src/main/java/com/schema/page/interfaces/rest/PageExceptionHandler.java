@@ -16,7 +16,7 @@ import java.util.UUID;
  * 包限定 com.schema.page——多 advice 共存时无包限定会与 IAM/metadata 域竞争解析（M3 实证教训）。
  * HTTP 映射：DRAFT_VERSION_CONFLICT/PUBLISH_CONFLICT → 409；PATH_DUPLICATED/PAGE_VALIDATION_FAILED → 422；
  * PAGE_NOT_FOUND/RELEASE_ROLLED_BACK → 404；GRANT_CONSUMED/PREVIEW_SESSION_REVOKED → 401；
- * 认证类已由 IAM 域 advice 处理。
+ * PERM_DENIED/PREVIEW_SCOPE_DENIED → 403；认证类已由 IAM 域 advice 处理。
  */
 @RestControllerAdvice(basePackages = "com.schema.page")
 public class PageExceptionHandler {
@@ -32,6 +32,7 @@ public class PageExceptionHandler {
                     HttpStatus.UNPROCESSABLE_ENTITY;
             case "PAGE_NOT_FOUND", "RELEASE_ROLLED_BACK" -> HttpStatus.NOT_FOUND;
             case "GRANT_CONSUMED", "PREVIEW_SESSION_REVOKED" -> HttpStatus.UNAUTHORIZED;
+            case "PERM_DENIED", "PREVIEW_SCOPE_DENIED" -> HttpStatus.FORBIDDEN;
             default -> HttpStatus.BAD_REQUEST;
         };
         log.warn("biz error {} : {}", e.code(), e.getMessage());

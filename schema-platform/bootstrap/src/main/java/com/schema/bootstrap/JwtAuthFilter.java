@@ -32,7 +32,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     /** 登录态无关端点（公开）。 */
     private static final Set<String> PUBLIC_PATHS = Set.of(
-            "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/security/csp-reports");
+            "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/security/csp-reports",
+            "/api/preview/exchange");
+
+    /** 预览态可访问端点（04BE §A.7：权限 = 发起人 ∩ 预览范围——预览 token 不得进入设计面/管理面）。 */
+    private static final Set<String> PREVIEW_ALLOWED_PATHS = Set.of(
+            "/api/runtime/pages");
 
     /** 强制改密放行名单（§A.3.1）：改密本体 + 登出 + me。 */
     private static final Set<String> PASSWORD_CHANGE_ALLOWLIST = Set.of(
@@ -76,7 +81,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         // 吊销后下一请求即 401（无需等 15min 过期）；普通 token 不走此路径（无额外查询开销）
         if (claims.preview()) {
             try {
-                previewSessions.getObject().validateSession(claims.jti());
+                com.schema.page.domain.repository.PreviewGrantRepository.Session session =
+                        previewSessions.getObject().validateSession(claims.jti());
+                // 预览限页透传（04BE §A.7 绑定约束）：会话绑定 pageId 时运行时仅该页可见
+                if (session.pageId() != null) {
+                    request.setAttribute("auth.previewPageId", session.pageId());
+                }
             } catch (com.schema.platform.common.web.BizException e) {
                 String code = "PREVIEW_SESSION_REVOKED".equals(e.code())
                         ? "PREVIEW_SESSION_REVOKED" : "UNAUTHORIZED";
@@ -84,6 +94,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         "PREVIEW_SESSION_REVOKED".equals(code) ? "预览会话已被吊销" : "登录态无效或已过期");
                 return;
             }
+            // 预览态端点隔离（04BE §A.7 权限=发起人∩预览范围）：预览凭证只可访问运行时读取面，
+            // 不得以签发人身份进入设计面/管理面/IAM 面（否则预览 token = 签发人完整凭证）
+            if (!isPreviewAllowed(path)) {
+                writeError(response, HttpServletResponse.SC_FORBIDDEN, "PREVIEW_SCOPE_DENIED",
+                        "预览凭证仅可访问预览范围端点");
+                return;
+            }
+            // 预览态无登录主体（会话为真源）；透传预览上下文供运行时限页消费
+            request.setAttribute("auth.preview", true);
+            request.setAttribute("auth.tenantId", claims.tenantId());
+            chain.doFilter(request, response);
+            return;
         }
 
         // 凭证主体有效性（03BE §4「逐请求走判定链」）：用户不存在 / 停用 / 与 claim 租户不一致 → 401
@@ -122,6 +144,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         request.setAttribute("auth.userId", claims.userId());
         request.setAttribute("auth.tenantId", claims.tenantId());
         chain.doFilter(request, response);
+    }
+
+    /** 预览态端点白名单匹配：路径前缀匹配（/api/runtime/pages/** 全开放给预览读取）。 */
+    private static boolean isPreviewAllowed(String path) {
+        return PREVIEW_ALLOWED_PATHS.stream().anyMatch(path::startsWith);
     }
 
     private void auditTenantMismatch(JwtCodec.Claims claims, long headerTenant, HttpServletRequest request) {

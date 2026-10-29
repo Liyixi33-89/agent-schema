@@ -1,0 +1,1626 @@
+{
+  "schemaVersion": 1,
+  "exportedAt": "build-time",
+  "definitions": {
+    "ModelSchema": {
+      "$ref": "#/definitions/ModelSchema",
+      "definitions": {
+        "ModelSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "modelKey": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "number",
+                      "date",
+                      "enum",
+                      "boolean",
+                      "file",
+                      "richtext",
+                      "relation",
+                      "geo",
+                      "user",
+                      "dept",
+                      "computed"
+                    ]
+                  },
+                  "fieldStatus": {
+                    "type": "string",
+                    "enum": [
+                      "ACTIVE",
+                      "DELETED"
+                    ]
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "uniqueFlag": {
+                    "type": "boolean"
+                  },
+                  "indexed": {
+                    "type": "boolean"
+                  },
+                  "defaultValue": {
+                    "anyOf": [
+                      {
+                        "type": [
+                          "string",
+                          "number",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": {
+                          "$ref": "#/definitions/ModelSchema/properties/fields/items/properties/defaultValue"
+                        }
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/definitions/ModelSchema/properties/fields/items/properties/defaultValue"
+                        }
+                      }
+                    ]
+                  },
+                  "sortOrder": {
+                    "type": "number"
+                  },
+                  "enumOptions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "color": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "ACTIVE",
+                            "DEPRECATED"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "value",
+                        "label",
+                        "status"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "relation": {
+                    "type": "object",
+                    "properties": {
+                      "targetModelId": {
+                        "type": "string"
+                      },
+                      "cardinality": {
+                        "type": "string",
+                        "enum": [
+                          "1:1",
+                          "1:n",
+                          "n:n"
+                        ]
+                      },
+                      "cascade": {
+                        "type": "string",
+                        "enum": [
+                          "FORBID",
+                          "SET_NULL",
+                          "CASCADE_SOFT_DELETE"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "targetModelId",
+                      "cardinality",
+                      "cascade"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "computed": {
+                    "type": "object",
+                    "properties": {
+                      "expr": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "expr"
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "dependsOn": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "source"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "dependsOn": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "persistMode": {
+                        "type": "string",
+                        "enum": [
+                          "READ_TIME",
+                          "PERSISTED"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "expr",
+                      "dependsOn",
+                      "persistMode"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "key",
+                  "label",
+                  "type",
+                  "fieldStatus",
+                  "sortOrder"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "schemaVersion": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "id",
+            "modelKey",
+            "name",
+            "fields",
+            "version",
+            "schemaVersion"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "FieldSchema": {
+      "$ref": "#/definitions/FieldSchema",
+      "definitions": {
+        "FieldSchema": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "text",
+                "number",
+                "date",
+                "enum",
+                "boolean",
+                "file",
+                "richtext",
+                "relation",
+                "geo",
+                "user",
+                "dept",
+                "computed"
+              ]
+            },
+            "fieldStatus": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "DELETED"
+              ]
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "uniqueFlag": {
+              "type": "boolean"
+            },
+            "indexed": {
+              "type": "boolean"
+            },
+            "defaultValue": {
+              "anyOf": [
+                {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/definitions/FieldSchema/properties/defaultValue"
+                  }
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/FieldSchema/properties/defaultValue"
+                  }
+                }
+              ]
+            },
+            "sortOrder": {
+              "type": "number"
+            },
+            "enumOptions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ACTIVE",
+                      "DEPRECATED"
+                    ]
+                  }
+                },
+                "required": [
+                  "value",
+                  "label",
+                  "status"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "relation": {
+              "type": "object",
+              "properties": {
+                "targetModelId": {
+                  "type": "string"
+                },
+                "cardinality": {
+                  "type": "string",
+                  "enum": [
+                    "1:1",
+                    "1:n",
+                    "n:n"
+                  ]
+                },
+                "cascade": {
+                  "type": "string",
+                  "enum": [
+                    "FORBID",
+                    "SET_NULL",
+                    "CASCADE_SOFT_DELETE"
+                  ]
+                }
+              },
+              "required": [
+                "targetModelId",
+                "cardinality",
+                "cascade"
+              ],
+              "additionalProperties": false
+            },
+            "computed": {
+              "type": "object",
+              "properties": {
+                "expr": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "expr"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "dependsOn": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "source"
+                  ],
+                  "additionalProperties": false
+                },
+                "dependsOn": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "persistMode": {
+                  "type": "string",
+                  "enum": [
+                    "READ_TIME",
+                    "PERSISTED"
+                  ]
+                }
+              },
+              "required": [
+                "expr",
+                "dependsOn",
+                "persistMode"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "key",
+            "label",
+            "type",
+            "fieldStatus",
+            "sortOrder"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "LayoutNode": {
+      "$ref": "#/definitions/LayoutNode",
+      "definitions": {
+        "LayoutNode": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "componentName": {
+              "type": "string",
+              "pattern": "^[A-Za-z][\\w.]*$"
+            },
+            "props": {
+              "type": "object",
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "expr"
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "dependsOn": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "source"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "SUBMIT"
+                            },
+                            "successBehavior": {
+                              "type": "string",
+                              "enum": [
+                                "REFRESH",
+                                "REDIRECT",
+                                "TOAST"
+                              ]
+                            },
+                            "redirectTo": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "successBehavior"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "TRIGGER_FLOW"
+                            },
+                            "flowId": {
+                              "type": "string"
+                            },
+                            "bizKeyFrom": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "flowId",
+                            "bizKeyFrom"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "CALL_API"
+                            },
+                            "apiName": {
+                              "type": "string"
+                            },
+                            "paramsMapping": {
+                              "type": "object",
+                              "additionalProperties": {}
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "apiName",
+                            "paramsMapping"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "OPEN_PAGE"
+                            },
+                            "targetPageId": {
+                              "type": "string"
+                            },
+                            "queryMapping": {
+                              "type": "object",
+                              "additionalProperties": {}
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "targetPageId",
+                            "queryMapping"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "DELETE"
+                            },
+                            "confirmText": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "const": "CUSTOM_SCRIPT"
+                            },
+                            "scriptId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "scriptId"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/LayoutNode"
+                    }
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "$ref": "#/definitions/LayoutNode/properties/props/additionalProperties/anyOf/0"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": {
+                          "$ref": "#/definitions/LayoutNode/properties/props/additionalProperties/anyOf/4"
+                        }
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/definitions/LayoutNode/properties/props/additionalProperties/anyOf/4"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/LayoutNode"
+              }
+            },
+            "fieldRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "componentName",
+            "props"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "FilterNode": {
+      "$ref": "#/definitions/FilterNode",
+      "definitions": {
+        "FilterNode": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "op": {
+                  "type": "string",
+                  "enum": [
+                    "eq",
+                    "ne",
+                    "in",
+                    "nin",
+                    "gt",
+                    "gte",
+                    "lt",
+                    "lte",
+                    "like",
+                    "between",
+                    "isnull"
+                  ]
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": {
+                        "$ref": "#/definitions/FilterNode/anyOf/0/properties/value"
+                      }
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/definitions/FilterNode/anyOf/0/properties/value"
+                      }
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "field",
+                "op"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "and": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/FilterNode"
+                  }
+                }
+              },
+              "required": [
+                "and"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "or": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/FilterNode"
+                  }
+                }
+              },
+              "required": [
+                "or"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      }
+    },
+    "PageSchema": {
+      "$ref": "#/definitions/PageSchema",
+      "definitions": {
+        "PageSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pageKey": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "FORM",
+                "LIST",
+                "DETAIL",
+                "DASHBOARD"
+              ]
+            },
+            "modelId": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^\\/"
+            },
+            "layout": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "componentName": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z][\\w.]*$"
+                  },
+                  "props": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "expr"
+                            },
+                            "source": {
+                              "type": "string"
+                            },
+                            "dependsOn": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "source"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "SUBMIT"
+                                  },
+                                  "successBehavior": {
+                                    "type": "string",
+                                    "enum": [
+                                      "REFRESH",
+                                      "REDIRECT",
+                                      "TOAST"
+                                    ]
+                                  },
+                                  "redirectTo": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "successBehavior"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "TRIGGER_FLOW"
+                                  },
+                                  "flowId": {
+                                    "type": "string"
+                                  },
+                                  "bizKeyFrom": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "flowId",
+                                  "bizKeyFrom"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "CALL_API"
+                                  },
+                                  "apiName": {
+                                    "type": "string"
+                                  },
+                                  "paramsMapping": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "apiName",
+                                  "paramsMapping"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "OPEN_PAGE"
+                                  },
+                                  "targetPageId": {
+                                    "type": "string"
+                                  },
+                                  "queryMapping": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "targetPageId",
+                                  "queryMapping"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "DELETE"
+                                  },
+                                  "confirmText": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "type": {
+                                    "type": "string",
+                                    "const": "CUSTOM_SCRIPT"
+                                  },
+                                  "scriptId": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "scriptId"
+                                ],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/definitions/PageSchema/properties/layout/items"
+                          }
+                        },
+                        {
+                          "anyOf": [
+                            {
+                              "$ref": "#/definitions/PageSchema/properties/layout/items/properties/props/additionalProperties/anyOf/0"
+                            },
+                            {
+                              "type": "object",
+                              "additionalProperties": {
+                                "$ref": "#/definitions/PageSchema/properties/layout/items/properties/props/additionalProperties/anyOf/4"
+                              }
+                            },
+                            {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/definitions/PageSchema/properties/layout/items/properties/props/additionalProperties/anyOf/4"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "children": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/PageSchema/properties/layout/items"
+                    }
+                  },
+                  "fieldRef": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "componentName",
+                  "props"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "dataSource": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "MODEL_LIST",
+                    "MODEL_DETAIL",
+                    "MODEL_AGG",
+                    "STATIC_JSON"
+                  ]
+                },
+                "modelId": {
+                  "type": "string"
+                },
+                "filter": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "field": {
+                          "type": "string"
+                        },
+                        "op": {
+                          "type": "string",
+                          "enum": [
+                            "eq",
+                            "ne",
+                            "in",
+                            "nin",
+                            "gt",
+                            "gte",
+                            "lt",
+                            "lte",
+                            "like",
+                            "between",
+                            "isnull"
+                          ]
+                        },
+                        "value": {
+                          "$ref": "#/definitions/PageSchema/properties/layout/items/properties/props/additionalProperties/anyOf/4"
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "op"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "and": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/definitions/PageSchema/properties/dataSource/properties/filter"
+                          }
+                        }
+                      },
+                      "required": [
+                        "and"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "or": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/definitions/PageSchema/properties/dataSource/properties/filter"
+                          }
+                        }
+                      },
+                      "required": [
+                        "or"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "sort": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "order": {
+                        "type": "string",
+                        "enum": [
+                          "asc",
+                          "desc"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "order"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "pagination": {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "type": "number"
+                    },
+                    "size": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 200
+                    }
+                  },
+                  "required": [
+                    "page",
+                    "size"
+                  ],
+                  "additionalProperties": false
+                },
+                "aggregate": {
+                  "type": "object",
+                  "properties": {
+                    "measures": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "fieldKey": {
+                            "type": "string"
+                          },
+                          "func": {
+                            "type": "string",
+                            "enum": [
+                              "SUM",
+                              "AVG",
+                              "COUNT",
+                              "COUNT_DISTINCT",
+                              "MAX",
+                              "MIN"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "fieldKey",
+                          "func"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "maxItems": 5
+                    },
+                    "group": {
+                      "type": "object",
+                      "properties": {
+                        "fieldKey": {
+                          "type": "string"
+                        },
+                        "topN": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 50
+                        }
+                      },
+                      "required": [
+                        "fieldKey"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "timeBucket": {
+                      "type": "object",
+                      "properties": {
+                        "fieldKey": {
+                          "type": "string"
+                        },
+                        "interval": {
+                          "type": "string",
+                          "enum": [
+                            "DAY",
+                            "WEEK",
+                            "MONTH"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "fieldKey",
+                        "interval"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "measures"
+                  ],
+                  "additionalProperties": false
+                },
+                "staticData": {}
+              },
+              "required": [
+                "type"
+              ],
+              "additionalProperties": false
+            },
+            "actions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PageSchema/properties/layout/items/properties/props/additionalProperties/anyOf/2/items"
+              }
+            },
+            "schemaVersion": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "id",
+            "pageKey",
+            "name",
+            "type",
+            "path",
+            "layout",
+            "actions",
+            "schemaVersion"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "DataSourceBinding": {
+      "$ref": "#/definitions/DataSourceBinding",
+      "definitions": {
+        "DataSourceBinding": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "MODEL_LIST",
+                "MODEL_DETAIL",
+                "MODEL_AGG",
+                "STATIC_JSON"
+              ]
+            },
+            "modelId": {
+              "type": "string"
+            },
+            "filter": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string"
+                    },
+                    "op": {
+                      "type": "string",
+                      "enum": [
+                        "eq",
+                        "ne",
+                        "in",
+                        "nin",
+                        "gt",
+                        "gte",
+                        "lt",
+                        "lte",
+                        "like",
+                        "between",
+                        "isnull"
+                      ]
+                    },
+                    "value": {
+                      "anyOf": [
+                        {
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": {
+                            "$ref": "#/definitions/DataSourceBinding/properties/filter/anyOf/0/properties/value"
+                          }
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/definitions/DataSourceBinding/properties/filter/anyOf/0/properties/value"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "op"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "and": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/definitions/DataSourceBinding/properties/filter"
+                      }
+                    }
+                  },
+                  "required": [
+                    "and"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "or": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/definitions/DataSourceBinding/properties/filter"
+                      }
+                    }
+                  },
+                  "required": [
+                    "or"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "sort": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string"
+                  },
+                  "order": {
+                    "type": "string",
+                    "enum": [
+                      "asc",
+                      "desc"
+                    ]
+                  }
+                },
+                "required": [
+                  "field",
+                  "order"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "pagination": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "number"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 200
+                }
+              },
+              "required": [
+                "page",
+                "size"
+              ],
+              "additionalProperties": false
+            },
+            "aggregate": {
+              "type": "object",
+              "properties": {
+                "measures": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "fieldKey": {
+                        "type": "string"
+                      },
+                      "func": {
+                        "type": "string",
+                        "enum": [
+                          "SUM",
+                          "AVG",
+                          "COUNT",
+                          "COUNT_DISTINCT",
+                          "MAX",
+                          "MIN"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "fieldKey",
+                      "func"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 1,
+                  "maxItems": 5
+                },
+                "group": {
+                  "type": "object",
+                  "properties": {
+                    "fieldKey": {
+                      "type": "string"
+                    },
+                    "topN": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 50
+                    }
+                  },
+                  "required": [
+                    "fieldKey"
+                  ],
+                  "additionalProperties": false
+                },
+                "timeBucket": {
+                  "type": "object",
+                  "properties": {
+                    "fieldKey": {
+                      "type": "string"
+                    },
+                    "interval": {
+                      "type": "string",
+                      "enum": [
+                        "DAY",
+                        "WEEK",
+                        "MONTH"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "fieldKey",
+                    "interval"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "measures"
+              ],
+              "additionalProperties": false
+            },
+            "staticData": {}
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "ActionBinding": {
+      "$ref": "#/definitions/ActionBinding",
+      "definitions": {
+        "ActionBinding": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "SUBMIT"
+                },
+                "successBehavior": {
+                  "type": "string",
+                  "enum": [
+                    "REFRESH",
+                    "REDIRECT",
+                    "TOAST"
+                  ]
+                },
+                "redirectTo": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "successBehavior"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "TRIGGER_FLOW"
+                },
+                "flowId": {
+                  "type": "string"
+                },
+                "bizKeyFrom": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "flowId",
+                "bizKeyFrom"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "CALL_API"
+                },
+                "apiName": {
+                  "type": "string"
+                },
+                "paramsMapping": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "type",
+                "apiName",
+                "paramsMapping"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "OPEN_PAGE"
+                },
+                "targetPageId": {
+                  "type": "string"
+                },
+                "queryMapping": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "type",
+                "targetPageId",
+                "queryMapping"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "DELETE"
+                },
+                "confirmText": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "CUSTOM_SCRIPT"
+                },
+                "scriptId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "scriptId"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      }
+    },
+    "ExpressionBinding": {
+      "$ref": "#/definitions/ExpressionBinding",
+      "definitions": {
+        "ExpressionBinding": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "expr"
+            },
+            "source": {
+              "type": "string"
+            },
+            "dependsOn": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "source"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "fixtureVerdicts": {
+    "minimal-valid": true,
+    "expr-prop": true,
+    "bad-action": false,
+    "oversize-pagination": false,
+    "bad-component-name": false,
+    "agg-structure": true
+  }
+}
