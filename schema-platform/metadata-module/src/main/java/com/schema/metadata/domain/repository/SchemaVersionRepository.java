@@ -22,8 +22,12 @@ public interface SchemaVersionRepository {
     void issueToken(String token, long modelId, String bindingHash, int baseVersion,
             String confirmMode, java.time.OffsetDateTime expiresAt);
 
-    /** 一次性消费：未过期且未消费才成功（CAS：consumed_at IS NULL → now）。 */
-    boolean consumeToken(String token, String bindingHash, int baseVersion);
+    /**
+     * 一次性消费（五元组校验）：token 有效 + modelId 一致 + binding hash 一致
+     * + baseVersion 一致 + 未消费未过期。校验失败不消费（可修正后重试直至过期）。
+     * modelId 必须参与校验——不同模型同变更同版本时 token 不可挪用。
+     */
+    boolean consumeToken(String token, long modelId, String bindingHash, int baseVersion);
 
     /** 读取 token 签发时的 confirmMode（不存在/已过期返回 empty）。 */
     java.util.Optional<String> findTokenMode(String token);
@@ -39,4 +43,7 @@ public interface SchemaVersionRepository {
     /** 计算字段引用（COMPUTED）：登记到引用表。 */
     void upsertComputedReferences(long tenantId, long modelId, String computedFieldKey,
             List<String> dependsOn);
+
+    /** 清除该模型全部 COMPUTED 引用（全量重建第一步：防旧依赖残留误报风险）。 */
+    void deleteAllComputedReferences(long modelId);
 }

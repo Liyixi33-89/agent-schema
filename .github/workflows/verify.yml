@@ -12,6 +12,24 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    # M2 集成测试门禁（backend-it）硬性要求真实 PG——CI 与本地同构
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: schema_dev
+          POSTGRES_USER: schema_dev
+          POSTGRES_PASSWORD: schema_local_only
+        ports:
+          - 5432:5432
+        # 就绪探针：pg_isready 通过才算 service 可用
+        options: >-
+          --health-cmd "pg_isready -U schema_dev -d schema_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 

@@ -66,17 +66,21 @@ public class JdbcSchemaVersionRepository implements SchemaVersionRepository {
     }
 
     @Override
-    public boolean consumeToken(String token, String bindingHash, int baseVersion) {
-        // 四元组校验：token 有效 + binding hash 一致 + baseVersion 一致 + 未消费未过期（01BE §4.2）
-        // 校验失败不消费（可修正后重试直至过期）
+    public boolean consumeToken(String token, long modelId, String bindingHash, int baseVersion) {
+        // 五元组校验：token 有效 + modelId 一致 + binding hash 一致 + baseVersion 一致
+        // + 未消费未过期（01BE §4.2）；校验失败不消费（可修正后重试直至过期）
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT binding_hash, base_version, expires_at, consumed_at FROM meta_confirm_token WHERE token=?",
+                "SELECT model_id, binding_hash, base_version, expires_at, consumed_at "
+                        + "FROM meta_confirm_token WHERE token=?",
                 token);
         if (rows.size() != 1) {
             return false;
         }
         Map<String, Object> row = rows.get(0);
         if (row.get("consumed_at") != null) {
+            return false;
+        }
+        if (((Number) row.get("model_id")).longValue() != modelId) {
             return false;
         }
         if (!java.util.Objects.equals(row.get("binding_hash"), bindingHash)) {
@@ -151,5 +155,10 @@ public class JdbcSchemaVersionRepository implements SchemaVersionRepository {
                     ON CONFLICT (model_id, field_key, ref_type, ref_id) DO NOTHING
                     """, tenantId, modelId, dep, modelId, computedFieldKey);
         }
+    }
+
+    @Override
+    public void deleteAllComputedReferences(long modelId) {
+        jdbc.update("DELETE FROM meta_field_reference WHERE model_id=? AND ref_type='COMPUTED'", modelId);
     }
 }

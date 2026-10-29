@@ -158,7 +158,8 @@ public class MetadataCommandService {
         if (confirmValue == null || !confirmValue.equals(model.name())) {
             throw BizException.confirmTokenInvalid("confirmValue 与模型名不一致");
         }
-        if (!versions.consumeToken(confirmToken, "delete-model:" + model.name(), model.currentVersion())) {
+        if (!versions.consumeToken(confirmToken, model.id(), "delete-model:" + model.name(),
+                model.currentVersion())) {
             throw BizException.confirmTokenInvalid("token 未签发/已消费/绑定不一致/已过期");
         }
         if (model.deletedModel()) {
@@ -166,17 +167,6 @@ public class MetadataCommandService {
         }
         models.markDeleted(model.id(), tenant.tenantId());
         // 物理表改名 biz_model_{id}_archived 由 DDL 执行器消费删除事件执行（M5 联调，本 spec 只发事件形态）
-    }
-
-    /** 兼容入口：无 token 直接删除（仅限内部测试/种子数据，生产路径必须走两段式）。 */
-    @Transactional
-    public void deleteModel(long modelId) {
-        TenantInfo tenant = TenantContext.get();
-        ModelAggregate model = loadForTenant(modelId);
-        if (model.deletedModel()) {
-            return; // 幂等
-        }
-        models.markDeleted(model.id(), tenant.tenantId());
     }
 
     // ---------- 两段式保存 ----------
@@ -233,7 +223,7 @@ public class MetadataCommandService {
                 throw BizException.confirmTokenInvalid("confirmValue 与模型名不一致");
             }
         }
-        if (!versions.consumeToken(confirmToken, bindingHash, baseVersion)) {
+        if (!versions.consumeToken(confirmToken, model.id(), bindingHash, baseVersion)) {
             throw BizException.confirmTokenInvalid("token 未签发/已消费/绑定不一致/已过期");
         }
 
@@ -279,7 +269,7 @@ public class MetadataCommandService {
 
         // 5-6. 元数据落库 + 快照
         persistChanges(model, tenant, changes, targetVersion);
-        registerComputedReferences(tenant, model, changes);
+        registerComputedReferences(tenant, model);
         snapshot(model, diff, tenant.operatorId(), null);
 
         Map<String, Object> resp = new LinkedHashMap<>();
@@ -367,7 +357,7 @@ public class MetadataCommandService {
         if (confirmValue == null || !confirmValue.equals(model.name())) {
             throw BizException.confirmTokenInvalid("confirmValue 与模型名不一致");
         }
-        if (!versions.consumeToken(confirmToken, "rollback:" + targetVersion, targetVersion)) {
+        if (!versions.consumeToken(confirmToken, model.id(), "rollback:" + targetVersion, targetVersion)) {
             throw BizException.confirmTokenInvalid("token 未签发/已消费/绑定不一致/已过期");
         }
 
@@ -408,6 +398,7 @@ public class MetadataCommandService {
         }
 
         persistRollback(model, tenant, changes, newVersion);
+        registerComputedReferences(tenant, model);
         snapshot(model, diff, tenant.operatorId(), targetVersion);
 
         Map<String, Object> resp = new LinkedHashMap<>();
@@ -678,23 +669,26 @@ public class MetadataCommandService {
         return result;
     }
 
-    /** 计算字段引用登记（01BE §4.5：COMPUTED 引用在字段保存时由本服务自己登记）。 */
-    private void registerComputedReferences(TenantInfo tenant, ModelAggregate model, List<ChangeOp> changes) {
-        for (ChangeOp change : changes) {
-            Map<String, Object> computed = null;
-            if (change instanceof ChangeOp.AddField add) {
-                computed = add.computedConfig();
-            } else if (change instanceof ChangeOp.ModifyField mod && mod.patch().containsKey("computed")) {
-                computed = castMap(mod.patch().get("computed"));
+    /**
+     * 计算字段引用登记（01BE §4.5：COMPUTED 引用在字段保存时由本服务自己登记）。
+     * 全量重建口径：先清空该模型全部 COMPUTED 引用，再按聚合当前字段定义重建——
+     * MODIFY 改 dependsOn、删除计算字段、回滚后旧引用行均不留残留（残留会让影响面误报 COMPUTED_REF）。
+     * 引用真源 = 当前字段定义而非本次 changes（回滚场景 changes 只含差异，重建才完整）。
+     */
+    private void registerComputedReferences(TenantInfo tenant, ModelAggregate model) {
+        versions.deleteAllComputedReferences(model.id());
+        for (ModelAggregate.FieldDef f : model.allFields()) {
+            if (!f.isActive() || f.computedConfig() == null) {
+                continue;
             }
-            if (computed != null && computed.get("dependsOn") instanceof List<?> deps) {
+            if (f.computedConfig().get("dependsOn") instanceof List<?> deps) {
                 List<String> dependsOn = new ArrayList<>();
                 for (Object d : deps) {
                     if (d instanceof String s && !s.isBlank()) {
                         dependsOn.add(s);
                     }
                 }
-                versions.upsertComputedReferences(tenant.tenantId(), model.id(), change.fieldKey(), dependsOn);
+                versions.upsertComputedReferences(tenant.tenantId(), model.id(), f.fieldKey(), dependsOn);
             }
         }
     }

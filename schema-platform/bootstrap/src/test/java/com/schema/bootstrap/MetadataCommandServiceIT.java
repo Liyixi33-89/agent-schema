@@ -454,6 +454,90 @@ class MetadataCommandServiceIT {
                 "删除被计算字段依赖的字段必须暴露 COMPUTED_REF 风险");
     }
 
+    // ---------- token 模型绑定（2026-10-29 收口：跨模型挪用拒绝） ----------
+
+    @Test
+    void tokenCannotBeReusedAcrossModels() {
+        // 模型 A 签发 token（同变更内容、同 baseVersion）
+        long modelA = modelId;
+        Map<String, Object> preA = precheck(List.of(addAmount()));
+        String tokenA = (String) preA.get("confirmToken");
+
+        // 模型 B 构造完全相同的变更 + baseVersion → 挪用 A 的 token 必须被拒
+        long modelB = TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                Long.parseLong((String) service.createModel("victim_" + System.nanoTime(), "B", null).get("id")));
+        BizException e = TenantContext.with(new TenantInfo(1, 1, 1), () -> {
+            try {
+                service.saveSchema(modelB, List.of(addAmount()), 1, tokenA, null);
+                return null;
+            } catch (BizException ex) {
+                return ex;
+            }
+        });
+        assertNotNull(e, "跨模型挪用 token 必须被拒");
+        assertEquals("CONFIRM_TOKEN_INVALID", e.code(), "modelId 绑定校验");
+
+        // 原 token 在模型 A 上仍可正常消费（挪用失败不消费）
+        TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.saveSchema(modelA, List.of(addAmount()), 1, tokenA, null));
+    }
+
+    // ---------- COMPUTED 引用全量重建（2026-10-29 收口：无残留） ----------
+
+    @Test
+    void computedReferencesRebuiltWithoutResidue() {
+        // v2: amount + double_amount（依赖 amount）
+        Map<String, Object> amountDef = Map.of("label", "金额", "type", "number");
+        Map<String, Object> totalDef = Map.of(
+                "label", "翻倍", "type", "computed",
+                "computed", Map.of("expr", Map.of("kind", "expr", "source", "amount * 2"),
+                        "dependsOn", List.of("amount"), "persistMode", "READ_TIME"));
+        Map<String, Object> pre = precheck(List.of(
+                new ChangeOp.AddField("amount", amountDef),
+                new ChangeOp.AddField("double_amount", totalDef)));
+        TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.saveSchema(modelId, List.of(
+                        new ChangeOp.AddField("amount", amountDef),
+                        new ChangeOp.AddField("double_amount", totalDef)),
+                        1, (String) pre.get("confirmToken"), null));
+
+        Long refs = jdbc.queryForObject(
+                "SELECT count(*) FROM meta_field_reference WHERE model_id=? AND ref_type='COMPUTED'",
+                Long.class, modelId);
+        assertEquals(1L, refs, "保存后登记 amount ← double_amount");
+
+        // v3: MODIFY 改 dependsOn → amount 改为 amount2——旧引用必须被清除
+        Map<String, Object> amount2Def = Map.of("label", "金额2", "type", "number");
+        Map<String, Object> pre2 = precheck(List.of(
+                new ChangeOp.AddField("amount2", amount2Def),
+                new ChangeOp.ModifyField("double_amount", Map.of("computed",
+                        Map.of("expr", Map.of("kind", "expr", "source", "amount2 * 2"),
+                                "dependsOn", List.of("amount2"), "persistMode", "READ_TIME")))));
+        TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                service.saveSchema(modelId, List.of(
+                        new ChangeOp.AddField("amount2", amount2Def),
+                        new ChangeOp.ModifyField("double_amount", Map.of("computed",
+                                Map.of("expr", Map.of("kind", "expr", "source", "amount2 * 2"),
+                                        "dependsOn", List.of("amount2"), "persistMode", "READ_TIME")))),
+                        2, (String) pre2.get("confirmToken"), null));
+
+        Long staleAmount = jdbc.queryForObject(
+                "SELECT count(*) FROM meta_field_reference WHERE model_id=? AND field_key='amount' "
+                        + "AND ref_type='COMPUTED'", Long.class, modelId);
+        assertEquals(0L, staleAmount, "改 dependsOn 后旧依赖不得残留（否则删除 amount 误报风险）");
+        Long newRefs = jdbc.queryForObject(
+                "SELECT count(*) FROM meta_field_reference WHERE model_id=? AND field_key='amount2' "
+                        + "AND ref_type='COMPUTED'", Long.class, modelId);
+        assertEquals(1L, newRefs, "新依赖登记到位");
+
+        // 删除 amount 的 precheck 不再误报 COMPUTED_REF
+        Map<String, Object> delPre = precheck(List.of(new ChangeOp.DeleteField("amount")));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> risks = (List<Map<String, Object>>) delPre.get("risks");
+        assertTrue(risks.stream().noneMatch(r -> "COMPUTED_REF".equals(r.get("type"))),
+                "依赖已改走后删除旧字段不得误报 COMPUTED_REF");
+    }
+
     // ---------- 辅助 ----------
 
     private Map<String, Object> precheck(List<ChangeOp> changes) {
