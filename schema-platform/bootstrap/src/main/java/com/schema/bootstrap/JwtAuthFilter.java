@@ -7,6 +7,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
@@ -39,10 +40,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtCodec jwt;
     private final IamRepository iam;
+    private final ObjectProvider<com.schema.page.application.PreviewGrantService> previewSessions;
 
-    public JwtAuthFilter(JwtCodec jwt, @Lazy IamRepository iam) {
+    public JwtAuthFilter(JwtCodec jwt, @Lazy IamRepository iam,
+            ObjectProvider<com.schema.page.application.PreviewGrantService> previewSessions) {
         this.jwt = jwt;
         this.iam = iam;
+        this.previewSessions = previewSessions;
     }
 
     @Override
@@ -63,9 +67,23 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         String token = authHeader.substring(7);
         JwtCodec.Claims claims = jwt.verify(token);
-        if (claims == null || !"access".equals(claims.tokenType())) {
+        if (claims == null || !("access".equals(claims.tokenType()) || claims.preview())) {
             writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "登录态无效或已过期");
             return;
+        }
+
+        // 预览态会话校验（04BE §A.7 吊销闭环）：preview token 必须查会话存在且未吊销——
+        // 吊销后下一请求即 401（无需等 15min 过期）；普通 token 不走此路径（无额外查询开销）
+        if (claims.preview()) {
+            try {
+                previewSessions.getObject().validateSession(claims.jti());
+            } catch (com.schema.platform.common.web.BizException e) {
+                String code = "PREVIEW_SESSION_REVOKED".equals(e.code())
+                        ? "PREVIEW_SESSION_REVOKED" : "UNAUTHORIZED";
+                writeError(response, HttpServletResponse.SC_UNAUTHORIZED, code,
+                        "PREVIEW_SESSION_REVOKED".equals(code) ? "预览会话已被吊销" : "登录态无效或已过期");
+                return;
+            }
         }
 
         // 凭证主体有效性（03BE §4「逐请求走判定链」）：用户不存在 / 停用 / 与 claim 租户不一致 → 401

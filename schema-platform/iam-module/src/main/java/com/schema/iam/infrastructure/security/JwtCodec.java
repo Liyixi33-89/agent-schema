@@ -33,10 +33,26 @@ public class JwtCodec {
     }
 
     public record Claims(Long userId, Long tenantId, String tokenType, long expiresAtEpoch, String jti) {
+        public boolean preview() {
+            return "preview".equals(tokenType);
+        }
     }
 
     public String issueAccess(long userId, long tenantId) {
         return issue(userId, tenantId, "access", ACCESS_TTL_SECONDS);
+    }
+
+    /** 预览会话 token（04BE §A.7）：typ=preview + previewSessionId claim（JTI 同值）——网关按会话校验。 */
+    public String issuePreview(long userId, long tenantId, String previewSessionId, long ttlSeconds) {
+        long now = System.currentTimeMillis() / 1000;
+        String header = b64url("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
+        String payload = b64url(("{\"sub\":\"" + userId + "\",\"tenant\":" + tenantId
+                + ",\"typ\":\"preview\",\"iat\":" + now
+                + ",\"exp\":" + (now + ttlSeconds)
+                + ",\"previewSessionId\":\"" + previewSessionId
+                + "\",\"jti\":\"" + previewSessionId + "\"}").getBytes(StandardCharsets.UTF_8));
+        String signingInput = header + "." + payload;
+        return signingInput + "." + b64url(hmac(signingInput));
     }
 
     public String issueRefresh(long userId, long tenantId) {
@@ -66,8 +82,7 @@ public class JwtCodec {
         String signingInput = parts[0] + "." + parts[1];
         if (!MessageDigest.isEqual(hmac(signingInput), b64urlDecode(parts[2]))) {
             return null;
-        }
-        String json = new String(b64urlDecode(parts[1]), StandardCharsets.UTF_8);
+        }        String json = new String(b64urlDecode(parts[1]), StandardCharsets.UTF_8);
         // 手工解析固定 claim 结构（自身签发的固定形态，无需通用 JSON 解析）
         Long userId = extractNumber(json, "\"sub\":\"");
         Long tenantId = extractNumber(json, "\"tenant\":");
@@ -79,7 +94,10 @@ public class JwtCodec {
         if (exp < System.currentTimeMillis() / 1000) {
             return null;
         }
-        return new Claims(userId, tenantId, typ, exp, extractString(json, "\"jti\":\""));
+        // preview 态：previewSessionId 为会话真源（JTI 同值）；普通 token 无此键回落 jti
+        String previewSessionId = extractString(json, "\"previewSessionId\":\"");
+        String jti = extractString(json, "\"jti\":\"");
+        return new Claims(userId, tenantId, typ, exp, previewSessionId != null ? previewSessionId : jti);
     }
 
     /** refresh token 原文生成（非 JWT——随机串；库中存 SHA-256 摘要）。 */

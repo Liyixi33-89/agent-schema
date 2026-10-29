@@ -415,6 +415,15 @@ public class MetadataCommandService {
         versions.upsertReference(tenant.tenantId(), modelId, fieldKey, refType, refId);
     }
 
+    /** 页面删除时全清该页面引用（01BE §A.4「页面删除同步清理」；refTypes 限定调用方域）。 */
+    @Transactional
+    public void clearReferencesByRefId(long refId, String... refTypes) {
+        TenantInfo tenant = TenantContext.get();
+        for (String refType : refTypes) {
+            versions.deleteReferencesByRefId(tenant.tenantId(), refId, refType);
+        }
+    }
+
     // ---------- 内部 ----------
 
     private ModelAggregate loadForTenant(long modelId) {

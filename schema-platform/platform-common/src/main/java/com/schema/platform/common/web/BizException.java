@@ -104,4 +104,35 @@ public class BizException extends RuntimeException {
     public static BizException permDenied() {
         return new BizException("PERM_DENIED", "权限不足");
     }
+
+    // 04BE §A.6 页面域错误码工厂
+    /** 路径租户内唯一性冲突（422 PATH_DUPLICATED）。 */
+    public static BizException pathDuplicated() {
+        return new BizException("PATH_DUPLICATED", "路由路径已存在");
+    }
+
+    /** 草稿 baseVersion 过期（409 DRAFT_VERSION_CONFLICT——三方对比流程）。 */
+    public static BizException draftVersionConflict() {
+        return new BizException("DRAFT_VERSION_CONFLICT", "草稿版本冲突，请刷新后重试");
+    }
+
+    /** 并发发布竞态（409 PUBLISH_CONFLICT）。 */
+    public static BizException publishConflict() {
+        return new BizException("PUBLISH_CONFLICT", "页面发布版本冲突，请重试");
+    }
+
+    /** 预览 grant 已使用/过期（401 GRANT_CONSUMED——不可重放）。 */
+    public static BizException grantConsumed() {
+        return new BizException("GRANT_CONSUMED", "预览凭证已使用或已过期");
+    }
+
+    /** 预览会话已被吊销（401 PREVIEW_SESSION_REVOKED——在途 token 即时失效）。 */
+    public static BizException previewSessionRevoked() {
+        return new BizException("PREVIEW_SESSION_REVOKED", "预览会话已被吊销");
+    }
+
+    /** 页面/发布版本不存在（404 PAGE_NOT_FOUND——04BE §A.6 域错误码与模型域分离）。 */
+    public static BizException pageNotFound(String what) {
+        return new BizException("PAGE_NOT_FOUND", what + " 不存在");
+    }
 }

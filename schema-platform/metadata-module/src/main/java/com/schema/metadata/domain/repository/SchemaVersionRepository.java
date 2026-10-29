@@ -46,4 +46,7 @@ public interface SchemaVersionRepository {
 
     /** 清除该模型全部 COMPUTED 引用（全量重建第一步：防旧依赖残留误报风险）。 */
     void deleteAllComputedReferences(long modelId);
+
+    /** 按引用方 ID 清理（页面删除同步清理，01BE §A.4）。 */
+    void deleteReferencesByRefId(long tenantId, long refId, String refType);
 }

@@ -161,4 +161,10 @@ public class JdbcSchemaVersionRepository implements SchemaVersionRepository {
     public void deleteAllComputedReferences(long modelId) {
         jdbc.update("DELETE FROM meta_field_reference WHERE model_id=? AND ref_type='COMPUTED'", modelId);
     }
+
+    @Override
+    public void deleteReferencesByRefId(long tenantId, long refId, String refType) {
+        jdbc.update("DELETE FROM meta_field_reference WHERE tenant_id=? AND ref_id=? AND ref_type=?",
+                tenantId, refId, refType);
+    }
 }
