@@ -1,0 +1,17 @@
+﻿[
+  { "name": "NOW", "category": "date", "args": [], "desc": "当前 UTC 时间（注入时钟，双端统一 UTC）" },
+  { "name": "DATE_DIFF", "category": "date", "args": ["a", "b", "unit"], "desc": "两日期差，unit ∈ DAY|WEEK|MONTH" },
+  { "name": "DATE_FORMAT", "category": "date", "args": ["d", "fmt"], "desc": "按 fmt 格式化，YYYY-MM-DD HH:mm:ss" },
+  { "name": "CONCAT", "category": "string", "args": ["...parts"], "desc": "拼接，跳过 null" },
+  { "name": "UPPER", "category": "string", "args": ["s"], "desc": "转大写" },
+  { "name": "LOWER", "category": "string", "args": ["s"], "desc": "转小写" },
+  { "name": "REPLACE", "category": "string", "args": ["s", "search", "replacement"], "desc": "全量替换" },
+  { "name": "SPLIT", "category": "string", "args": ["s", "sep"], "desc": "按分隔符切分为数组" },
+  { "name": "TRIM", "category": "string", "args": ["s"], "desc": "去首尾空白" },
+  { "name": "ROUND", "category": "number", "args": ["n", "digits"], "desc": "四舍五入 half-up，digits 默认 0" },
+  { "name": "ABS", "category": "number", "args": ["n"], "desc": "绝对值" },
+  { "name": "CEIL", "category": "number", "args": ["n"], "desc": "向上取整" },
+  { "name": "FLOOR", "category": "number", "args": ["n"], "desc": "向下取整" },
+  { "name": "INCLUDES", "category": "collection", "args": ["list", "value"], "desc": "集合包含；list 为 null → false" },
+  { "name": "LENGTH", "category": "collection", "args": ["target"], "desc": "数组/字符串长度；null → 0" }
+]
