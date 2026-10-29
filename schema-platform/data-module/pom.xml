@@ -1,1 +1,14 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><parent><groupId>com.schema</groupId><artifactId>schema-platform</artifactId><version>0.1.0-SNAPSHOT</version></parent><artifactId>data-module</artifactId></project>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion><parent><groupId>com.schema</groupId><artifactId>schema-platform</artifactId><version>0.1.0-SNAPSHOT</version></parent>
+  <artifactId>data-module</artifactId>
+  <dependencies>
+    <dependency><groupId>com.schema</groupId><artifactId>platform-common</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>com.schema</groupId><artifactId>schema-protocol</artifactId><version>${project.version}</version></dependency>
+    <!-- 端口适配器直连（进程内上下文映射）：metadata/iam 应用服务与仓储——组合根背书，拆分后换 RPC -->
+    <dependency><groupId>com.schema</groupId><artifactId>metadata-module</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>com.schema</groupId><artifactId>iam-module</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jdbc</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
+  </dependencies>
+</project>

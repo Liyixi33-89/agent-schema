@@ -35,9 +35,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/security/csp-reports",
             "/api/preview/exchange");
 
-    /** 预览态可访问端点（04BE §A.7：权限 = 发起人 ∩ 预览范围——预览 token 不得进入设计面/管理面）。 */
+    /** 预览态可访问端点（04BE §A.7：权限 = 发起人 ∩ 预览范围——预览 token 不得进入设计面/管理面）。
+     *  /api/data：运行时页面数据源读取（allowRealWrite=false 会话走只读——写操作由引擎侧拦截，M6 接线）。 */
     private static final Set<String> PREVIEW_ALLOWED_PATHS = Set.of(
-            "/api/runtime/pages");
+            "/api/runtime/pages", "/api/data");
 
     /** 强制改密放行名单（§A.3.1）：改密本体 + 登出 + me。 */
     private static final Set<String> PASSWORD_CHANGE_ALLOWLIST = Set.of(

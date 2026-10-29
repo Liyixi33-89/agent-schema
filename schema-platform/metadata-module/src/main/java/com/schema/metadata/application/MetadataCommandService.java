@@ -41,12 +41,15 @@ public class MetadataCommandService {
     private final ModelRepository models;
     private final FieldRepository fields;
     private final SchemaVersionRepository versions;
+    private final org.springframework.context.ApplicationEventPublisher events;
 
     public MetadataCommandService(ModelRepository models, FieldRepository fields,
-            SchemaVersionRepository versions) {
+            SchemaVersionRepository versions,
+            org.springframework.context.ApplicationEventPublisher events) {
         this.models = models;
         this.fields = fields;
         this.versions = versions;
+        this.events = events;
     }
 
     // ---------- 模型 CRUD ----------
@@ -65,6 +68,9 @@ public class MetadataCommandService {
         model.assignId(id);
         // 首版快照（v1 空字段集）
         snapshot(model, List.of(), tenant.operatorId(), null);
+        // 建模→物理表联动（02BE §2.1 建模时自动创建；事件解耦防模块反向依赖）
+        events.publishEvent(new com.schema.metadata.domain.event.ModelCreatedEvent(
+                tenant.tenantId(), id, modelKey));
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("id", Long.toString(id));       // ID string 传输（10BE §A.1）
         resp.put("modelKey", modelKey);

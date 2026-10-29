@@ -47,7 +47,7 @@ public class JdbcFieldRepository implements FieldRepository {
         if (json == null || json.isBlank() || "null".equals(json)) {
             return null;
         }
-        Object parsed = Json.parse(json);
+        Object parsed = Json.read(json, Object.class);
         if (!(parsed instanceof List<?> list)) {
             throw new IllegalArgumentException("JSON 数组格式非法");
         }

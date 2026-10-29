@@ -135,4 +135,10 @@ public class BizException extends RuntimeException {
     public static BizException pageNotFound(String what) {
         return new BizException("PAGE_NOT_FOUND", what + " 不存在");
     }
+
+    // 02BE §A.6 数据域错误码工厂
+    /** 记录不存在/行级权限不可见（404 RECORD_NOT_FOUND——同响应不给线索）。 */
+    public static BizException recordNotFound() {
+        return new BizException("RECORD_NOT_FOUND", "记录不存在");
+    }
 }
