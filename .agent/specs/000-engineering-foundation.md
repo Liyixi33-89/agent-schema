@@ -63,7 +63,7 @@ schema-frontend/
 - [ ] A1 `verify -Level commit` 全步 [PASS]；仅允许两类合法降级——contract-diff [SKIP]（M1.5 前无契约产物）、frontend-e2e [SKIP]（ci 级专属，commit 级不跑且 M0 无页面）；其余任何 [SKIP]/[FAIL] 均不通过
 - [ ] A2 后端模块间依赖仅经 `*-api`：ArchUnit 空规则框架就位 + **至少 1 条真实规则反向验证**（构造一个违规依赖样本证明会 FAIL——空规则挂而不知失效即腐烂）
 - [ ] A3 前端跨包 import 走包名：dependency-cruiser 占位规则可跑 + 同上反向验证（违规样本被拦截）
-- [ ] A4 GitHub Actions 在 push 时真实执行（verify.yml 分支触发已修复的实证；JDK21 镜像就位）
+- [x] A4 GitHub Actions 在 push 时真实执行（2026-10-29 用户在 Actions 页面确认成功；JDK21 镜像就位。运行链接及对应 SHA 尚未登记；本地未提交的新增测试不包含在该远端成功记录内）
 - [ ] A5 Flyway 幂等：重复启动 checksum 通过（T2 同源验收）
 
 ## 6. 验证步骤
