@@ -266,10 +266,15 @@ public class AuthService {
     }
 
     private static String generateOneTimePassword() {
-        // 12 位字母数字（满足策略：≥8 且含字母数字）
-        String alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+        // 12 位字母数字：首位字母 + 第二位数字 + 其余随机（保证满足策略「含字母且含数字」——
+        // 纯随机 12 位有 ~6% 概率全字母导致建号被自家策略拒绝，CI 已实证）
+        String letters = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ";
+        String digits = "23456789";
+        String alphabet = letters + digits;
         StringBuilder sb = new StringBuilder(12);
-        for (int i = 0; i < 12; i++) {
+        sb.append(letters.charAt(RANDOM.nextInt(letters.length())));
+        sb.append(digits.charAt(RANDOM.nextInt(digits.length())));
+        for (int i = 2; i < 12; i++) {
             sb.append(alphabet.charAt(RANDOM.nextInt(alphabet.length())));
         }
         return sb.toString();
