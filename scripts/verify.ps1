@@ -199,13 +199,17 @@ if (Test-Path $contractDir) {
         try {
             pnpm --filter @schema/schema-protocol run export:enums
             if ($LASTEXITCODE -ne 0) { throw "前端枚举导出退出码 $LASTEXITCODE" }
+            pnpm --filter @schema/schema-protocol run export:schema
+            if ($LASTEXITCODE -ne 0) { throw "前端结构导出退出码 $LASTEXITCODE" }
         } finally { Pop-Location }
         $enumsJson = Join-Path $contractDir 'export\enums.json'
         if (-not (Test-Path $enumsJson)) { throw "枚举导出文件缺失: $enumsJson" }
+        $schemaJson = Join-Path $contractDir 'export\schema.json'
+        if (-not (Test-Path $schemaJson)) { throw "结构导出文件缺失: $schemaJson" }
         Push-Location $be
         try {
-            mvn -q -pl schema-protocol test "-Dtest=EnumContractTest"
-            if ($LASTEXITCODE -ne 0) { throw "后端枚举比对退出码 $LASTEXITCODE" }
+            mvn -q -pl schema-protocol test "-Dtest=EnumContractTest,SchemaContractTest"
+            if ($LASTEXITCODE -ne 0) { throw "后端契约比对退出码 $LASTEXITCODE" }
         } finally { Pop-Location }
     }
 } else { Skip 'contract-diff' 'contract/ 尚未导出（spec-001 T6 落地后生效）' }

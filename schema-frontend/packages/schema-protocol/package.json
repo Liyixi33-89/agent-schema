@@ -10,6 +10,12 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "export:enums": "node scripts/export-enums.mjs",
+    "export:schema": "tsx scripts/export-schema.ts",
     "test": "vitest run"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "zod": "^3.25.28",
+    "zod-to-json-schema": "^3.24.0"
   }
 }
