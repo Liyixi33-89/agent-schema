@@ -50,7 +50,9 @@ schema/
 |---|---|---|
 | 本文件 | 每会话常驻 | ≤200 行 |
 | 相关 spec | 按需 1-2 份 | 单份 ≤500 行 |
-| 实时状态（依赖树/路由/Schema/进度） | 工具现场读取 | **禁止写进任何文档** |
+| 实时状态（依赖树/路由/Schema/进度） | 工具现场读取；任务状态唯一台账 `.agent/workflow.json` | **禁止在规则/README/skills 重复维护；spec 保留验收规格** |
+
+继续开发先执行 `python scripts/workflow.py next`，查询进度执行 `status`；任务执行与证据验收遵循 `.agent/workflow.md`。`implemented` 不等于验收完成，只有证据与独立审查齐备才能 `accepted`。
 | 代码本体 | outline → 局部读 | 禁止整仓投喂 |
 
 ## 6. AI 权限分级（结构化安全边界，不靠口头提醒）

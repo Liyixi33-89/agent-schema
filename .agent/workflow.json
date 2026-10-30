@@ -1,0 +1,270 @@
+{
+  "schemaVersion": 1,
+  "tasks": [
+    {
+      "id": "FIX-M9",
+      "title": "修复真实文件上传与凭证安全链路",
+      "status": "implementing",
+      "priority": 0,
+      "dependsOn": [],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "http-multipart",
+          "requirement": "真实 HTTP 多块上传并 complete；校验会话、块号、过期、PUT/GET 方法绑定",
+          "evidence": null
+        },
+        {
+          "id": "content-integrity",
+          "requirement": "魔数、SHA-256、ETag 不匹配负例全部拒绝；测试只清自建记录",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "FIX-M8",
+      "title": "修复计量认证、可靠队列与席位并发",
+      "status": "planned",
+      "priority": 1,
+      "dependsOn": [],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "authenticated-retry",
+          "requirement": "认证注入真实生效；beacon 不以排队成功当受理；持久化重试不丢幂等键",
+          "evidence": null
+        },
+        {
+          "id": "seat-concurrency",
+          "requirement": "并发授权与撤销、跨应用授权不突破配额；成员事件即时重算",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "FIX-M10",
+      "title": "修复通知抑制展示与频控边界",
+      "status": "planned",
+      "priority": 2,
+      "dependsOn": [],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "suppression",
+          "requirement": "SUPPRESSED 不进入用户列表或未读数，审计可追溯",
+          "evidence": null
+        },
+        {
+          "id": "tenant-rate",
+          "requirement": "跨 bizRef 不绕过租户上限；收件人隔离和安全告警负例",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "M0-M1",
+      "title": "工程与协议基座证据复核",
+      "status": "implemented",
+      "priority": 3,
+      "dependsOn": [],
+      "spec": ".agent/specs/001-schema-protocol-foundation.md",
+      "acceptance": [
+        {
+          "id": "contract-foundation",
+          "requirement": "契约结构、枚举、表达式双端同判；架构违规样本门禁；独立 CI 记录",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "M2-M5",
+      "title": "后端核心闭环验收与尾项收口",
+      "status": "implemented",
+      "priority": 4,
+      "dependsOn": [
+        "M0-M1"
+      ],
+      "spec": ".agent/specs/005-data-engine.md",
+      "acceptance": [
+        {
+          "id": "backend-http",
+          "requirement": "建模、建表、CRUD、权限、发布、预览真实 HTTP 验收",
+          "evidence": null
+        },
+        {
+          "id": "backend-tail",
+          "requirement": "Redis ACK、关联拼装、computed 与引用可靠性实现或人工批准分期",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "M6-M7",
+      "title": "渲染表单真实业务闭环",
+      "status": "implemented",
+      "priority": 5,
+      "dependsOn": [
+        "M2-M5",
+        "FIX-M9"
+      ],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "renderer-form",
+          "requirement": "基础物料、精确订阅、列表详情、真实文件上传、校验提交浏览器验收",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "M8-M10",
+      "title": "计量文件通知依赖图完整验收",
+      "status": "planned",
+      "priority": 6,
+      "dependsOn": [
+        "FIX-M8",
+        "FIX-M9",
+        "FIX-M10"
+      ],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "support-services",
+          "requirement": "metering.raw、业务埋点、时区补算、MinIO/LocalFs 同套契约、通知业务事件接线",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "M11",
+      "title": "应用基础服务与运行时导航工作台",
+      "status": "planned",
+      "priority": 7,
+      "dependsOn": [
+        "M2-M5"
+      ],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "app-runtime",
+          "requirement": "应用 CRUD、成员、导航并发、发布、工作台、鉴权菜单与 ETag 缓存",
+          "evidence": null
+        },
+        {
+          "id": "console-p1",
+          "requirement": "租户用量、成员、健康与维护公告页面可用",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "M12",
+      "title": "ER 建模器与影响面交互",
+      "status": "planned",
+      "priority": 8,
+      "dependsOn": [
+        "M2-M5",
+        "M6-M7"
+      ],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "model-designer",
+          "requirement": "画布建模、两段式保存、影响面确认、版本回滚浏览器闭环",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "M13",
+      "title": "页面设计器与预览",
+      "status": "planned",
+      "priority": 9,
+      "dependsOn": [
+        "M6-M7",
+        "M11"
+      ],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "page-designer",
+          "requirement": "拖拽、propsSchema 属性面板、字段绑定、发布预览真实交互",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "M14",
+      "title": "L2 Worker 隔离与最小编译链路",
+      "status": "planned",
+      "priority": 10,
+      "dependsOn": [
+        "M6-M7"
+      ],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "script-isolation",
+          "requirement": "受控消息桥、token 隔离、死循环 terminate 后页面可交互、扫描编译 hash 回写",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "M15",
+      "title": "报销登记 MVP 端到端验收",
+      "status": "planned",
+      "priority": 11,
+      "dependsOn": [
+        "M8-M10",
+        "M11",
+        "M12",
+        "M13",
+        "M14"
+      ],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "mvp-demo",
+          "requirement": "建模、页面、权限、发布、表单列表与埋点完整浏览器闭环",
+          "evidence": null
+        },
+        {
+          "id": "security",
+          "requirement": "依赖图 M15 全部安全攻防项有正负例证据",
+          "evidence": null
+        }
+      ],
+      "review": null
+    },
+    {
+      "id": "M16",
+      "title": "试点可靠性与上线门禁",
+      "status": "planned",
+      "priority": 12,
+      "dependsOn": [
+        "M14"
+      ],
+      "spec": ".agent/workflow.md",
+      "acceptance": [
+        {
+          "id": "pilot",
+          "requirement": "备份恢复 RTO/RPO、250 并发、告警演练、健康页、G1-G7 与人工上线评审",
+          "evidence": null
+        }
+      ],
+      "review": null
+    }
+  ]
+}

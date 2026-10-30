@@ -1,7 +1,8 @@
 # .agent — AI 工程化体系总览
 
 > 本目录是「从聊天式用 AI 到工程化用 AI」的落地物。定位：把「踩过的坑、团队规范、验收口径」固化成文件，让 AI 每次都带着全员经验工作。
-> 入口顺序：`AGENTS.md`（常驻）→ 本 README（体系）→ 按任务取 `specs/` 与 `skills/`。
+> 入口顺序：`AGENTS.md`（常驻）→ 本 README（体系）→ `workflow.md` 与 `workflow.json`（执行台账）→ 按任务取 `specs/` 与 `skills/`。
+> 继续开发统一入口：`python scripts/workflow.py next`；进度查询：`python scripts/workflow.py status`。结构化台账记录执行状态，文档和 skills 不重复维护实时进度。
 
 ---
 
