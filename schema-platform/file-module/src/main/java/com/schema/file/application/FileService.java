@@ -3,6 +3,7 @@ package com.schema.file.application;
 import com.schema.file.domain.FilePolicy;
 import com.schema.file.domain.repository.FileRepository;
 import com.schema.file.domain.storage.ObjectStorage;
+import com.schema.file.infrastructure.storage.LocalFsStorage;
 import com.schema.platform.common.tenant.TenantContext;
 import com.schema.platform.common.tenant.TenantInfo;
 import com.schema.platform.common.web.BizException;
@@ -117,7 +118,25 @@ public class FileService {
             if (!sorted.equals(expected)) {
                 throw new BizException("UPLOAD_MISMATCH", "分块列表不完整或含重复块号（需 1.." + totalParts + "）");
             }
-            storage.mergeParts(String.valueOf(mp.get("upload_id")), sorted, objectKey);
+            String uploadId = String.valueOf(mp.get("upload_id"));
+            // 分块 ETag 校验（2026-10-30 FIX-M9）：客户端回传每块 etag 必须与服务端落盘内容 sha256 一致
+            for (Map<String, Object> p : parts) {
+                Object etag = p == null ? null : p.get("etag");
+                int n = ((Number) p.get("partNumber")).intValue();
+                if (!(etag instanceof String s) || s.isBlank()) {
+                    throw new BizException("UPLOAD_MISMATCH", "分块 " + n + " 缺少 etag");
+                }
+                String actual = storage.partSha256(uploadId, n);
+                if (actual == null || !actual.equalsIgnoreCase(((String) etag).trim())) {
+                    throw new BizException("UPLOAD_MISMATCH", "分块 " + n + " etag 不匹配");
+                }
+            }
+            storage.mergeParts(uploadId, sorted, objectKey);
+            try {
+                LocalFsStorage.releaseSession(uploadId);
+            } catch (NoClassDefFoundError | Exception ignored) {
+                // 非 LocalFs 部署（S3）无内存会话可清理——忽略
+            }
         }
 
         ObjectStorage.HeadInfo head = storage.head(objectKey);
@@ -126,7 +145,26 @@ public class FileService {
             storage.delete(objectKey);
             throw new BizException("UPLOAD_MISMATCH", "对象缺失或大小不匹配（已清理）");
         }
-        files.markActive(fileId, sha256);
+
+        // 真实内容校验（2026-10-30 FIX-M9——同大小伪造内容不得登记 ACTIVE）：
+        // ① 服务端读取对象字节计算 SHA-256，与客户端回传摘要比对（客户端不传则落库服务端计算值）；
+        // ② 魔数探测识别实际类型，与声明 content-type 家族核对（文本族无魔数——跳过）。
+        byte[] content = storage.read(objectKey);
+        String actualSha = LocalFsStorage.sha256(content);
+        if (sha256 != null && !sha256.isBlank()) {
+            if (!actualSha.equalsIgnoreCase(sha256.trim())) {
+                storage.delete(objectKey);
+                throw new BizException("UPLOAD_MISMATCH", "SHA-256 摘要不匹配（已清理）");
+            }
+        }
+        String declaredType = String.valueOf(row.get("content_type"));
+        String sniffed = FilePolicy.sniffMagic(java.util.Arrays.copyOf(content,
+                Math.min(content.length, 16)));
+        if (sniffed != null && !sniffMatches(sniffed, declaredType)) {
+            storage.delete(objectKey);
+            throw new BizException("UPLOAD_MISMATCH", "实际内容类型与声明不符（已清理）");
+        }
+        files.markActive(fileId, actualSha);
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("fileId", Long.toString(fileId));
@@ -223,6 +261,25 @@ public class FileService {
 
     private static BizException fileNotFound() {
         return new BizException("FILE_NOT_FOUND", "文件不存在");
+    }
+
+    /** 魔数识别类型与声明类型的家族核对：zip 族（zip/docx/xlsx）与 riff 族按 content-type 前缀细分。 */
+    private static boolean sniffMatches(String sniffed, String declared) {
+        if (declared == null) {
+            return false;
+        }
+        String d = declared.split(";")[0].trim().toLowerCase();
+        if (sniffed.equals(d)) {
+            return true;
+        }
+        return switch (sniffed) {
+            // PK 签名族——zip 及 office openxml 包装同源
+            case "application/zip" -> d.endsWith("zip")
+                    || d.contains("officedocument")
+                    || d.equals("application/msword")
+                    || d.equals("application/vnd.ms-excel");
+            default -> false;
+        };
     }
 
     private static TenantInfo tenant() {

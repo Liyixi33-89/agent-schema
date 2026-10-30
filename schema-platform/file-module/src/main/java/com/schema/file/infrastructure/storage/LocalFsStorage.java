@@ -17,13 +17,17 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 
-import com.schema.file.domain.storage.ObjectStorage;
-
 /**
  * 本地文件系统实现（11BE §2 占位 LocalFsStorageImpl）：
  * 本地开发零依赖启动；预签名 URL 以「同源回调端点 + 一次性凭证」模拟 S3 语义——
  * presign 返回 {PUT /api/files/local-put/{token}}，LocalPutController 消费 token 执行真实写入。
  * 生产态由 S3StorageImpl（MinIO/OSS 同协议）替换，业务代码零改动（接口化红线）。
+ *
+ * 凭证绑定（2026-10-30 FIX-M9 收口）：
+ * - op ∈ {PUT, GET, SESSION, PART}——PUT/GET 严格隔离，凭证不得跨操作混用；
+ * - 过期时长签发时固化进绑定（expiry 不再依赖消费侧时钟口径），过期即拒；
+ * - PUT/PART 一次性消费（防重放）；SESSION 与 PART 绑定保留至 complete；
+ * - SESSION.objectKey = 目标对象键；PART.objectKey = uploadId（写分块目录用）。
  */
 @Component
 public class LocalFsStorage implements ObjectStorage {
@@ -43,29 +47,31 @@ public class LocalFsStorage implements ObjectStorage {
 
     @Override
     public PresignedUrl presignPut(String objectKey, Duration expiry, String contentType, long maxSize) {
-        // LocalFs：一次性上传凭证（token 绑定 objectKey + 过期时刻 + 大小上限 + 类型；真实上传经 LocalPutController）
-        String token = issueToken(objectKey, maxSize, contentType);
+        String token = issueToken(Op.PUT, objectKey, expiry.toMillis(), maxSize, contentType);
         return new PresignedUrl("/api/files/local-put/" + token, expiry);
     }
 
     @Override
     public PresignedUrl presignGet(String objectKey, Duration expiry) {
-        String token = issueToken(objectKey);
+        String token = issueToken(Op.GET, objectKey, expiry.toMillis(), -1, null);
         return new PresignedUrl("/api/files/local-get/" + token, expiry);
     }
 
     @Override
     public String initiateMultipart(String objectKey) {
-        return issueToken(objectKey);
+        // 会话凭证绑定目标对象键（合并阶段经 peek 取回）；过期沿用 PUT 时效
+        return issueToken(Op.SESSION, objectKey, Duration.ofMinutes(60).toMillis(), -1, null);
     }
 
     @Override
     public PresignedUrl presignPartPut(String uploadId, int partNumber, Duration expiry) {
         TokenBinding session = peekBinding(uploadId);
-        if (session == null || partNumber < 1 || partNumber > 10_000) {
+        if (session == null || session.op() != Op.SESSION
+                || partNumber < 1 || partNumber > 10_000) {
             throw new IllegalArgumentException("非法分块会话或块号");
         }
-        String token = issueToken(uploadId, 8L * 1024 * 1024, null);
+        // 分块凭证绑定 uploadId（消费端写入 _uploads/{uploadId} 目录）；块号由消费端点校验
+        String token = issueToken(Op.PART, uploadId, expiry.toMillis(), 8L * 1024 * 1024, null);
         return new PresignedUrl("/api/files/local-put/" + token + "?part=" + partNumber, expiry);
     }
 
@@ -141,11 +147,29 @@ public class LocalFsStorage implements ObjectStorage {
         }
     }
 
-    /** 分块合并（multipart complete 消费端点用）。 */
+    /** 分块内容摘要（complete 逐块核对 etag；块缺失返回 null）。 */
     @Override
+    public String partSha256(String uploadId, int partNumber) {
+        Path part = baseDir.resolve("_uploads").resolve(uploadId).resolve("part-" + partNumber);
+        if (!Files.exists(part)) {
+            return null;
+        }
+        try {
+            return sha256(Files.readAllBytes(part));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** 分块合并（multipart complete 消费端点用）；缺失分块抛异常而非静默合并。 */    @Override
     public void mergeParts(String uploadId, List<Integer> partNumbers, String targetObjectKey) {
         try {
             Path partDir = baseDir.resolve("_uploads").resolve(uploadId);
+            for (int n : partNumbers) {
+                if (!Files.exists(partDir.resolve("part-" + n))) {
+                    throw new IllegalStateException("分块缺失: " + n);
+                }
+            }
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
             for (int n : partNumbers) {
                 out.write(Files.readAllBytes(partDir.resolve("part-" + n)));
@@ -165,34 +189,53 @@ public class LocalFsStorage implements ObjectStorage {
         }
     }
 
-    /** 上传凭证 → objectKey 映射（内存态一次性；重启丢失属可接受降级——前端重试重新 presign）。
-     *  凭证绑定约束：objectKey + 签发时刻（LocalPutController 消费时校验过期与大小上限）。 */
+    /** 上传凭证 → 绑定映射（内存态；重启丢失属可接受降级——前端重试重新 presign）。
+     *  PUT/PART 取出即删防重放；SESSION/PART 保留至 complete 后清理。 */
     private static final java.util.concurrent.ConcurrentHashMap<String, TokenBinding> TOKENS =
             new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** 凭证绑定信息（过期校验 + 大小上限——模拟 S3 预签名约束语义）。 */
-    public record TokenBinding(String objectKey, long issuedAtEpochMs, long maxBytes, String contentType) {}
+    /** 凭证操作类型：PUT/GET 严格隔离；SESSION=分块会话；PART=分块写入凭证。 */
+    public enum Op { PUT, GET, SESSION, PART }
 
-    private String issueToken(String objectKey) {
-        return issueToken(objectKey, -1, null);
+    /** 凭证绑定（op 隔离 + 签发即固化过期时刻 + 大小/类型约束——模拟 S3 预签名语义）。 */
+    public record TokenBinding(Op op, String objectKey, long issuedAtEpochMs, long expiresAtEpochMs,
+            long maxBytes, String contentType) {
+        public boolean expired() {
+            return System.currentTimeMillis() > expiresAtEpochMs;
+        }
     }
 
-    private String issueToken(String objectKey, long maxBytes, String contentType) {
+    private String issueToken(Op op, String objectKey, long ttlMs, long maxBytes, String contentType) {
         byte[] raw = new byte[24];
         random.nextBytes(raw);
         String token = HexFormat.of().formatHex(raw);
-        TOKENS.put(token, new TokenBinding(objectKey, System.currentTimeMillis(), maxBytes, contentType));
+        long now = System.currentTimeMillis();
+        TOKENS.put(token, new TokenBinding(op, objectKey, now, now + ttlMs, maxBytes, contentType));
         return token;
     }
 
-    /** 消费凭证换取绑定（一次性——取出即删防重放）；null = 不存在。 */
+    /** 一次性消费（PUT/PART 防重放）；null = 不存在。 */
     public static TokenBinding consumeBinding(String token) {
         return TOKENS.remove(token);
     }
 
-    /** multipart 凭证绑定查询（完整保留到 complete）。 */
-    public static TokenBinding peekBinding(String uploadId) {
-        return TOKENS.get(uploadId);
+    /** 绑定查询（SESSION 会话与未过期校验用）；null = 不存在。 */
+    public static TokenBinding peekBinding(String token) {
+        return TOKENS.get(token);
+    }
+
+    /** complete 后清理会话与全部分块凭证。 */
+    public static void releaseSession(String uploadId) {
+        TOKENS.keySet().removeIf(k -> {
+            TokenBinding b = TOKENS.get(k);
+            return b != null && b.op() == Op.PART && uploadId.equals(b.objectKey());
+        });
+        TOKENS.remove(uploadId);
+    }
+
+    /** 会话过期回收（防凭证表无限膨胀；过期 SESSION 及其 PART 一并清除）。 */
+    public static void evictExpired() {
+        TOKENS.entrySet().removeIf(e -> e.getValue().expired());
     }
 
     private Path resolve(String objectKey) {

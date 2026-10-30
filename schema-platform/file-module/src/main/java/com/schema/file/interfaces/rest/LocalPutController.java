@@ -2,6 +2,7 @@ package com.schema.file.interfaces.rest;
 
 import com.schema.file.domain.FilePolicy;
 import com.schema.file.infrastructure.storage.LocalFsStorage;
+import com.schema.file.infrastructure.storage.LocalFsStorage.Op;
 import com.schema.file.infrastructure.storage.LocalFsStorage.TokenBinding;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -13,20 +14,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
-
 /**
- * LocalFs 凭证消费端点（模拟 S3 直传语义，11BE §2 占位实现）：
- * - POST /api/files/local-put/{token}：一次性凭证写入对象（凭证取出即删防重放；
- *   校验过期 / 大小上限 / 类型白名单——模拟 S3 预签名约束）；
- * - GET /api/files/local-get/{token}：下载（强制 attachment + nosniff——存储型 XSS 红线响应头）。
- * 生产态切换 S3StorageImpl 后本端点停用（配置开关），业务代码零改动。
+ * LocalFs credential-consuming endpoints (S3 direct-upload semantics, 11BE §2):
+ * - PUT /api/files/local-put/{token}: one-time credential write (consumed on read, no replay);
+ *   validates op type / expiry / size cap - mirrors S3 presigned constraints;
+ * - GET /api/files/local-get/{token}: download (forced attachment + nosniff - stored-XSS headers);
+ * - Ops are strictly isolated: PUT endpoint accepts op=PUT/PART only, GET endpoint op=GET only.
  */
 @RestController
 public class LocalPutController {
-
-    /** 凭证有效期上限（与 FilePolicy.PUT_EXPIRY 对齐；双端各自校验）。 */
-    private static final long TOKEN_TTL_MS = FilePolicy.PUT_EXPIRY.toMillis();
 
     private final LocalFsStorage storage;
 
@@ -34,38 +30,42 @@ public class LocalPutController {
         this.storage = storage;
     }
 
-    /** 预签名 PUT 消费（multipart 时带 ?part=N 写分块）。 */
+    /** Presigned PUT consumption (multipart part write when ?part=N present). */
     @PutMapping(value = "/api/files/local-put/{token}", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<Void> put(@PathVariable String token,
             @RequestParam(value = "part", required = false) Integer part,
             @RequestBody byte[] body) {
         TokenBinding binding = LocalFsStorage.consumeBinding(token);
-        if (binding == null || isExpired(binding)) {
-            return ResponseEntity.status(401).build();   // 凭证过期/重放
-        }
-        // 大小上限约束（单 PUT：声明 size；分块：块大小上限）
-        long maxBytes = binding.maxBytes() > 0 ? binding.maxBytes() : FilePolicy.PART_SIZE;
-        if (body.length > maxBytes) {
-            return ResponseEntity.status(413).build();   // 超预签名大小约束
+        if (binding == null || binding.expired()) {
+            return ResponseEntity.status(401).build();   // expired or replayed
         }
         if (part != null) {
-            // multipart 分块：凭证为 uploadId 形态（peek 保留到 complete）；块号 1..MAX_PARTS
-            if (part < 1 || part > FilePolicy.MAX_PARTS) {
-                return ResponseEntity.status(400).build();
+            // multipart part: credential must be PART op; part number 1..MAX_PARTS
+            if (binding.op() != Op.PART || part < 1 || part > FilePolicy.MAX_PARTS) {
+                return ResponseEntity.status(401).build();
+            }
+            if (body.length > binding.maxBytes()) {
+                return ResponseEntity.status(413).build();
             }
             storage.writePart(binding.objectKey(), part, body);
-        } else {
-            storage.write(binding.objectKey(), body);
+            return ResponseEntity.ok().eTag(LocalFsStorage.sha256(body)).build();
         }
-        return ResponseEntity.ok().build();
+        if (binding.op() != Op.PUT) {
+            return ResponseEntity.status(401).build();   // GET/SESSION credential not usable for PUT
+        }
+        if (binding.maxBytes() > 0 && body.length > binding.maxBytes()) {
+            return ResponseEntity.status(413).build();   // over presigned size cap
+        }
+        storage.write(binding.objectKey(), body);
+        return ResponseEntity.ok().eTag(LocalFsStorage.sha256(body)).build();
     }
 
-    /** 预签名 GET 消费（强制下载语义——svg/html 独立内容域红线，11BE §6）。 */
+    /** Presigned GET consumption (forced download - svg/html content-domain redline, 11BE §6). */
     @GetMapping("/api/files/local-get/{token}")
     public ResponseEntity<byte[]> get(@PathVariable String token) {
         TokenBinding binding = LocalFsStorage.consumeBinding(token);
-        if (binding == null || System.currentTimeMillis() - binding.issuedAtEpochMs() > FilePolicy.GET_EXPIRY.toMillis()) {
-            return ResponseEntity.status(401).build();
+        if (binding == null || binding.expired() || binding.op() != Op.GET) {
+            return ResponseEntity.status(401).build();   // expired/replayed/op mismatch
         }
         byte[] bytes = storage.read(binding.objectKey());
         return ResponseEntity.ok()
@@ -73,9 +73,5 @@ public class LocalPutController {
                 .header("X-Content-Type-Options", "nosniff")
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .body(bytes);
-    }
-
-    private static boolean isExpired(TokenBinding binding) {
-        return System.currentTimeMillis() - binding.issuedAtEpochMs() > TOKEN_TTL_MS;
     }
 }

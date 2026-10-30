@@ -27,6 +27,9 @@ public interface ObjectStorage {
     /** 分块按序合并到目标对象键（complete 消费端点用）。 */
     void mergeParts(String uploadId, List<Integer> partNumbers, String targetObjectKey);
 
+    /** 分块内容 sha256（complete 时逐块核对客户端回传 etag；缺失返回 null）。 */
+    default String partSha256(String uploadId, int partNumber) { return null; }
+
     void delete(String objectKey);
 
     /** HEAD 校验：对象存在性与真实大小（complete 时核对）。 */
