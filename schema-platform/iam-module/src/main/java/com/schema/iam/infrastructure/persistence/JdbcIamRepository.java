@@ -148,6 +148,16 @@ public class JdbcIamRepository implements IamRepository {
     }
 
     @Override
+    public boolean hasFieldPermRows(long tenantId, long modelId) {
+        // 模型级存在性：任意角色的 FIELD 行均算已配置（与用户无关——默认拒绝判定输入）
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_role_permission p JOIN sys_role r ON r.id = p.role_id "
+                        + "WHERE p.resource_type='FIELD' AND p.resource_id=? AND r.tenant_id=?",
+                Integer.class, modelId, tenantId);
+        return n != null && n > 0;
+    }
+
+    @Override
     public void replaceUserRoles(long tenantId, long userId, long appId, List<Long> roleIds) {
         jdbc.update("""
                 DELETE FROM sys_user_role WHERE user_id=? AND role_id IN (

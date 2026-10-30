@@ -275,12 +275,17 @@ public class DynamicQueryEngine {
                 findParams.addAll(ctx.scopeParams);
                 List<Map<String, Object>> hits = jdbc.queryForList(findSql, findParams.toArray());
                 if (hits.isEmpty()) {
-                    Map<String, Object> resp = doCreate(ctx, row);
+                    // 保存点隔离（2026-10-30 三轮收口）：PG 唯一冲突会中止整个事务，
+                    // 后续行全部失败——每行包保存点，冲突回滚到保存点后继续处理。
+                    Map<String, Object> resp = inSavepoint(() -> doCreate(ctx, row));
                     inserted++;
                     resp.put("_index", i);
                 } else {
                     long existId = ((Number) hits.get(0).get("id")).longValue();
-                    doUpdate(ctx, existId, hits.get(0), row);
+                    inSavepoint(() -> {
+                        doUpdate(ctx, existId, hits.get(0), row);
+                        return null;
+                    });
                     updated++;
                 }
             } catch (BizException e) {
@@ -290,7 +295,7 @@ public class DynamicQueryEngine {
                 failed.add(fail);
             } catch (org.springframework.dao.DuplicateKeyException e) {
                 // 并发同键撞 UNIQUE 部分索引（应用层预检 TOCTOU 窗口被索引兜住）：
-                // 单行失败不影响其余行——事务不标 rollback-only，行级失败返回
+                // 冲突已由保存点回滚隔离——事务未中止，其余行继续
                 Map<String, Object> fail = new LinkedHashMap<>();
                 fail.put("index", i);
                 fail.put("reason", "VALIDATION_FAILED: 唯一字段冲突（并发写入）");
@@ -319,6 +324,41 @@ public class DynamicQueryEngine {
         resp.put("id", id);
         return resp;
     }
+
+    /**
+     * 保存点执行器（batch 行级隔离，2026-10-30 三轮收口）：
+     * PG 异常（唯一冲突等）会中止整个外层事务，后续语句必报 25P02。
+     * 每行包 SAVEPOINT/ROLLBACK TO SAVEPOINT——冲突行回滚后事务可继续。
+     * 无事务上下文时（防御）直接执行。
+     */
+    private <T> T inSavepoint(java.util.function.Supplier<T> body) {
+        if (!org.springframework.transaction.support.TransactionSynchronizationManager
+                .isActualTransactionActive()) {
+            return body.get();
+        }
+        String spName = "batch_sp_" + SAVEPOINT_SEQ.incrementAndGet();
+        try {
+            jdbc.execute((java.sql.Connection con) -> {
+                con.createStatement().execute("SAVEPOINT " + spName);
+                return null;
+            });
+            T result = body.get();
+            jdbc.execute((java.sql.Connection con) -> {
+                con.createStatement().execute("RELEASE SAVEPOINT " + spName);
+                return null;
+            });
+            return result;
+        } catch (RuntimeException e) {
+            jdbc.execute((java.sql.Connection con) -> {
+                con.createStatement().execute("ROLLBACK TO SAVEPOINT " + spName);
+                return null;
+            });
+            throw e;
+        }
+    }
+
+    private static final java.util.concurrent.atomic.AtomicLong SAVEPOINT_SEQ =
+            new java.util.concurrent.atomic.AtomicLong();
 
     /** update 的可复用内核（batch 复用——传入已查出的既有行避免二次查询）。 */
     private void doUpdate(EngineContext ctx, long id, Map<String, Object> existingRow,
@@ -441,6 +481,19 @@ public class DynamicQueryEngine {
                     + " FROM " + ctx.table + where
                     + " GROUP BY " + String.join(", ", groups)
                     + " ORDER BY bucket ASC";
+        } else if (hasBucket && hasGroup) {
+            // 桶+组组合（2026-10-30 三轮收口）：桶数已被护栏限 ≤1000，组维度按 topN 截断
+            // 但必须按「组内度量合计」选组而非全局排序截断——全局 LIMIT 会砍掉整组的时间序列。
+            int topN = req.groupTopN() == null ? 10 : Math.min(Math.max(req.groupTopN(), 1), 50);
+            sql = "SELECT * FROM (SELECT " + String.join(", ", selects)
+                    + " FROM " + ctx.table + where
+                    + " GROUP BY " + String.join(", ", groups) + ") buckets_all "
+                    + "WHERE dimension IN (SELECT dimension FROM (SELECT dimension, SUM(m0) s "
+                    + "FROM (SELECT " + String.join(", ", selects)
+                    + " FROM " + ctx.table + where
+                    + " GROUP BY " + String.join(", ", groups) + ") g "
+                    + "GROUP BY dimension ORDER BY s DESC LIMIT " + topN + ") top_dims) "
+                    + "ORDER BY bucket ASC, dimension ASC";
         } else {
             int topN = req.groupTopN() == null ? 10 : Math.min(Math.max(req.groupTopN(), 1), 50);
             sql = "SELECT * FROM (SELECT " + String.join(", ", selects)
@@ -616,7 +669,7 @@ public class DynamicQueryEngine {
     /** 权限解析独立入口（prepare 阶段调用——上下文未建时使用）。 */
     private List<FieldMeta> visibleFields(long tenantId, long operatorId, long modelId,
             List<FieldMeta> activeFields) {
-        boolean configured = permissions.hasFieldPermConfig(tenantId, operatorId, modelId);
+        boolean configured = permissions.hasFieldPermConfig(tenantId, modelId);
         if (!configured) {
             return activeFields;
         }
@@ -633,7 +686,7 @@ public class DynamicQueryEngine {
     /** 可编辑字段集（语义同 visibleFields——未配置全可编辑；权限解析独立入口供写入侧消费）。 */
     private Set<String> uneditableKeys(EngineContext ctx) {
         boolean configured = permissions.hasFieldPermConfig(ctx.tenant.tenantId(),
-                ctx.tenant.operatorId(), ctx.model.id());
+                ctx.model.id());
         if (!configured) {
             return Set.of();
         }

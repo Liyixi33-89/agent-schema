@@ -25,6 +25,9 @@ export interface FormStoreOptions {
   uniqueChecker?: (fieldKey: string, value: unknown) => Promise<boolean>;
 }
 
+/** effect 通知通道（RenderScope 命名订阅——与字段值订阅隔离）。 */
+const FIELD_EFFECT_CHANNEL = '__field_effects__';
+
 export class FormStore {
   readonly scope = new RenderScope();
   readonly fields: Map<string, FieldSchema>;
@@ -34,14 +37,19 @@ export class FormStore {
   private clock?: () => Date;
   private uniqueChecker?: FormStoreOptions['uniqueChecker'];
   private uniqueCallIds = new Map<string, number>();
-
   constructor(options: FormStoreOptions) {
     // DELETED 字段在表单树构建阶段即过滤（03FE §6——values 不含该字段）
     const active = options.fields.filter((f) => f.fieldStatus === 'ACTIVE');
     this.fields = new Map(active.map((f) => [f.key, f]));
     this.clock = options.clock;
     this.uniqueChecker = options.uniqueChecker;
-    this.reactions = buildReactions(active);
+    const built = buildReactions(active);
+    // 环检测（03FE §3 构建期）：成环抛错阻断——禁止带环表单进入运行态
+    const cycle = built.hasCycle();
+    if (cycle) {
+      throw new Error(`字段联动存在循环依赖: ${cycle.join(' -> ')}`);
+    }
+    this.reactions = built;
     for (const f of active) {
       this.rules.set(f.key, buildRules(f));
       this.effects.set(f.key, { visible: true, disabled: false, required: !!f.required });
@@ -50,6 +58,9 @@ export class FormStore {
     for (const f of active) {
       if (f.defaultValue !== undefined) this.scope.set(f.key, f.defaultValue);
     }
+    // 初始 effect 求值（2026-10-30 三轮收口）：默认值即可触发 visibleWhen 判定——
+    // 此前构造期不重算，首屏 effect 恒为初始字面量，默认值驱动的显隐/必填全失效。
+    this.refreshEffects();
   }
 
   /** 读值（受控组件 value 契约）。 */
@@ -69,9 +80,18 @@ export class FormStore {
     for (const key of Object.keys(entries)) this.applyReactions(key);
   }
 
-  /** 字段 effect 状态（显隐/禁用/必填——03FE §3 四种联动的求值产物）。 */
+  /** 字段 effect 状态（显隐/禁用/必填/选项过滤——03FE §3 四种联动的求值产物）。 */
   effectOf(fieldKey: string): FieldEffect {
     return this.effects.get(fieldKey) ?? { visible: true, disabled: false, required: false };
+  }
+
+  /**
+   * effect 变化订阅（2026-10-30 三轮收口）：
+   * 联动重算只更新内部 effects Map 不通知——React 侧无法感知 visibleWhen 翻转。
+   * 订阅目标字段的 effect 版本号变化，联动重算后统一通知受影响字段。
+   */
+  subscribeEffects(fieldKeys: string[], listener: () => void): () => void {
+    return this.scope.subscribe(FIELD_EFFECT_CHANNEL, listener, fieldKeys);
   }
 
   /** 手动重算全部 effect（初始化/批量回填后调用）。 */
@@ -120,6 +140,9 @@ export class FormStore {
     if (!this.uniqueChecker) return null;
     const field = this.fields.get(fieldKey);
     if (!field?.uniqueFlag) return null;
+    // 隐藏字段跳过（2026-10-30 三轮收口）：visibleWhen=false 已卸载语义（03FE §5）——
+    // 未参与提交的字段不应发起远程唯一性探测（省请求且与 serialize 剔除语义一致）。
+    if (!this.effectOf(fieldKey).visible) return null;
     if (value === undefined || value === null || value === '') return null;
     const callId = (this.uniqueCallIds.get(fieldKey) ?? 0) + 1;
     this.uniqueCallIds.set(fieldKey, callId);
@@ -165,6 +188,8 @@ export class FormStore {
         // 规则集本身静态；required 由 validate 入参动态注入——无需重建
       }
     }
+    // effect 变化通知（2026-10-30 三轮收口）：订阅目标字段 effect 的组件感知重算完成
+    this.scope.notifyChannel(FIELD_EFFECT_CHANNEL, targets);
   }
 
   /** 求值字段 effect（visibleWhen/disabledWhen/requiredWhen/optionsFilter 四联动）。 */
@@ -174,7 +199,51 @@ export class FormStore {
     effect.visible = this.evalBinding(field, 'visibleWhen', scope, true);
     effect.disabled = this.evalBinding(field, 'disabledWhen', scope, false);
     effect.required = this.evalBinding(field, 'requiredWhen', scope, !!field.required);
+    // optionsFilter 求值（2026-10-30 三轮收口）：此前只建依赖边不求值——
+    // 表达式应返回过滤后的 options 数组（或全量透传）。
+    effect.filteredOptions = this.evalOptionsFilter(field, scope);
     return effect;
+  }
+
+  /**
+   * optionsFilter 求值（2026-10-30 三轮收口）：此前只建依赖边不求值。
+   * L1 白名单现实约束（无 filter/箭头/三元/对象/数组字面量）——协议语义定版：
+   * 表达式产出标量（字符串/数字）= 允许值，静态 options 按精确匹配过滤为单项；
+   * 表达式产出 {value,label}[] 或 string[] 数组（若白名单扩展后）= 集合过滤。
+   * 标量不命中任何 option → undefined（回落静态全量——不静默清空选项）。
+   */
+  private evalOptionsFilter(field: FieldSchema, scope: Record<string, unknown>):
+      { value: string; label: string }[] | undefined {
+    const ext = field as unknown as Record<string, unknown>;
+    const binding = ext['optionsFilter'] as
+      | { kind?: string; source?: string; dependsOn?: string[] }
+      | undefined;
+    if (!binding || binding.kind !== 'expr' || typeof binding.source !== 'string') return undefined;
+    const staticOptions = (ext['enumOptions'] as { value: string; label: string; status?: string }[] | undefined)
+      ?.filter((o) => o.status !== 'DEPRECATED') ?? [];
+    const compiled = compileExpr(binding.source);
+    if ('error' in compiled) return undefined;
+    const result = evaluateExpr(compiled.ast, scope, this.clock);
+    if ('error' in result) return undefined;
+    const v = result.value;
+    // 形态①：{value,label}[] 完整数组直接采纳（白名单扩展后可用）
+    if (Array.isArray(v) && v.length > 0 && v.every((o) => !!o && typeof o === 'object'
+        && typeof (o as { value?: unknown }).value === 'string')) {
+      return v as { value: string; label: string }[];
+    }
+    // 形态②：value 字符串数组——集合过滤
+    if (Array.isArray(v) && v.every((x) => typeof x === 'string')) {
+      const allowed = new Set(v as string[]);
+      const hit = staticOptions.filter((o) => allowed.has(o.value));
+      return hit.length ? hit : undefined;
+    }
+    // 形态③（L1 白名单主路径）：标量 = 允许值——精确匹配过滤为单项
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      const target = String(v);
+      const hit = staticOptions.filter((o) => o.value === target);
+      return hit.length ? hit : undefined;
+    }
+    return undefined;
   }
 
   private currentScope(): Record<string, unknown> {

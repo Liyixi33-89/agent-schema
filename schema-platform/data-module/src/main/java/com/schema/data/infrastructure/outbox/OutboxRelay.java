@@ -45,35 +45,40 @@ public class OutboxRelay {
                 """, tenantId, topic, payloadJson);
     }
 
-    /** 轮询投递：PENDING → DELIVERING（CAS + 租约）→ 消费 → DONE/FAILED。 */
+    /** 轮询投递：PENDING → DELIVERING（CAS + 租约 + fencing token）→ 消费 → DONE/FAILED。 */
     @Scheduled(fixedDelay = 3000)
     public void relay() {
-        // 崩滞回收：租约过期的 DELIVERING 置回 PENDING（投递方崩溃后的恢复闭环）
-        jdbc.update("UPDATE outbox_event SET status='PENDING', lease_until=NULL "
-                + "WHERE status='DELIVERING' AND lease_until < now()");
+        // 崩滞回收：租约过期的 DELIVERING 置回 PENDING（含历史 lease_until=NULL 行——
+        // 回收条件用 (lease_until < now() OR lease_until IS NULL) 全量兜底）
+        jdbc.update("UPDATE outbox_event SET status='PENDING', lease_token=NULL "
+                + "WHERE status='DELIVERING' AND (lease_until < now() OR lease_until IS NULL)");
         List<Map<String, Object>> pending = jdbc.queryForList(
                 "SELECT id, topic, payload::text AS payload FROM outbox_event "
                         + "WHERE status='PENDING' ORDER BY id LIMIT " + BATCH);
         for (Map<String, Object> evt : pending) {
             long id = ((Number) evt.get("id")).longValue();
-            // 抢占 CAS：多实例只有一个拿到；租约超时自动回收
+            // 抢占 CAS + fencing token：多实例只有一个拿到；token 随抢占轮转，
+            // 后续状态写入带 token 条件——过期租约的旧投递方无法覆盖新投递结果
+            String token = java.util.UUID.randomUUID().toString();
             int claimed = jdbc.update(
                     "UPDATE outbox_event SET status='DELIVERING', attempts=attempts+1, "
-                            + "lease_until=now() + interval '" + LEASE_SECONDS + " seconds' "
-                            + "WHERE id=? AND status='PENDING'", id);
+                            + "lease_until=now() + interval '" + LEASE_SECONDS + " seconds', "
+                            + "lease_token=? WHERE id=? AND status='PENDING'", token, id);
             if (claimed == 0) {
                 continue;
             }
             try {
                 bridge.deliver(String.valueOf(evt.get("topic")),
                         String.valueOf(evt.get("payload")));
+                // fencing：仅当前 token 持有者可标记 DONE（租约被回收后 token 已轮转）
                 jdbc.update("UPDATE outbox_event SET status='DONE', delivered_at=now(), "
-                        + "lease_until=NULL WHERE id=?", id);
+                        + "lease_until=NULL, lease_token=NULL WHERE id=? AND lease_token=?",
+                        id, token);
             } catch (Exception e) {
                 int attempts = attemptCount(id);
                 String next = attempts >= MAX_ATTEMPTS ? "FAILED" : "PENDING";
-                jdbc.update("UPDATE outbox_event SET status=?, lease_until=NULL WHERE id=?",
-                        next, id);
+                jdbc.update("UPDATE outbox_event SET status=?, lease_until=NULL, lease_token=NULL "
+                        + "WHERE id=? AND lease_token=?", next, id, token);
             }
         }
     }

@@ -182,9 +182,15 @@ public final class AggregateBuilder {
         if (bucketField == null) {
             return;
         }
+        OR_BOUND_HIT.remove();
         Double min = null;
         Double max = null;
         collectBucketBounds(filter, bucketField, null);
+        if (Boolean.TRUE.equals(OR_BOUND_HIT.get())) {
+            OR_BOUND_HIT.remove();
+            throw new com.schema.platform.common.web.BizException("FILTER_OPERATOR_INVALID",
+                    "时间桶范围条件不可出现在 OR 组内（无法证明连续窄区间）: " + bucketField);
+        }
         double[] bounds = BOUNDS.get();
         BOUNDS.remove();
         if (!Double.isNaN(bounds[0])) {
@@ -212,12 +218,45 @@ public final class AggregateBuilder {
     private static final ThreadLocal<double[]> BOUNDS = ThreadLocal.withInitial(
             () -> new double[]{Double.NaN, Double.NaN});
 
+    /** OR 组内出现桶字段界标记（保守拒绝口径——跨组界不可换算连续跨度）。 */
+    private static final ThreadLocal<Boolean> OR_BOUND_HIT = ThreadLocal.withInitial(() -> false);
+
+    /** 当前界快照（OR 组合并校验用）。 */
+    private static double[] snapshotBounds() {
+        double[] b = BOUNDS.get();
+        return new double[]{b[0], b[1]};
+    }
+
     /**
      * 递归提取条件树中桶字段的下/上界（epoch 毫秒）。
-     * 认可的边界操作符：gte/gt → 下界；lte/lt → 上界；between → 双界。
-     * eq（等值）视作跨度 0 的合法范围。
+     * 条件树协议（SqlBuilder.buildNode 同源）：组节点 {op:'AND'|'OR', conds:[...]}；叶 {field,op,value}。
+     * 认可的边界操作符：gte/gt → 下界；lte/lt → 上界；between → 双界；eq 视作跨度 0。
+     * OR 组语义（2026-10-30 三轮收口）：or 组内同一字段的界是「并集」而非「交集」——
+     * 跨组收紧换算跨度会低估桶数放行超限请求。保守口径：OR 组内出现桶字段界 → 拒绝。
      */
     private static void collectBucketBounds(Object node, String bucketField, double[] ignored) {        if (!(node instanceof Map<?, ?> m)) {
+            return;
+        }
+        Object conds = m.get("conds");
+        if (conds instanceof List<?> list) {
+            // 组节点：AND 收紧 / OR 保守拒绝
+            if ("OR".equalsIgnoreCase(String.valueOf(m.get("op")))) {
+                boolean anyBounds = false;
+                double[] before = snapshotBounds();
+                for (Object c : list) {
+                    collectBucketBounds(c, bucketField, ignored);
+                }
+                if (!java.util.Arrays.equals(before, snapshotBounds())) {
+                    anyBounds = true;
+                }
+                if (anyBounds) {
+                    OR_BOUND_HIT.set(true);
+                }
+                return;
+            }
+            for (Object c : list) {
+                collectBucketBounds(c, bucketField, ignored);
+            }
             return;
         }
         if (bucketField.equals(m.get("field"))) {
@@ -240,11 +279,6 @@ public final class AggregateBuilder {
                 default -> {
                     // in/nin/like/isnull 等不构成连续范围——不参与跨度换算
                 }
-            }
-        }
-        if (m.get("conds") instanceof List<?> conds) {
-            for (Object c : conds) {
-                collectBucketBounds(c, bucketField, ignored);
             }
         }
     }
@@ -300,13 +334,24 @@ public final class AggregateBuilder {
         return s;
     }
 
-    /** 跨度换算桶数：DAY=86400s / WEEK=7 天 / MONTH≈30.44 天（保守估计防绕过）。 */
+    /**
+     * 跨度换算桶数（2026-10-30 三轮收口：MONTH 用真实历法月数，弃 30.44 近似）。
+     * 近似天换算在长跨度上系统性低估（100 年 ≈ 1200 月 vs 近似 1174 月）→ 放行超限请求。
+     */
     private static long bucketCount(double minMs, double maxMs, String interval) {
         double spanMs = Math.max(0, maxMs - minMs);
         return switch (interval) {
             case "DAY" -> (long) Math.ceil(spanMs / 86_400_000.0);
             case "WEEK" -> (long) Math.ceil(spanMs / (7 * 86_400_000.0));
-            case "MONTH" -> (long) Math.ceil(spanMs / (30.44 * 86_400_000.0));
+            case "MONTH" -> {
+                // 真实历法换算：起止各取 UTC 月首，月份差 +1 为覆盖月数（含首尾两个月）
+                java.time.LocalDate lo = java.time.Instant.ofEpochMilli((long) minMs)
+                        .atZone(java.time.ZoneOffset.UTC).toLocalDate().withDayOfMonth(1);
+                java.time.LocalDate hi = java.time.Instant.ofEpochMilli((long) maxMs)
+                        .atZone(java.time.ZoneOffset.UTC).toLocalDate().withDayOfMonth(1);
+                long months = (hi.getYear() - lo.getYear()) * 12L + (hi.getMonthValue() - lo.getMonthValue());
+                yield months + 1;
+            }
             default -> Long.MAX_VALUE; // 白名单外 interval 由调用方先行拦截
         };
     }

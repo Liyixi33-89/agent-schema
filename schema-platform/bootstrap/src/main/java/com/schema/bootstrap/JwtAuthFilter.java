@@ -159,23 +159,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    /** 预览态端点白名单匹配（04BE §A.7 数据面收口）：
-     *  /api/runtime/pages 只读面全方法放行；/api/data 放行读方法——
-     *  GET（详情）与读语义 POST（query/aggregate/unique-check 子路径）；
-     *  写方法（POST 根、PUT、DELETE）不在此拦——由引擎侧 PreviewDataGuard
-     *  按 allowRealWrite 判定（真实写预览需显式声明，默认 403）。 */
+    /** 预览态端点白名单匹配（04BE §A.7 数据面收口，2026-10-30 三轮修正）：
+     *  /api/runtime/pages 只读面全方法放行；/api/data 写方法（POST 根/batch、PUT、DELETE）
+     *  由引擎侧 PreviewDataGuard 按 allowRealWrite 判定——此处须放行到达守卫，
+     *  否则 allowRealWrite=true 的真实写预览在过滤器层即被 403，守卫形同虚设。
+     *  读语义 POST 子路径（query/aggregate/unique-check）与 GET 同前放行。 */
     private static boolean isPreviewAllowed(String method, String path) {
         if (path.startsWith("/api/runtime/pages")) {
             return true;
         }
-        if (path.startsWith("/api/data")) {
-            if ("GET".equalsIgnoreCase(method)) {
-                return true;
-            }
-            return "POST".equalsIgnoreCase(method) && (path.endsWith("/query")
-                    || path.endsWith("/aggregate") || path.endsWith("/unique-check"));
-        }
-        return false;
+        return path.startsWith("/api/data");
     }
 
     private void auditTenantMismatch(JwtCodec.Claims claims, long headerTenant, HttpServletRequest request) {

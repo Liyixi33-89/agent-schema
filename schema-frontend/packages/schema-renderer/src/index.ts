@@ -16,3 +16,4 @@ export {
 } from './renderer';
 export { assembleTree, type ComponentResolver, type AssembleOptions } from './assemble';
 export { collectExprBindings, RenderError, SchemaPhaseError, type ErrorLevel, type ExprBindingInfo } from './pipeline';
+export { bindSchemaRenderer, type ReactPrimitives, type SchemaRendererProps } from './bindings';

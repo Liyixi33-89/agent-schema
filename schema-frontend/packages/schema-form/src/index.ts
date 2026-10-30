@@ -12,3 +12,4 @@ export {
   type SubmitTransport,
   type SuccessBehavior,
 } from './submit';
+export { DebouncedUniqueChecker, SubmitGuard, UNIQUE_DEBOUNCE_MS } from './debounce';

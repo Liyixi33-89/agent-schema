@@ -11,7 +11,12 @@
   "dependencies": {
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "antd": "5.25.4"
+    "antd": "5.25.4",
+    "dayjs": "1.11.13",
+    "@schema/schema-form": "workspace:*",
+    "@schema/schema-renderer": "workspace:*",
+    "@schema/component-materials": "workspace:*",
+    "@schema/schema-protocol": "workspace:*"
   },
   "devDependencies": {
     "vite": "6.3.5",

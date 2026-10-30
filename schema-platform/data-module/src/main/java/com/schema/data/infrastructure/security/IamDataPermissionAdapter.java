@@ -68,17 +68,10 @@ public class IamDataPermissionAdapter implements DataPermissionPort {
     }
 
     @Override
-    public boolean hasFieldPermConfig(long tenantId, long userId, long modelId) {
-        List<Long> roleIds = roleIds(tenantId, userId);
-        if (roleIds.isEmpty()) {
-            return false;
-        }
-        for (var perm : iam.findPermsOfRoles(roleIds)) {
-            if ("FIELD".equals(perm.resourceType()) && perm.resourceId() == modelId) {
-                return true;
-            }
-        }
-        return false;
+    public boolean hasFieldPermConfig(long tenantId, long modelId) {
+        // 模型级判定（2026-10-30 三轮收口）：与用户无关——模型上存在任意 FIELD 权限行即已配置。
+        // 此前按用户角色判定，模型已配置但用户无角色时误判「未配置」→ 全字段可见（越权）。
+        return iam.hasFieldPermRows(tenantId, modelId);
     }
 
     @Override

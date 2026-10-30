@@ -7,9 +7,10 @@
  * 由宿主（designer/runtime）提供实现（与 renderer 的零运行时 react 纪律一致）。
  */
 import React from 'react';
+import dayjs from 'dayjs';
 import {
   Input, InputNumber, Select, DatePicker, Switch, Upload, Button, Table, Form,
-  Card, Tabs, Collapse, Tooltip, Typography,
+  Card, Tabs, Collapse, Tooltip, Typography, Steps,
 } from 'antd';
 import type { MaterialMeta } from '@schema/schema-renderer';
 
@@ -41,20 +42,53 @@ const widgets: Record<string, React.ComponentType<WidgetProps>> = {
       options={p.options ?? []} placeholder={p.placeholder} disabled={bool(p.disabled)} allowClear />
   ),
   DateInput: (p) => (
-    <DatePicker value={p.value ? (p.value as never) : null} onChange={(_d, ds) => p.onChange?.(ds)}
+    // 值契约（2026-10-30 三轮收口）：协议值为 ISO 日期字符串；AntD DatePicker 消费 dayjs。
+    // 入：字符串 → dayjs；出：onChange 回传 ISO 字符串（保持协议字符串语义不变）。
+    <DatePicker
+      value={str(p.value) ? dayjs(str(p.value)) : null}
+      onChange={(_d, ds) => p.onChange?.(ds[0] ?? null)}
       disabled={bool(p.disabled)} style={{ width: '100%' }} />
   ),
   BooleanSwitch: (p) => (
     <Switch checked={!!p.value} onChange={(v) => p.onChange?.(v)} disabled={bool(p.disabled)} />
   ),
-  FileUpload: (p) => (
-    <Upload maxCount={1} onChange={(info) => {
-      const file = info.fileList.at(-1);
-      p.onChange?.(file ? { fileId: file.uid, name: file.name, size: file.size ?? 0 } : null);
-    }}>
-      <Button disabled={bool(p.disabled)}>上传附件</Button>
-    </Upload>
-  ),
+  FileUpload: (p) => {
+    // 受控文件列（2026-10-30 三轮收口）：协议值 {fileId,name,size}——展示回显；
+    // 新上传经 customRequest 调宿主注入的 uploader 换取真实 fileId（不再本地 uid 冒充）。
+    const meta = (p.value ?? null) as { fileId?: string; name?: string; size?: number } | null;
+    const fileList = meta?.fileId ? [{ uid: meta.fileId, name: meta.name ?? '附件', status: 'done' as const }] : [];
+    return (
+      <Upload
+        maxCount={1}
+        fileList={fileList}
+        customRequest={(opt) => {
+          const uploader = p.uploader as
+            | ((file: File, onProgress: (pct: number) => void) => Promise<{ fileId: string }>)
+            | undefined;
+          const file = opt.file as unknown as File;
+          if (!uploader) {
+            // 宿主未注入上传通道：本地校验态回显（fileId 留空——提交层拦截空 fileId）
+            opt.onSuccess?.({ fileId: '' });
+            return;
+          }
+          uploader(file, (pct) => opt.onProgress?.({ percent: pct }))
+            .then((r) => opt.onSuccess?.(r))
+            .catch((e: unknown) => opt.onError?.(e as Error));
+        }}
+        onChange={(info) => {
+          const last = info.fileList.at(-1);
+          if (!last) return p.onChange?.(null);
+          if (last.status === 'done' && last.response) {
+            const fid = (last.response as { fileId?: string }).fileId;
+            if (fid) return p.onChange?.({ fileId: fid, name: last.name, size: last.size ?? 0 });
+          }
+          if (last.status === 'removed') return p.onChange?.(null);
+        }}
+      >
+        <Button disabled={bool(p.disabled)}>上传附件</Button>
+      </Upload>
+    );
+  },
   RichtextInput: (p) => (
     <Input.TextArea value={str(p.value) ?? ''} onChange={(e) => p.onChange?.(e.target.value)}
       rows={4} disabled={bool(p.disabled)} />
@@ -78,38 +112,59 @@ const widgets: Record<string, React.ComponentType<WidgetProps>> = {
       {p.children as React.ReactNode}
     </Card>
   ),
-  StepsWizard: (p) => (
-    <Tabs items={(p.steps as never) ?? []} activeKey={str(p.current) ?? '0'} />
-  ),
+  StepsWizard: (p) => {
+    // 分步表单（03FE §5，2026-10-30 三轮收口）：受控 current + 步进回调（宿主接管步校验）。
+    const current = typeof p.current === 'number' ? p.current : 0;
+    return (
+      <div>
+        <Steps current={current} items={(p.stepLabels as string[] | undefined)?.map((t) => ({ title: t })) ?? []} />
+        <div style={{ marginTop: 16 }}>
+          {p.children as React.ReactNode}
+          <div style={{ marginTop: 16 }}>
+            <Button disabled={current === 0} onClick={p.onPrev as never}>上一步</Button>
+            <Button type="primary" style={{ marginLeft: 8 }} onClick={p.onNext as never}>下一步</Button>
+          </div>
+        </div>
+      </div>
+    );
+  },
   GroupCollapse: (p) => (
     <Collapse items={[{ key: 'g', label: p.label ?? '分组', children: p.children as React.ReactNode }]} />
   ),
-  LabelText: (p) => <Typography.Text>{p.children as React.ReactNode ?? p.label}</Typography.Text>,
+  LabelText: (p) => <Typography.Text>{(p.children as React.ReactNode) ?? p.label ?? ''}</Typography.Text>,
   HintTooltip: (p) => (
-    <Tooltip title={p.tooltip ?? p.label}>
-      {p.children as React.ReactNode ?? <Typography.Text type="secondary">{p.label}</Typography.Text>}
+    <Tooltip title={(p.tooltip ?? p.label) as React.ReactNode}>
+      {(p.children as React.ReactNode) ?? <Typography.Text type="secondary">{p.label}</Typography.Text>}
     </Tooltip>
   ),
 };
 
 /** MaterialMeta 注册表（15 个——05FE §5 清单；runtime 全 dynamic 轨道 A）。 */
-export const BASIC_MATERIALS: MaterialMeta[] = [
-  { componentName: 'TextInput', runtime: 'dynamic', group: '输入', icon: 'edit' },
-  { componentName: 'NumberInput', runtime: 'dynamic', group: '输入', icon: 'number' },
-  { componentName: 'SelectInput', runtime: 'dynamic', group: '输入', icon: 'unordered-list' },
-  { componentName: 'DateInput', runtime: 'dynamic', group: '输入', icon: 'calendar' },
-  { componentName: 'BooleanSwitch', runtime: 'dynamic', group: '输入', icon: 'switch' },
-  { componentName: 'FileUpload', runtime: 'dynamic', group: '输入', icon: 'paper-clip' },
-  { componentName: 'RichtextInput', runtime: 'dynamic', group: '输入', icon: 'align-left' },
-  { componentName: 'FormItem', runtime: 'dynamic', group: '布局', icon: 'appstore' },
-  { componentName: 'PrimaryButton', runtime: 'dynamic', group: '动作', icon: 'play-circle' },
-  { componentName: 'DataTable', runtime: 'dynamic', group: '数据', icon: 'table' },
-  { componentName: 'SectionCard', runtime: 'dynamic', group: '布局', icon: 'block' },
-  { componentName: 'StepsWizard', runtime: 'dynamic', group: '布局', icon: 'insert' },
-  { componentName: 'GroupCollapse', runtime: 'dynamic', group: '布局', icon: 'folder' },
-  { componentName: 'LabelText', runtime: 'dynamic', group: '展示', icon: 'font-size' },
-  { componentName: 'HintTooltip', runtime: 'dynamic', group: '展示', icon: 'info-circle' },
-].map((m) => ({ ...m, component: widgets[m.componentName] }));
+const MATERIAL_DEFS = [
+  { componentName: 'TextInput', group: '输入', icon: 'edit' },
+  { componentName: 'NumberInput', group: '输入', icon: 'number' },
+  { componentName: 'SelectInput', group: '输入', icon: 'unordered-list' },
+  { componentName: 'DateInput', group: '输入', icon: 'calendar' },
+  { componentName: 'BooleanSwitch', group: '输入', icon: 'switch' },
+  { componentName: 'FileUpload', group: '输入', icon: 'paper-clip' },
+  { componentName: 'RichtextInput', group: '输入', icon: 'align-left' },
+  { componentName: 'FormItem', group: '布局', icon: 'appstore' },
+  { componentName: 'PrimaryButton', group: '动作', icon: 'play-circle' },
+  { componentName: 'DataTable', group: '数据', icon: 'table' },
+  { componentName: 'SectionCard', group: '布局', icon: 'block' },
+  { componentName: 'StepsWizard', group: '布局', icon: 'insert' },
+  { componentName: 'GroupCollapse', group: '布局', icon: 'folder' },
+  { componentName: 'LabelText', group: '展示', icon: 'font-size' },
+  { componentName: 'HintTooltip', group: '展示', icon: 'info-circle' },
+] as const;
+
+export const BASIC_MATERIALS: MaterialMeta[] = MATERIAL_DEFS.map((m) => ({
+  componentName: m.componentName,
+  runtime: 'dynamic' as const,
+  group: m.group,
+  icon: m.icon,
+  component: widgets[m.componentName],
+}));
 
 /** 字段类型 → 默认 widget 推断表（03FE §2——可被 LayoutNode.props 覆盖）。 */
 export function defaultWidgetFor(fieldType: string): string {

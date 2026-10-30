@@ -67,9 +67,24 @@ importers:
 
   apps/runtime:
     dependencies:
+      '@schema/component-materials':
+        specifier: workspace:*
+        version: link:../../packages/component-materials
+      '@schema/schema-form':
+        specifier: workspace:*
+        version: link:../../packages/schema-form
+      '@schema/schema-protocol':
+        specifier: workspace:*
+        version: link:../../packages/schema-protocol
+      '@schema/schema-renderer':
+        specifier: workspace:*
+        version: link:../../packages/schema-renderer
       antd:
         specifier: 5.25.4
         version: 5.25.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      dayjs:
+        specifier: 1.11.13
+        version: 1.11.13
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -103,6 +118,9 @@ importers:
       antd:
         specifier: 5.25.4
         version: 5.25.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      dayjs:
+        specifier: 1.11.13
+        version: 1.11.13
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -832,6 +850,9 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  dayjs@1.11.13:
+    resolution: {integrity: sha512-oaMBel6gjolK862uaPQOVTA7q3TZhuSvuMQAAglQDOWYO9A91IrAOUJEyKVlqJlHE0vq5p5UXxzdPfMH/x6xNg==}
 
   dayjs@1.11.23:
     resolution: {integrity: sha512-QDTCU0M0MxR3hQfnlDJfwekQiaanm1ubOD231u73WBckQ/fsamwRLiE2GBz6D3a/xF1NgfiDLJjXBa1hYOYTtQ==}
@@ -2062,6 +2083,8 @@ snapshots:
       toggle-selection: 1.0.6
 
   csstype@3.2.3: {}
+
+  dayjs@1.11.13: {}
 
   dayjs@1.11.23: {}
 

@@ -207,6 +207,29 @@ class DataEngineSecurityIT {
         }
     }
 
+    @Test
+    void fieldPermConfiguredModelDenyUngrantedUser() {
+        // 三轮收口回归（2026-10-30）：模型已配置 FIELD 行 + 用户无任何授权 → 默认拒绝。
+        // 旧实现按用户角色判配置存在性：无角色用户误判「未配置」→ 全字段可见（越权）。
+        long id = insert(record("draft", 100, "u1", "2026-10-01"), 1);
+        // 给模型配置 FIELD 行（挂在用户 50 的角色上——用户 70 不持有该角色）
+        long configRoleId = seedRole(50);
+        jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) "
+                + "VALUES (?, 'FIELD', ?, 'visible:status')", configRoleId, modelId);
+        long roleId = seedRole(70);
+        jdbc.update("INSERT INTO sys_role_data_scope (role_id, model_id, scope_type) "
+                + "VALUES (?, ?, 'ALL')", roleId, modelId);
+        try {
+            Map<String, Object> detail = TenantContext.with(new TenantInfo(1, 1, 70),
+                    () -> engine.getById(modelId, id));
+            assertFalse(detail.containsKey("status"), "已配置模型未授权用户不可见任何字段（默认拒绝）");
+            assertFalse(detail.containsKey("amount"), "已配置模型未授权用户不可见任何字段（默认拒绝）");
+        } finally {
+            cleanupRole(roleId);
+            cleanupRole(configRoleId);
+        }
+    }
+
     // ---------- 部门范围 ----------
 
     @Test

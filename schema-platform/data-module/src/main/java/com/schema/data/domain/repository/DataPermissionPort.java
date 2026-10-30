@@ -30,10 +30,13 @@ public interface DataPermissionPort {
     UserAttrs resolveUserAttrs(long tenantId, long userId);
 
     /**
-     * 该模型是否配置了 FIELD 级权限（visible 或 editable 任一授权行存在）。
-     * false = 未配置 → 字段全可见/全可编辑（不锁死未配置模型）。
+     * 模型级字段权限配置存在性判定（03BE §3.4 默认拒绝口径，2026-10-30 三轮收口）：
+     * 与用户无关——只看模型上是否存在任意 FIELD 权限行。
+     * 已配置模型：无授权用户（无角色/角色无 FIELD 行）一律默认拒绝（授权集为空集）；
+     * 未配置模型：全字段默认可见/可编辑（不锁死未配置模型）。
+     * ⚠️ 不允许退回按用户判定——「用户恰好没角色」会把已配置模型放大成全字段可见。
      */
-    boolean hasFieldPermConfig(long tenantId, long userId, long modelId);
+    boolean hasFieldPermConfig(long tenantId, long modelId);
 
     /** 已授权「可见」字段键集（仅在 hasFieldPermConfig=true 时有意义）。 */
     java.util.Set<String> visibleFields(long tenantId, long userId, long modelId);
