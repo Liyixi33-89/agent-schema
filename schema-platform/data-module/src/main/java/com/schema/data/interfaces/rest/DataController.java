@@ -130,6 +130,18 @@ public class DataController {
         });
     }
 
+    // ---------- 字段元数据（运行时装载面） ----------
+
+    /**
+     * 可见字段元数据（2026-10-30 补齐：前端宿主 GET /api/models/{id}/fields 端点不存在——
+     * 运行时表单装载链第一步即断）。权限口径与数据面同源：字段级权限过滤后的可见 ACTIVE 集
+     * （03BE §3.4 授权集语义——不可见字段不出现在表单元数据中，防推断）。
+     */
+    @GetMapping("/{modelId}/fields")
+    public Map<String, Object> fields(@PathVariable long modelId, HttpServletRequest request) {
+        return withPreviewContext(request, () -> engine.visibleFieldViews(modelId));
+    }
+
     // ---------- 内部 ----------
 
     private static QueryRequest toQueryRequest(long modelId, Map<String, Object> body) {

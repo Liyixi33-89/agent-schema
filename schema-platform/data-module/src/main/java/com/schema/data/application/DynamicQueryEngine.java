@@ -167,6 +167,7 @@ public class DynamicQueryEngine {
         EngineContext ctx = prepare(modelId, null, false);
         String table = ctx.table;
         Map<String, Object> cleaned = writeNormalize(data, ctx, true);
+        applyComputed(ctx, cleaned);
         validateWrites(ctx, cleaned);
         long id = nextId();
 
@@ -212,6 +213,7 @@ public class DynamicQueryEngine {
         enforceRequiredOnUpdate(ctx, data);
         // 写入集 = 本次提交规范化（不可编辑剔除、类型校验、未知字段剔除）
         Map<String, Object> cleaned = writeNormalize(updateBaseline(currentData, data, ctx), ctx, false);
+        applyComputed(ctx, cleaned);
         validateWrites(ctx, cleaned);
         checkUnique(table, ctx, cleaned, id);
         // JSONB merge 写入（02BE §2.4 历史键永不移除）：只覆盖待写键，
@@ -313,6 +315,7 @@ public class DynamicQueryEngine {
     private Map<String, Object> doCreate(EngineContext ctx, Map<String, Object> data) {
         String table = ctx.table;
         Map<String, Object> cleaned = writeNormalize(data, ctx, true);
+        applyComputed(ctx, cleaned);
         validateWrites(ctx, cleaned);
         long id = nextId();
         checkUnique(table, ctx, cleaned, null);
@@ -370,6 +373,7 @@ public class DynamicQueryEngine {
         }
         enforceRequiredOnUpdate(ctx, data);
         Map<String, Object> cleaned = writeNormalize(updateBaseline(currentData, data, ctx), ctx, false);
+        applyComputed(ctx, cleaned);
         validateWrites(ctx, cleaned);
         checkUnique(table, ctx, cleaned, id);
         // JSONB merge 写入：历史键永不移除（02BE §2.4）
@@ -750,6 +754,55 @@ public class DynamicQueryEngine {
     }
 
     /**
+     * computed 字段重算（02BE §3.4 第 2 步，2026-10-30 接线）：
+     * PERSISTED 计算字段按表达式对「待写行值」重算后写入——用户传入的计算字段值被覆盖
+     * （计算字段不可伪造）；READ_TIME 类型已在 writeNormalize 剔除。
+     * 求值失败（编译错/字段缺失）抛 VALIDATION_FAILED——不给「配置坏=放行」的旁路；
+     * 依赖链成环在建模侧已拦（CIRCULAR_DEPENDENCY），此处按拓扑序两轮迭代兜底。
+     */
+    private void applyComputed(EngineContext ctx, Map<String, Object> cleaned) {
+        List<FieldMeta> computedFields = new ArrayList<>();
+        for (FieldMeta f : ctx.activeFields) {
+            if ("computed".equals(f.fieldType()) && f.computedConfig() != null
+                    && "PERSISTED".equals(String.valueOf(f.computedConfig().get("persistMode")))) {
+                computedFields.add(f);
+            }
+        }
+        if (computedFields.isEmpty()) {
+            return;
+        }
+        // 拓扑序：依赖其它 computed 的计算字段后算——两轮迭代兜底（环已被建模侧拦截）
+        for (int round = 0; round < 2; round++) {
+            for (FieldMeta f : computedFields) {
+                Object exprObj = f.computedConfig().get("expr");
+                String expr = exprObj instanceof String s ? s
+                        : exprObj instanceof Map<?, ?> eb && eb.get("source") instanceof String src
+                                ? src : null;
+                if (expr == null || expr.isBlank()) {
+                    throw new BizException("VALIDATION_FAILED",
+                            "计算字段表达式缺失: " + f.fieldKey());
+                }
+                try {
+                    com.schema.protocol.expr.ExprEngine.Node ast =
+                            com.schema.protocol.expr.ExprEngine.compile(expr);
+                    Map<String, Object> scope = new java.util.HashMap<>(cleaned);
+                    var result = com.schema.protocol.expr.ExprEngine.evaluate(ast, scope);
+                    if (result.error() != null) {
+                        throw new BizException("VALIDATION_FAILED", "计算字段求值失败: "
+                                + f.fieldKey() + " (" + result.error().code() + ")");
+                    }
+                    cleaned.put(f.fieldKey(), result.value());
+                } catch (BizException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new BizException("VALIDATION_FAILED",
+                            "计算字段配置非法: " + f.fieldKey());
+                }
+            }
+        }
+    }
+
+    /**
      * 写入规范化（02BE §3.4 第 1 步）：
      * 未知字段剔除 + required 校验 + 不可编辑保留原值（不丢键）+ computed READ_TIME 剔除。
      * 更新场景 isCreate=false：输入为「库中现值 ∪ 本次提交」合并集——
@@ -766,8 +819,13 @@ public class DynamicQueryEngine {
         List<String> missing = new ArrayList<>();
         for (FieldMeta f : ctx.activeFields) {
             if ("computed".equals(f.fieldType())) {
-                // computed 字段不可直接写入（PERSISTED 重算随 M6 ExprEngine；READ_TIME 剔除）
-                if (isCreate && f.defaultValue() != null) {
+                // computed 字段不可直接写入；PERSISTED 由 applyComputed 重算覆盖
+                // （合并集含库中现值——重算输入完整）；READ_TIME 剔除
+                if ("PERSISTED".equals(f.computedConfig() == null ? null
+                        : String.valueOf(f.computedConfig().get("persistMode")))) {
+                    cleaned.put(f.fieldKey(),
+                            data.containsKey(f.fieldKey()) ? data.get(f.fieldKey()) : null);
+                } else if (isCreate && f.defaultValue() != null) {
                     cleaned.put(f.fieldKey(), f.defaultValue());
                 }
                 continue;
@@ -868,6 +926,12 @@ public class DynamicQueryEngine {
                 errors.put("relation", "关联目标模型标识非法: " + targetModelKey);
             }
         }
+        // user/dept 引用存在性批量校验（2026-10-30 接线，02BE §3.4 第 3 步）：
+        // sys_user/sys_dept 同库直查（单体阶段；拆分后随端口化改造迁 IAM 端口）。
+        Set<Object> existingUsers = referenceHits("sys_user", ctx.tenant.tenantId(),
+                ctx.activeFields, cleaned, "user");
+        Set<Object> existingDepts = referenceHits("sys_dept", ctx.tenant.tenantId(),
+                ctx.activeFields, cleaned, "dept");
         for (FieldMeta f : ctx.activeFields) {
             Object value = cleaned.get(f.fieldKey());
             if (value == null) {
@@ -876,10 +940,41 @@ public class DynamicQueryEngine {
             final Set<Object> allowed = existingTargets.get(
                     f.relationConfig() == null ? null
                             : String.valueOf(f.relationConfig().get("targetModelId")));
+            Set<Object> refAllowed = "user".equals(f.fieldType()) ? existingUsers
+                    : "dept".equals(f.fieldType()) ? existingDepts : null;
             WriteValidator.validate(f, value, errors,
-                    (targetModelKey, v) -> allowed != null && allowed.contains(normalizeId(v)));
+                    (targetModelKey, v) -> {
+                        if (refAllowed != null) {
+                            return refAllowed.contains(normalizeId(v));
+                        }
+                        return allowed != null && allowed.contains(normalizeId(v));
+                    });
         }
         WriteValidator.throwIfFailed(errors);
+    }
+
+    /** user/dept 引用批量存在性命中集（同租户——跨租户引用一律不存在）。 */
+    private Set<Object> referenceHits(String table, long tenantId, List<FieldMeta> fields,
+            Map<String, Object> cleaned, String fieldType) {
+        List<Object> ids = new ArrayList<>();
+        for (FieldMeta f : fields) {
+            if (fieldType.equals(f.fieldType())) {
+                Object v = cleaned.get(f.fieldKey());
+                if (v != null && !String.valueOf(v).isBlank()) {
+                    ids.add(normalizeId(v));
+                }
+            }
+        }
+        if (ids.isEmpty()) {
+            return Set.of();
+        }
+        String placeholders = String.join(",",
+                java.util.Collections.nCopies(ids.size(), "?"));
+        List<Object> hits = jdbc.queryForList(
+                "SELECT id FROM " + table + " WHERE tenant_id=? AND id IN (" + placeholders + ")",
+                concat(List.of(tenantId), ids).toArray())
+                .stream().map(r -> (Object) ((Number) r.get("id")).longValue()).toList();
+        return new HashSet<>(hits);
     }
 
     /** relation 值规范化：字符串数字与数值主键互认。 */
@@ -942,6 +1037,40 @@ public class DynamicQueryEngine {
     /** 聚合函数白名单（02BE §3.6）。 */
     private static final Set<String> AGG_FUNCS = Set.of(
             "SUM", "AVG", "COUNT", "COUNT_DISTINCT", "MAX", "MIN");
+
+    /**
+     * 可见字段元数据视图（运行时装载面，2026-10-30 补齐）：
+     * 字段级权限过滤后的 ACTIVE 集——与查询/写入同源 prepare（预览模型范围 + 授权集语义）。
+     * 响应键位与前端 normalizeFields 宽松兼容（fieldKey/label/type/fieldStatus/…）。
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> visibleFieldViews(long modelId) {
+        EngineContext ctx = prepare(modelId, null, false);
+        List<Map<String, Object>> fields = new ArrayList<>();
+        for (FieldMeta f : ctx.visibleFields) {
+            Map<String, Object> v = new LinkedHashMap<>();
+            v.put("fieldKey", f.fieldKey());
+            v.put("label", f.label());
+            v.put("type", f.fieldType());
+            v.put("fieldStatus", f.fieldStatus());
+            v.put("required", f.required());
+            v.put("uniqueFlag", f.uniqueFlag());
+            if (f.defaultValue() != null) {
+                v.put("defaultValue", f.defaultValue());
+            }
+            if (f.enumOptions() != null) {
+                v.put("enumOptions", f.enumOptions());
+            }
+            if (f.relationConfig() != null) {
+                v.put("relation", f.relationConfig());
+            }
+            v.put("sortOrder", 0);
+            fields.add(v);
+        }
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("fields", fields);
+        return resp;
+    }
 
     private static String measureExpr(AggMeasure m, EngineContext ctx) {
         String func = m.func() == null ? "" : m.func().toUpperCase();

@@ -40,11 +40,12 @@ export class RequestClient {
     return { schema: await resp.json(), etag: resp.headers.get('ETag')?.replace(/^"|"$/g, '') ?? null };
   }
 
-  /** 模型字段元数据（表单构建输入——权限过滤后的可见集）。 */
+  /** 模型字段元数据（表单构建输入——权限过滤后的可见集，与数据面同源）。 */
   async loadFields(modelId: string | number): Promise<unknown> {
-    const resp = await fetch(`${this.config.baseUrl}/api/models/${modelId}/fields`, {
+    const resp = await fetch(`${this.config.baseUrl}/api/data/${modelId}/fields`, {
       headers: this.headers(),
     });
+    if (resp.status === 404) throw new ServerError('NOT_FOUND', '模型不存在或无权访问');
     if (!resp.ok) throw new ServerError('LOAD_FAILED', `字段元数据加载失败 (${resp.status})`);
     return resp.json();
   }
@@ -114,14 +115,29 @@ export class RequestClient {
     let message = `请求失败 (${resp.status})`;
     let fieldErrors: Record<string, string> = {};
     try {
-      const body = (await resp.json()) as { code?: string; message?: string; detail?: unknown };
+      const body = (await resp.json()) as {
+        code?: string; message?: string; details?: unknown; detail?: unknown;
+      };
       if (body.code) code = body.code;
       if (body.message) message = body.message;
-      // 422 VALIDATION_FAILED：detail.fields → 字段级错误（WriteValidator 错误体结构）
-      if (body.code === 'VALIDATION_FAILED' && body.detail
-          && typeof body.detail === 'object' && Array.isArray((body.detail as { fields?: unknown }).fields)) {
-        const fields = (body.detail as { fields: string[] }).fields;
-        fieldErrors = Object.fromEntries(fields.map((f) => [f, body.message ?? '校验失败']));
+      // 422 VALIDATION_FAILED：details.fields → 字段级错误表（WriteValidator 真实结构：
+      // {fields: {fieldKey: message}} 对象——此前误读 detail.fields 且假设数组，从未生效）
+      const detailObj = (body.details ?? body.detail) as { fields?: unknown } | undefined;
+      const fieldsRaw = detailObj && typeof detailObj === 'object' ? detailObj.fields : undefined;
+      if (typeof fieldsRaw === 'string') {
+        // writeNormalize 必填缺失形态：fields 为逗号分隔字段名列表
+        fieldErrors = Object.fromEntries(
+          fieldsRaw.split(',').map((f) => [f.trim(), body.message ?? '校验失败']),
+        );
+      } else if (Array.isArray(fieldsRaw)) {
+        fieldErrors = Object.fromEntries(
+          fieldsRaw.map((f) => [String(f), body.message ?? '校验失败']),
+        );
+      } else if (fieldsRaw && typeof fieldsRaw === 'object') {
+        fieldErrors = Object.fromEntries(
+          Object.entries(fieldsRaw as Record<string, unknown>)
+            .map(([k, v]) => [k, String(v)]),
+        );
       }
     } catch {
       // 非 JSON 错误体——保持默认全局错误

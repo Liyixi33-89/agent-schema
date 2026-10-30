@@ -28,12 +28,17 @@ export interface FormStoreOptions {
 /** effect 通知通道（RenderScope 命名订阅——与字段值订阅隔离）。 */
 const FIELD_EFFECT_CHANNEL = '__field_effects__';
 
+/** 字段错误通知通道（宿主受控注入消费——组件类型不依赖错误闭包）。 */
+export const FIELD_ERROR_CHANNEL = '__field_errors__';
+
 export class FormStore {
   readonly scope = new RenderScope();
   readonly fields: Map<string, FieldSchema>;
   private rules = new Map<string, ValidationRule[]>();
   private reactions: ReactionGraph;
   private effects = new Map<string, FieldEffect>();
+  /** 字段错误表（通道分发的真源——宿主不维护平行状态）。 */
+  private fieldErrors = new Map<string, string>();
   private clock?: () => Date;
   private uniqueChecker?: FormStoreOptions['uniqueChecker'];
   private uniqueCallIds = new Map<string, number>();
@@ -92,6 +97,38 @@ export class FormStore {
    */
   subscribeEffects(fieldKeys: string[], listener: () => void): () => void {
     return this.scope.subscribe(FIELD_EFFECT_CHANNEL, listener, fieldKeys);
+  }
+
+  /**
+   * 字段错误订阅（2026-10-30 收口——宿主受控注入消费）：
+   * 错误经 RenderScope 通道分发——受控包装组件订阅自身 fieldRef 的错误消息，
+   * 组件类型不依赖错误状态闭包（避免错误更新重建全部包装组件导致整树重挂载丢焦点）。
+   */
+  subscribeFieldErrors(fieldKey: string, listener: (message: string | null) => void): () => void {
+    let last: string | null = undefined as unknown as string | null;
+    return this.scope.subscribeChannel(FIELD_ERROR_CHANNEL, () => {
+      const current = this.fieldErrors.get(fieldKey) ?? null;
+      const normalized: string | null = current || null;
+      if (normalized !== last) {
+        last = normalized;
+        listener(normalized);
+      }
+    });
+  }
+
+  /**
+   * 字段错误批量发布（merge 语义——出现的键覆盖，空串/undefined 清除该字段错误）。
+   * 宿主在失焦校验/防抖预检/服务端回填统一走此入口。
+   */
+  publishErrors(errors: Record<string, string>): void {
+    for (const [key, message] of Object.entries(errors)) {
+      if (message) {
+        this.fieldErrors.set(key, message);
+      } else {
+        this.fieldErrors.delete(key);
+      }
+    }
+    this.scope.notifyChannel(FIELD_ERROR_CHANNEL);
   }
 
   /** 手动重算全部 effect（初始化/批量回填后调用）。 */

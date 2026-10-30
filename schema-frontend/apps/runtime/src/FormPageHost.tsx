@@ -1,9 +1,17 @@
 /**
  * 表单页装配（M11 最小宿主核心，2026-10-30）：
- * 发布 PageSchema + 字段元数据 → FormStore（联动/校验）→ SchemaRenderer（节点级订阅）
- * → 受控物料输入 → 失焦校验 / 500ms 防抖唯一预检 → SUBMIT 防重 + 提交 → 错误回填。
+ * 发布 PageSchema + 字段元数据 → validate/migrate 协议校验 → FormStore（联动/校验）
+ * → SchemaRenderer（节点级订阅）→ 受控物料输入 → 失焦校验 / 500ms 防抖唯一预检
+ * → SUBMIT 防重 + 提交 → 错误回填。
  *
  * 装配边界（M11 定位）：本组件只做装载与装配——渲染归 M6 bindings、表单逻辑归 M7。
+ *
+ * 2026-10-30 收口：
+ * - 协议接线：loadPage 后走 migrate + validatePageSchema（不再裸强转）；
+ * - 错误订阅通道化：字段错误经 RenderScope FIELD_ERROR_CHANNEL 订阅分发——
+ *   受控包装组件类型不再依赖错误闭包（此前 fieldErrors 变化重建全部 Enhanced
+ *   组件 → 整表单重挂载丢焦点）；
+ * - 防抖取消修复：DebouncedUniqueChecker.cancel 级联取消在途 Promise。
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Card, Spin, Typography } from 'antd';
@@ -12,10 +20,10 @@ import {
   type SubmitTransport,
 } from '@schema/schema-form';
 import { bindSchemaRenderer } from '@schema/schema-renderer';
+import { migrate, validatePageSchema, type FieldSchema, type PageSchema } from '@schema/schema-protocol';
 import { registerBasicMaterials, defaultWidgetFor } from '@schema/component-materials';
 import { materialRegistry, RenderScope } from '@schema/schema-renderer';
 import { RequestClient } from './request';
-import type { FieldSchema, PageSchema, PropValue } from '@schema/schema-protocol';
 
 // 物料注册（一次性——宿主启动即装载全部基础物料）
 let materialsReady = false;
@@ -53,7 +61,10 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted }: FormPage
       try {
         ensureMaterials();
         const { schema } = await client.loadPage(pageId);
-        const page = schema as PageSchema;
+        // 协议接线（2026-10-30）：migrate 版本门禁 + validatePageSchema 结构校验——
+        // 此前裸强转，坏 schema 直入渲染管线（不可预期的运行时崩溃）
+        const migrated = migrate(schema as unknown as PageSchema);
+        const page = validatePageSchema(migrated);
         if (!page?.modelId) throw new ServerError('PAGE_INVALID', '页面未绑定数据模型');
         const fieldsRaw = await client.loadFields(page.modelId);
         const fields = normalizeFields(fieldsRaw);
@@ -104,13 +115,9 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
   useEffect(() => () => debounced.cancelAll(), [debounced]);
 
   const guard = useRef(new SubmitGuard());
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // 字段值版本（失焦校验/错误回填触发渲染——值本身走 RenderScope 订阅）
-  const [, forceRender] = useState(0);
   const [detailLoaded, setDetailLoaded] = useState(recordId == null);
-
   // 详情回填（编辑态）
   useEffect(() => {
     if (recordId == null || detailLoaded) return;
@@ -121,7 +128,7 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
         if (cancelled) return;
         store.setValues(row);
         store.refreshEffects();
-        forceRender((n) => n + 1);
+        store.publishErrors({});
       } catch (e) {
         setGlobalError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -131,7 +138,9 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
     return () => { cancelled = true; };
   }, [recordId, detailLoaded, client, page.modelId, store]);
 
-  // 受控字段包装：value/onChange/失焦校验/唯一预检注入每节点 props
+  // 受控字段包装：value/onChange/失焦校验/唯一预检注入每节点 props。
+  // 错误展示走 RenderScope 通道订阅（Enhanced 组件内部 useState 订阅——
+  // 类型不依赖 fieldErrors 闭包，错误更新不触发整树组件类型重建）。
   const resolveComponent = useCallback((componentName: string) => {
     if (componentName === '__UnknownWidget__') {
       return UnknownWidget as React.ComponentType<Record<string, unknown>>;
@@ -140,7 +149,7 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
     return meta?.component as React.ComponentType<Record<string, unknown>> | undefined;
   }, []);
 
-  // 物料 props 增强：fieldRef 节点注入受控契约 + 错误回填展示
+  // 字段包装工厂：组件类型仅在 store/page 变化时重建（错误状态组件内自管理）
   const enhanceResolve = useCallback((componentName: string) => {
     const base = resolveComponent(componentName);
     if (!base) return undefined;
@@ -148,12 +157,17 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
     const Enhanced = (props: Record<string, unknown>): React.ReactElement => {
       const nodeId = props['data-node-id'] as string;
       const fieldRef = fieldRefOf(page, nodeId);
+      const [err, setErr] = useState<string | null>(null);
+      // 字段错误订阅（通道分发——错误回填/清除即时可见，组件类型不变）
+      useEffect(() => {
+        if (!fieldRef) return;
+        return store.subscribeFieldErrors(fieldRef, (message) => setErr(message));
+      }, [fieldRef, store]);
       if (!fieldRef) return <Comp {...props} />;
       const field = store.fields.get(fieldRef);
       if (!field) return <Comp {...props} />;
       const effect = store.effectOf(fieldRef);
       if (!effect.visible) return <></>;
-      const err = fieldErrors[fieldRef] ?? null;
       const controlled: Record<string, unknown> = {
         ...props,
         value: store.get(fieldRef),
@@ -166,23 +180,23 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
           <Comp {...controlled}
             onChange={(v: unknown) => {
               store.set(fieldRef, v);
-              // 唯一字段防抖预检（500ms）——错误即回填字段
+              // 唯一字段防抖预检（500ms）——错误经通道回填
               if (field.uniqueFlag) {
                 debounced.check(fieldRef, v).then((ok) => {
-                  setFieldErrors((prev) => ({ ...prev, [fieldRef]: ok ? '' : '该值已被占用' }));
+                  store.publishErrors({ [fieldRef]: ok ? '' : '该值已被占用' });
                 });
               }
             }}
             onBlur={() => {
               const message = store.validate(fieldRef);
-              setFieldErrors((prev) => ({ ...prev, [fieldRef]: message ?? '' }));
+              store.publishErrors({ [fieldRef]: message ?? '' });
             }} />
           {err ? <Typography.Text type="danger" style={{ fontSize: 12 }}>{err}</Typography.Text> : null}
         </div>
       );
     };
     return Enhanced as unknown as React.ComponentType<Record<string, unknown>>;
-  }, [resolveComponent, store, fieldErrors, page, debounced]);
+  }, [resolveComponent, store, page, debounced]);
 
   // 提交（防重 + 三阶段协议 + 服务端错误回填）
   const handleSubmit = useCallback(async () => {
@@ -204,12 +218,21 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
         redirectTo: submitAction?.redirectTo,
       }, transport);
       if (!result.ok) {
-        setFieldErrors(result.fieldErrors);
-        setGlobalError(result.globalError ?? '提交失败');
+        // 服务端字段错误经通道分发（组件订阅——不重建组件类型）
+        const serverFieldErrors: Record<string, string> = {};
+        for (const [k, v] of Object.entries(result.fieldErrors)) {
+          if (v) serverFieldErrors[k] = v;
+        }
+        store.publishErrors(serverFieldErrors);
+        // 前端校验错误补发（validateAll 首错）
+        if (result.globalError) setGlobalError(result.globalError);
+        else if (Object.keys(serverFieldErrors).length === 0) setGlobalError('提交失败');
         return;
       }
-      setFieldErrors({});
+      store.publishErrors({});
       onSubmitted?.();
+    } catch (e) {
+      setGlobalError(e instanceof Error ? e.message : String(e));
     } finally {
       guard.current.leave();
       setSubmitting(false);

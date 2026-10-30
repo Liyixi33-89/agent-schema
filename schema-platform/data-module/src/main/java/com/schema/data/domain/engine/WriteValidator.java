@@ -99,10 +99,14 @@ public final class WriteValidator {
                 }
             }
             case "user", "dept" -> {
-                // 用户/部门引用：数值 ID 或字符串数字（与 relation 值同口径）
+                // 用户/部门引用：数值 ID 或字符串数字（与 relation 值同口径）；
+                // 存在性由引擎批量校验回调（2026-10-30 接线——同租户口径，跨租户/不存在引用拒绝）
                 if (!isParseableLong(value)) {
                     errors.put(field.fieldKey(), "须为" + ("user".equals(type) ? "用户" : "部门")
                             + " ID（数值）");
+                } else if (checker != null && !checker.exists(type, value)) {
+                    errors.put(field.fieldKey(),
+                            ("user".equals(type) ? "用户" : "部门") + "引用不存在: " + value);
                 }
             }
             case "geo" -> {

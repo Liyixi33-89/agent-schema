@@ -11,7 +11,8 @@ export const UNIQUE_DEBOUNCE_MS = 500;
  */
 export class DebouncedUniqueChecker {
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private inflight = new Map<string, Promise<boolean>>();
+  /** 在途 Promise 的取消句柄（防抖取消时级联 resolve——不留悬挂 Promise）。 */
+  private cancels = new Map<string, () => void>();
 
   constructor(
     private readonly checker: (fieldKey: string, value: unknown) => Promise<boolean>,
@@ -22,8 +23,12 @@ export class DebouncedUniqueChecker {
   check(fieldKey: string, value: unknown): Promise<boolean> {
     this.cancel(fieldKey);
     return new Promise<boolean>((resolve) => {
+      // 取消句柄：被新调用顶替时立即 resolve(true)——旧探测结果作废，
+      // 按可用处理（服务端提交时兜底校验）；不 resolve 则组件 .then 永挂
+      this.cancels.set(fieldKey, () => resolve(true));
       const timer = setTimeout(async () => {
         this.timers.delete(fieldKey);
+        this.cancels.delete(fieldKey);
         try {
           resolve(await this.checker(fieldKey, value));
         } catch {
@@ -40,11 +45,18 @@ export class DebouncedUniqueChecker {
       clearTimeout(t);
       this.timers.delete(fieldKey);
     }
+    const cancelResolve = this.cancels.get(fieldKey);
+    if (cancelResolve) {
+      this.cancels.delete(fieldKey);
+      cancelResolve(); // 级联取消——被顶替的旧探测不留悬挂 Promise
+    }
   }
 
   cancelAll(): void {
     for (const t of this.timers.values()) clearTimeout(t);
     this.timers.clear();
+    for (const cancelResolve of this.cancels.values()) cancelResolve();
+    this.cancels.clear();
   }
 }
 

@@ -41,6 +41,11 @@ public class DataExceptionHandler {
         body.put("code", e.code());
         body.put("message", e.getMessage());
         body.put("traceId", traceId);
+        // 422 字段错误表（2026-10-30 修复）：BizException.details 携带 {fields: {fieldKey: message}}
+        // ——此前被丢弃，前端无法按字段回填错误（02BE §A.6 契约与 WriteValidator 错误体对齐）
+        if (!e.details().isEmpty()) {
+            body.put("details", e.details());
+        }
         return ResponseEntity.status(status).body(body);
     }
 }
