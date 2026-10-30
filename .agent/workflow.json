@@ -4,7 +4,7 @@
     {
       "id": "FIX-M9",
       "title": "修复真实文件上传与凭证安全链路",
-      "status": "implementing",
+      "status": "implemented",
       "priority": 0,
       "dependsOn": [],
       "spec": ".agent/workflow.md",
