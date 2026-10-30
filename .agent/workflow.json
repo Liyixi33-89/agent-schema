@@ -25,7 +25,7 @@
     {
       "id": "FIX-M8",
       "title": "修复计量认证、可靠队列与席位并发",
-      "status": "planned",
+      "status": "implemented",
       "priority": 1,
       "dependsOn": [],
       "spec": ".agent/workflow.md",
