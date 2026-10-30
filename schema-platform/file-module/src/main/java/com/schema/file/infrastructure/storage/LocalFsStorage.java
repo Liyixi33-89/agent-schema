@@ -56,12 +56,17 @@ public class LocalFsStorage implements ObjectStorage {
 
     @Override
     public String initiateMultipart(String objectKey) {
-        return "mp-" + issueToken(objectKey);
+        return issueToken(objectKey);
     }
 
     @Override
     public PresignedUrl presignPartPut(String uploadId, int partNumber, Duration expiry) {
-        return new PresignedUrl("/api/files/local-put/" + uploadId + "?part=" + partNumber, expiry);
+        TokenBinding session = peekBinding(uploadId);
+        if (session == null || partNumber < 1 || partNumber > 10_000) {
+            throw new IllegalArgumentException("非法分块会话或块号");
+        }
+        String token = issueToken(uploadId, 8L * 1024 * 1024, null);
+        return new PresignedUrl("/api/files/local-put/" + token + "?part=" + partNumber, expiry);
     }
 
     @Override

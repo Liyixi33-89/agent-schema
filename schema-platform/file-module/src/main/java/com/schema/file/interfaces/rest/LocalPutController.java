@@ -8,7 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,7 +35,7 @@ public class LocalPutController {
     }
 
     /** 预签名 PUT 消费（multipart 时带 ?part=N 写分块）。 */
-    @PostMapping(value = "/api/files/local-put/{token}", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    @PutMapping(value = "/api/files/local-put/{token}", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<Void> put(@PathVariable String token,
             @RequestParam(value = "part", required = false) Integer part,
             @RequestBody byte[] body) {
@@ -64,7 +64,7 @@ public class LocalPutController {
     @GetMapping("/api/files/local-get/{token}")
     public ResponseEntity<byte[]> get(@PathVariable String token) {
         TokenBinding binding = LocalFsStorage.consumeBinding(token);
-        if (binding == null) {
+        if (binding == null || System.currentTimeMillis() - binding.issuedAtEpochMs() > FilePolicy.GET_EXPIRY.toMillis()) {
             return ResponseEntity.status(401).build();
         }
         byte[] bytes = storage.read(binding.objectKey());
