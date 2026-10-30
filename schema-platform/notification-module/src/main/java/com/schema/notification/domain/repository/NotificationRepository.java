@@ -20,7 +20,11 @@ public interface NotificationRepository {
 
     long count(long tenantId, long recipientId, boolean unreadOnly);
 
-    void markRead(long tenantId, long id, OffsetDateTime readAt);
+    /** 按条件计数（列表 total 与 rows 同条件——bizType 过滤同步计数）。 */
+    long count(long tenantId, long recipientId, boolean unreadOnly, String bizType);
+
+    /** 单条已读（绑定收件人——只允许本人标记自己的消息）。 */
+    void markRead(long tenantId, long recipientId, long id, OffsetDateTime readAt);
 
     void markAllRead(long tenantId, long recipientId, OffsetDateTime readAt);
 

@@ -63,17 +63,32 @@ public class JdbcNotificationRepository implements NotificationRepository {
 
     @Override
     public long count(long tenantId, long recipientId, boolean unreadOnly) {
-        String cond = unreadOnly ? " AND read_at IS NULL" : "";
-        Long n = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM notify_message WHERE tenant_id = ? AND recipient_id = ?" + cond,
-                Long.class, tenantId, recipientId);
+        return count(tenantId, recipientId, unreadOnly, null);
+    }
+
+    @Override
+    public long count(long tenantId, long recipientId, boolean unreadOnly, String bizType) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT COUNT(*) FROM notify_message WHERE tenant_id = ? AND recipient_id = ?");
+        java.util.List<Object> args = new java.util.ArrayList<>(List.of(tenantId, recipientId));
+        if (unreadOnly) {
+            sql.append(" AND read_at IS NULL");
+        }
+        if (bizType != null && !bizType.isBlank()) {
+            sql.append(" AND biz_type = ?");
+            args.add(bizType);
+        }
+        Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
         return n == null ? 0L : n;
     }
 
     @Override
-    public void markRead(long tenantId, long id, OffsetDateTime readAt) {
-        jdbc.update("UPDATE notify_message SET read_at = COALESCE(read_at, ?) WHERE tenant_id = ? AND id = ?",
-                readAt, tenantId, id);
+    public void markRead(long tenantId, long recipientId, long id, OffsetDateTime readAt) {
+        // 收件人绑定：只能标记自己的消息（同租户他人消息 0 行更新——不给越权线索）
+        jdbc.update("""
+                UPDATE notify_message SET read_at = COALESCE(read_at, ?)
+                WHERE tenant_id = ? AND recipient_id = ? AND id = ?
+                """, readAt, tenantId, recipientId, id);
     }
 
     @Override

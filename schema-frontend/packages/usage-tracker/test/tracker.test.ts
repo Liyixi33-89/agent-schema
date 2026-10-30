@@ -102,8 +102,8 @@ describe('seat.active 按日去重（09FE §4）', () => {
 });
 
 describe('visibilitychange flush（09FE §3）', () => {
-  it('hidden 时 sendBeacon 清空 buffer', () => {
-    const beacon = vi.fn();
+  it('hidden 时 sendBeacon 排队成功清 buffer', () => {
+    const beacon = vi.fn(() => true);
     vi.stubGlobal('navigator', { sendBeacon: beacon });
     const { tracker } = makeTracker({ batchSize: 100 });
     tracker.track({ type: 'artifact.load', pageId: '1', hash: 'a' });
@@ -112,5 +112,38 @@ describe('visibilitychange flush（09FE §3）', () => {
     expect(tracker.bufferedCount).toBe(0);
     vi.unstubAllGlobals();
     tracker.dispose();
+  });
+
+  it('sendBeacon 排队失败保留 buffer 回退 flush（09FE §3 降级链路）', () => {
+    const beacon = vi.fn(() => false);   // 排队失败
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+    const { tracker, bodies } = makeTracker({ batchSize: 100 });
+    tracker.track({ type: 'artifact.load', pageId: '1', hash: 'a' });
+    tracker.onVisibilityHidden();
+    expect(beacon).toHaveBeenCalledTimes(1);
+    // 失败不清队列——回退 fetch 通道重试
+    return vi.waitFor(() => {
+      expect(bodies).toHaveLength(1);
+      expect(tracker.bufferedCount).toBe(0);
+    }).then(() => {
+      vi.unstubAllGlobals();
+      tracker.dispose();
+    });
+  });
+});
+
+describe('漏斗口径映射（09BE §4 终审指标隔离）', () => {
+  it('ai.invoke/artifact.load 映射到 funnel.* 漏斗指标', async () => {
+    const { tracker, bodies } = makeTracker({ batchSize: 2 });
+    tracker.track({ type: 'ai.invoke', feature: 'ai_panel', tokens: { in: 10, out: 20 } });
+    tracker.track({ type: 'artifact.load', pageId: '9', hash: 'h' });
+    await vi.waitFor(() => expect(bodies).toHaveLength(1));
+    const parsed = JSON.parse(bodies[0]);
+    expect(parsed.events[0].metric).toBe('funnel.ai.invoke');
+    expect(parsed.events[1].metric).toBe('funnel.artifact.load');
+    // 终审指标不得出现在客户端上报中
+    const metrics = parsed.events.map((e: { metric: string }) => e.metric);
+    expect(metrics).not.toContain('ai.tokens.in');
+    expect(metrics).not.toContain('build.count');
   });
 });

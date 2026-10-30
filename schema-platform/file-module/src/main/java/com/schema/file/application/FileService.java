@@ -23,10 +23,14 @@ public class FileService {
 
     private final FileRepository files;
     private final ObjectStorage storage;
+    private final com.schema.iam.domain.repository.IamRepository iam;
 
-    public FileService(FileRepository files, ObjectStorage storage) {
+    public FileService(FileRepository files, ObjectStorage storage,
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            com.schema.iam.domain.repository.IamRepository iam) {
         this.files = files;
         this.storage = storage;
+        this.iam = iam;
     }
 
     /**
@@ -64,10 +68,10 @@ public class FileService {
         return resp;
     }
 
-    /** 分块上传凭证（11BE §3.2 步骤②）。 */
+    /** 分块上传凭证（11BE §3.2 步骤②）。凭证签发不代表块已上传——实际传块由客户端 PUT 决定。 */
     public Map<String, Object> presignPart(long fileId, int partNumber) {
         TenantInfo t = tenant();
-        Map<String, Object> row = files.findById(t.tenantId(), fileId)
+        files.findById(t.tenantId(), fileId)
                 .orElseThrow(() -> fileNotFound());
         Map<String, Object> mp = files.findMultipart(fileId).orElseThrow(() -> fileNotFound());
         if (partNumber < 1 || partNumber > ((Number) mp.get("total_parts")).intValue()) {
@@ -75,12 +79,12 @@ public class FileService {
         }
         ObjectStorage.PresignedUrl url = storage.presignPartPut(
                 String.valueOf(mp.get("upload_id")), partNumber, FilePolicy.PUT_EXPIRY);
-        files.appendUploadedPart(fileId, partNumber);
         return Map.of("partUrl", url.url());
     }
 
     /**
      * complete 校验（11BE §3.1 步骤③）：HEAD 对象存在 + size 匹配 → 登记元数据 ACTIVE。
+     * 分块路径额外校验：parts 序列完整覆盖 1..totalParts（缺块/重复/乱序拒绝）。
      * 不匹配删除元数据返回 409 UPLOAD_MISMATCH。
      */
     @Transactional
@@ -92,18 +96,27 @@ public class FileService {
         long declaredSize = ((Number) row.get("size_bytes")).longValue();
 
         if (parts != null && !parts.isEmpty()) {
-            // 分块合并路径：乱序 parts 拒绝（11BE §8 硬性要求）
+            // 分块合并路径（11BE §8 硬性要求）：块号必须完整覆盖 1..totalParts 且不重复
             List<Integer> numbers = new java.util.ArrayList<>();
             for (Map<String, Object> p : parts) {
-                numbers.add(((Number) p.get("partNumber")).intValue());
-            }
-            List<Integer> sorted = new java.util.ArrayList<>(numbers);
-            sorted.sort(Integer::compareTo);
-            if (!sorted.equals(numbers.stream().sorted().distinct().toList())) {
-                throw new BizException("UPLOAD_MISMATCH", "分块列表含重复或非法块号");
+                Object pn = p == null ? null : p.get("partNumber");
+                if (!(pn instanceof Number)) {
+                    throw new BizException("UPLOAD_MISMATCH", "分块列表含非法块号");
+                }
+                numbers.add(((Number) pn).intValue());
             }
             Map<String, Object> mp = files.findMultipart(fileId)
                     .orElseThrow(() -> fileNotFound());
+            int totalParts = ((Number) mp.get("total_parts")).intValue();
+            List<Integer> expected = new java.util.ArrayList<>();
+            for (int i = 1; i <= totalParts; i++) {
+                expected.add(i);
+            }
+            List<Integer> sorted = new java.util.ArrayList<>(numbers);
+            sorted.sort(Integer::compareTo);
+            if (!sorted.equals(expected)) {
+                throw new BizException("UPLOAD_MISMATCH", "分块列表不完整或含重复块号（需 1.." + totalParts + "）");
+            }
             storage.mergeParts(String.valueOf(mp.get("upload_id")), sorted, objectKey);
         }
 
@@ -150,14 +163,33 @@ public class FileService {
         return resp;
     }
 
-    /** 管理删除（11BE §A.2：删除对象 + 元数据置 EXPIRED——引用字段渲染失效占位）。 */
+    /** 管理删除（11BE §A.2）：上传者本人或持 org:manage 权限可删；删除对象 + 元数据置 EXPIRED。 */
     @Transactional
     public void delete(long fileId) {
         TenantInfo t = tenant();
         Map<String, Object> row = files.findById(t.tenantId(), fileId)
                 .orElseThrow(() -> fileNotFound());
+        assertDeleteAllowed(t, row);
         storage.delete((String) row.get("object_key"));
         files.markExpired(fileId);
+    }
+
+    /** 删除授权（对象归属）：上传者本人 ∪ 组织管理权限点（03BE §A.3）。 */
+    private void assertDeleteAllowed(TenantInfo t, Map<String, Object> row) {
+        Long uploadedBy = row.get("uploaded_by") == null ? null : ((Number) row.get("uploaded_by")).longValue();
+        if (uploadedBy != null && uploadedBy == t.operatorId()) {
+            return;
+        }
+        if (t.operatorId() > 0 && iam != null) {
+            List<Map<String, Object>> roles = iam.findRolesOfUser(t.tenantId(), t.operatorId());
+            List<Long> roleIds = roles.stream().map(r -> ((Number) r.get("id")).longValue()).toList();
+            boolean manage = iam.findPermsOfRoles(roleIds).stream()
+                    .anyMatch(p -> "action:org:manage".equals(p.toPermString()));
+            if (manage) {
+                return;
+            }
+        }
+        throw BizException.permDenied();
     }
 
     /** 生命周期：PENDING 孤儿清理（11BE §5——幂等：删除对象 + 置 EXPIRED 双写）。 */

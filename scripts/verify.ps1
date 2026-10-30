@@ -250,7 +250,7 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         if (-not $pgUp) { throw '本地 PG 未就绪（docker compose up -d postgres）——集成测试门禁不可跳过' }
         Push-Location $be
         try {
-            mvn -q -pl bootstrap -am test "-Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT" "-Dsurefire.failIfNoSpecifiedTests=false"
+            mvn -q -pl bootstrap -am test "-Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT" "-Dsurefire.failIfNoSpecifiedTests=false"
             if ($LASTEXITCODE -ne 0) { throw "集成测试退出码 $LASTEXITCODE（PowerShell 下 mvn/git 把进度写 stderr 是误报来源；真实结论看 BUILD SUCCESS/测试计数）" }
         } finally { Pop-Location }
     }

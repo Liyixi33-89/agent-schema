@@ -74,12 +74,58 @@ class MeteringIT {
     void 幂等_同eventId重投递只计一次() {
         TenantContext.with(T1, () -> {
             String eventId = UUID.randomUUID().toString();
-            List<Integer> r1 = metering.ingest(881, 1L, List.of(envelope("api.calls", eventId, null)));
-            List<Integer> r2 = metering.ingest(881, 1L, List.of(envelope("api.calls", eventId, null)));
+            List<Integer> r1 = metering.ingest(881, 1L, List.of(envelope("seat.active", eventId,
+                    Map.of("surface", "designer"))));
+            List<Integer> r2 = metering.ingest(881, 1L, List.of(envelope("seat.active", eventId,
+                    Map.of("surface", "designer"))));
             assertTrue(r1 == null && r2 == null);
             Long n = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM usage_event WHERE event_id = ?", Long.class, eventId);
             assertEquals(1L, n);
+            return null;
+        });
+    }
+
+    @Test
+    void 防伪造_客户端通道终审指标被拒() {
+        TenantContext.with(T1, () -> {
+            // ai.tokens / build.count / api.calls 均为服务端终审指标——客户端通道整批 422
+            List<Integer> r = metering.ingest(881, 1L, List.of(
+                    envelope("ai.tokens.in", UUID.randomUUID().toString(), null),
+                    envelope("build.count", UUID.randomUUID().toString(), null)));
+            assertNotNull(r);
+            assertEquals(List.of(0, 1), r);
+            return null;
+        });
+    }
+
+    @Test
+    void 防伪造_source客户端声明不作数() {
+        TenantContext.with(T1, () -> {
+            // 信封声称 source=SERVER 也强制归 CLIENT（服务端终审只走 recordServer 内部入口）
+            Map<String, Object> env = envelope("seat.active", UUID.randomUUID().toString(),
+                    Map.of("surface", "designer"));
+            env.put("source", "SERVER");
+            List<Integer> r = metering.ingest(881, 1L, List.of(env));
+            assertTrue(r == null);
+            Long serverRows = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM usage_event
+                    WHERE tenant_id = 881 AND metric = 'seat.active' AND source = 'SERVER'
+                      AND occurred_at::date = CURRENT_DATE AND user_id = 999
+                    """, Long.class);
+            assertEquals(0L, serverRows);
+            return null;
+        });
+    }
+
+    @Test
+    void 漏斗指标_客户端通道正常受理() {
+        TenantContext.with(T1, () -> {
+            List<Integer> r = metering.ingest(881, 1L, List.of(
+                    envelope("funnel.ai.invoke", UUID.randomUUID().toString(), Map.of("feature", "ai_panel")),
+                    envelope("funnel.artifact.load", UUID.randomUUID().toString(),
+                            Map.of("pageId", 42, "hash", "abc123"))));
+            assertTrue(r == null);
             return null;
         });
     }
@@ -98,17 +144,37 @@ class MeteringIT {
 
     @Test
     void 时间归属_伪造25h前occurredAt按receivedAt落日() {
+        // flow.exec 为终审指标（客户端通道被拒）——时间归属经域归一化直接验证
         TenantContext.with(T1, () -> {
-            Map<String, Object> env = envelope("flow.exec", UUID.randomUUID().toString(), null);
+            Map<String, Object> env = envelope("seat.active", UUID.randomUUID().toString(),
+                    Map.of("surface", "designer"));
             env.put("occurredAt", java.time.OffsetDateTime.now().minusHours(25).toString());
             List<Integer> r = metering.ingest(881, 1L, List.of(env));
             assertTrue(r == null);
             Long mismatch = jdbc.queryForObject("""
                     SELECT COUNT(*) FROM usage_event
-                    WHERE tenant_id = 881 AND metric = 'flow.exec'
+                    WHERE tenant_id = 881 AND metric = 'seat.active'
                       AND occurred_at::date <> received_at::date
                     """, Long.class);
             assertEquals(0L, mismatch);
+            return null;
+        });
+    }
+
+    @Test
+    void 时间归属_未来时间按receivedAt归属() {
+        // occurredAt 晚于接收时刻（预落未来日期逃当期配额）→ 强制 received_at 归属
+        TenantContext.with(T1, () -> {
+            Map<String, Object> env = envelope("seat.active", UUID.randomUUID().toString(),
+                    Map.of("surface", "designer"));
+            env.put("occurredAt", java.time.OffsetDateTime.now().plusDays(3).toString());
+            List<Integer> r = metering.ingest(881, 1L, List.of(env));
+            assertTrue(r == null);
+            Long future = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM usage_event
+                    WHERE tenant_id = 881 AND occurred_at > received_at
+                    """, Long.class);
+            assertEquals(0L, future);
             return null;
         });
     }

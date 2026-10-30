@@ -156,6 +156,29 @@ class NotificationIT {
     }
 
     @Test
+    void 越权_同租户他人消息不可标记已读() {
+        // 收件人 1 的消息；同租户用户 2 尝试标记 → 0 行更新（收件人绑定红线）
+        Map<String, Object> resp = notify.send(TENANT, "APP_NOTICE", "N-isolate", 1, "APP_RELEASED",
+                Map.of("appName", "Isolated", "version", "1"), null);
+        assertEquals("DONE", resp.get("status"));
+        Long msgId = Long.parseLong(String.valueOf(resp.get("id")));
+        TenantInfo attacker = new TenantInfo(TENANT, 1, 2);
+        TenantContext.with(attacker, () -> notify.markRead(msgId));   // 收件人绑定：他人标记无效
+        Map<String, Object> owner = TenantContext.with(T, () -> notify.list(true, "APP_NOTICE", 0, 50));
+        boolean stillUnread = ((List<?>) owner.get("items")).stream()
+                .anyMatch(m -> String.valueOf(((Map<?, ?>) m).get("id")).equals(String.valueOf(msgId)));
+        assertTrue(stillUnread, "他人标记不应影响收件人未读状态");
+    }
+
+    @Test
+    void 越权_跨租户消息不可见() {
+        // 跨租户查询列表为空（租户隔离过滤）
+        Map<String, Object> foreign = TenantContext.with(new TenantInfo(999, 1, 1),
+                () -> notify.list(false, null, 0, 10));
+        assertEquals(0L, ((Number) foreign.get("total")).longValue());
+    }
+
+    @Test
     void 模板_租户自定义覆盖系统内置() {
         jdbc.update("""
                 INSERT INTO notify_template (tenant_id, key, title, body, vars_schema)

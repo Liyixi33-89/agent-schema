@@ -180,6 +180,13 @@ public class JdbcIamRepository implements IamRepository {
     }
 
     @Override
+    public String findRoleCode(long roleId) {
+        List<String> codes = jdbc.query(
+                "SELECT code FROM sys_role WHERE id = ?", (rs, i) -> rs.getString(1), roleId);
+        return codes.isEmpty() ? null : codes.get(0);
+    }
+
+    @Override
     public Optional<Long> findRoleId(long tenantId, long appId, String code) {
         List<Long> ids = new ArrayList<>();
         for (Map<String, Object> r : jdbc.queryForList(

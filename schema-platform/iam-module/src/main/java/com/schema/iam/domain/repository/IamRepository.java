@@ -55,6 +55,9 @@ public interface IamRepository {
 
     Optional<Long> findRoleId(long tenantId, long appId, String code);
 
+    /** 角色 code（席位触限校验输入——设计能力角色判定 app_admin/developer）。 */
+    String findRoleCode(long roleId);
+
     // ---------- 刷新令牌（03BE §4：滚动签发 + 黑名单吊销） ----------
 
     void insertRefreshToken(long tenantId, long userId, String tokenHash, java.time.OffsetDateTime expiresAt);

@@ -34,11 +34,14 @@ public class AuthService {
 
     private final IamRepository iam;
     private final JwtCodec jwt;
+    private final org.springframework.beans.factory.ObjectProvider<SeatGrantGuard> seatGuard;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
-    public AuthService(IamRepository iam, JwtCodec jwt) {
+    public AuthService(IamRepository iam, JwtCodec jwt,
+            @Autowired(required = false) org.springframework.beans.factory.ObjectProvider<SeatGrantGuard> seatGuard) {
         this.iam = iam;
         this.jwt = jwt;
+        this.seatGuard = seatGuard;
     }
 
     // ---------- 登录（§A.1） ----------
@@ -254,8 +257,29 @@ public class AuthService {
             }
         }
         iam.replaceUserRoles(tenantId, userId, appId, roleIds);
+        // 授权席位硬限判定（13BE §7 并发控制）：本次授予设计能力角色的用户触限校验。
+        // SPI 经 ObjectProvider 装配（metering-module 提供 LicensedSeatCalculator 实现）；未装配时跳过。
+        if (seatGuard != null) {
+            SeatGrantGuard guard = seatGuard.getIfAvailable();
+            if (guard != null) {
+                guard.assertGrantAllowed(tenantId, designGrantees(tenantId, roleIds, userId));
+            }
+        }
         iam.insertAudit("PERM_CHANGE", tenantId, operatorId, "USER", String.valueOf(userId),
                 Map.of("action", "GRANT_ROLES", "appId", appId, "roleIds", roleIds), ip, ua);
+    }
+
+    /** 本次授予中持设计能力角色（app_admin/developer）的用户集合（触限校验输入）。 */
+    private java.util.List<Long> designGrantees(long tenantId, List<Long> roleIds, long userId) {
+        List<Long> design = new ArrayList<>();
+        for (Long roleId : roleIds) {
+            String code = iam.findRoleCode(roleId);
+            if (code != null && ("app_admin".equals(code) || "developer".equals(code))) {
+                design.add(userId);
+                break;
+            }
+        }
+        return design;
     }
 
     // ---------- 内部 ----------

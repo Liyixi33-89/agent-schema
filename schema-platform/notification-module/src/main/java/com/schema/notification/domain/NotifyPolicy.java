@@ -53,7 +53,11 @@ public final class NotifyPolicy {
         return java.util.Collections.unmodifiableMap(m);
     }
 
-    /** 渲染占位符（12BE §3 ③：求值失败 → '--' + partial 标记，消息照发可用性优先）。 */
+    /**
+     * 渲染占位符（12BE §3 ③：求值失败 → '--' + partial 标记，消息照发可用性优先）。
+     * 模板表达式走 L1 求值器（与 08FE/01 同引擎，12BE §3「同一套 AST 白名单」）：
+     * 占位符内允许白名单函数与字段访问（如 {{ UPPER(flowName) }}），编译/求值失败统一占位降级。
+     */
     public static Rendered render(String template, Map<String, Object> vars) {
         StringBuilder out = new StringBuilder();
         boolean partial = false;
@@ -71,7 +75,7 @@ public final class NotifyPolicy {
             }
             out.append(template, i, start);
             String expr = template.substring(start + 2, end).trim();
-            String value = resolveVar(expr, vars);
+            String value = evalExpr(expr, vars);
             if (value == null) {
                 out.append("--");   // 占位降级（12BE §3 ③）
                 partial = true;
@@ -83,7 +87,30 @@ public final class NotifyPolicy {
         return new Rendered(out.toString(), partial);
     }
 
-    /** 简化变量解析：{{a.b}} 走嵌套 Map 取值（L1 全表达式求值随自定义模板编辑器接入）。 */
+    /** L1 求值（12BE §3 ② 受限解释器——白名单函数/字段访问，禁网络/文件/循环）。
+     *  失败（编译错/字段缺失/预算超限）统一 null → 占位降级。纯标识符快路径不走引擎。 */
+    private static String evalExpr(String expr, Map<String, Object> vars) {
+        if (expr.isEmpty()) {
+            return null;
+        }
+        // 快路径：纯标识符（含点号嵌套）直接取值——零引擎开销
+        if (expr.matches("[a-zA-Z_][a-zA-Z0-9_]*(\\.[a-zA-Z_][a-zA-Z0-9_]*)*")) {
+            return resolveVar(expr, vars);
+        }
+        try {
+            com.schema.protocol.expr.ExprEngine.Node ast = com.schema.protocol.expr.ExprEngine.compile(expr);
+            com.schema.protocol.expr.ExprEngine.EvalResult r =
+                    com.schema.protocol.expr.ExprEngine.evaluate(ast, vars == null ? Map.of() : vars);
+            if (r.error() != null || r.value() == null) {
+                return null;
+            }
+            return String.valueOf(r.value());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 嵌套 Map 取值（纯标识符快路径；字段缺失返回 null）。 */
     private static String resolveVar(String expr, Map<String, Object> vars) {
         if (vars == null) return null;
         Object current = vars;

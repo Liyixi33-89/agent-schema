@@ -54,9 +54,10 @@ public final class UsageEventRecord {
     /**
      * 从上报信封归一化：违规收集到 invalid 列表由调用方决定整批拒绝。
      * 时间归属：occurred_at 超回溯窗口按 received_at 落日（§4 时间归属规则）。
+     * source 由服务端通道决定（客户端声明不作数——HTTP 通道一律 CLIENT；服务端走 serverRecord）。
      */
     public static UsageEventRecord normalize(int index, long tenantId, Long userId, Map<String, Object> env,
-            OffsetDateTime receivedAt) {
+            OffsetDateTime receivedAt, String forcedSource) {
         String reason = validateEnvelope(index, env);
         if (reason != null) {
             throw new IllegalArgumentException(reason);
@@ -65,18 +66,22 @@ public final class UsageEventRecord {
         String metric = str(env.get("metric"));
         long quantity = env.get("quantity") == null ? 1L : num(env.get("quantity"));
         OffsetDateTime occurred = parseTime(env.get("occurredAt"), receivedAt);
+        // 未来时间修正（防预落未来日期逃当期配额）：occurred_at 晚于接收时刻按 received_at 归属
+        if (occurred.isAfter(receivedAt)) {
+            occurred = receivedAt;
+        }
         // 超回溯窗口 → 按 received_at 归属（防跨月逃配额）
         if (occurred.isBefore(receivedAt.minus(MeteringPolicy.OCCURRED_BACKTRACK_HOURS, ChronoUnit.HOURS))) {
             occurred = receivedAt;
         }
-        String source = env.get("source") == null ? "CLIENT" : str(env.get("source"));
+        String source = forcedSource == null ? "CLIENT" : forcedSource;
         String attrsJson = env.get("attrs") == null ? null
                 : Json.write(sortKeys(asMap(env.get("attrs"))));
         return new UsageEventRecord(eventId, tenantId, userId, metric, quantity,
                 env.get("appId") == null ? null : numLong(env.get("appId")), source, occurred, receivedAt, attrsJson);
     }
 
-    /** 信封静态校验（不构造即拒绝，违规信息带下标）。 */
+    /** 信封静态校验（不构造即拒绝，违规信息带下标）。HTTP 客户端通道：终审指标违规。 */
     public static String validateEnvelope(int index, Map<String, Object> env) {
         if (env == null) {
             return "events[" + index + "]: 缺失";
@@ -93,6 +98,10 @@ public final class UsageEventRecord {
         String metric = str(env.get("metric"));
         if (metric == null || !MeteringPolicy.METRICS.contains(metric)) {
             return "events[" + index + "]: metric 不在口径白名单";
+        }
+        if (!MeteringPolicy.CLIENT_CHANNEL_METRICS.contains(metric)) {
+            return "events[" + index + "]: metric '" + metric
+                    + "' 为服务端终审指标，禁走客户端上报通道（09BE §4 前端事件仅漏斗）";
         }
         Object q = env.get("quantity");
         if (q != null && (!(q instanceof Number) || ((Number) q).longValue() < 1)) {

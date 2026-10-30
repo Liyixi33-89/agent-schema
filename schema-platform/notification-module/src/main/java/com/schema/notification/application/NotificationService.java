@@ -31,26 +31,33 @@ public class NotificationService {
     /**
      * 发送管线（12BE §3 ①-⑤）：偏好过滤 → 频控判定 → 模板渲染（失败降级可用性优先）→ 通道执行 → 落库。
      * 内部入口（服务端调用）；用户触发入口见 sendUser()。
+     * SUPPRESS 留痕（12BE §5）：偏好关闭/频控超窗均落库 status='SUPPRESSED'（可审计"为什么没收到"）。
      */
     @Transactional
     public Map<String, Object> send(long tenantId, String bizType, String bizRefId, long recipientId,
             String templateKey, Map<String, Object> vars, String jumpUrl) {
         if (!NotifyPolicy.BIZ_TYPES.contains(bizType)) {
-            throw new BizException("TEMPLATE_NOT_FOUND", "非法业务类型: " + bizType);
+            throw new BizException("NOTIFY_BIZ_TYPE_INVALID", "非法业务类型: " + bizType);
         }
 
-        // ① 偏好过滤（12BE §4）：bizType 级关闭则整条 SUPPRESS
-        if (prefDisabled(tenantId, recipientId, bizType)) {
-            return Map.of("status", "SUPPRESSED", "reason", "USER_PREF_DISABLED");
+        // ① 偏好过滤（12BE §4）：bizType 级关闭整条 SUPPRESS；SECURITY_ALERT 不可关闭（安全红线）
+        if (!"SECURITY_ALERT".equals(bizType) && prefDisabled(tenantId, recipientId, bizType)) {
+            long id = repo.insert(tenantId, bizType, bizRefId, recipientId, templateKey,
+                    NotifyPolicy.renderedJson(bizType, "", jumpUrl, false),
+                    "[]", "SUPPRESSED", OffsetDateTime.now());
+            return Map.of("id", Long.toString(id), "status", "SUPPRESSED", "reason", "USER_PREF_DISABLED");
         }
 
-        // ② 频控（12BE §5）：超窗 SUPPRESS——SECURITY_ALERT 豁免
+        // ② 频控（12BE §5）：超窗 SUPPRESS——SECURITY_ALERT 豁免；键维度 bizType:recipient（bizRefId 入键防绕过）
         String rateKey = rateKey(tenantId, bizType, bizRefId, recipientId);
         if (!NotifyPolicy.unlimited(bizType)) {
             int[] window = NotifyPolicy.rateWindowOf(bizType);
             int n = repo.bumpRate(rateKey, window[0]);
             if (n > window[1]) {
-                return Map.of("status", "SUPPRESSED", "reason", "RATE_LIMITED");
+                long id = repo.insert(tenantId, bizType, bizRefId, recipientId, templateKey,
+                        NotifyPolicy.renderedJson(bizType, "", jumpUrl, false),
+                        "[]", "SUPPRESSED", OffsetDateTime.now());
+                return Map.of("id", Long.toString(id), "status", "SUPPRESSED", "reason", "RATE_LIMITED");
             }
         }
 
@@ -77,10 +84,10 @@ public class NotificationService {
         return resp;
     }
 
-    /** 站内信列表（12BE §4 §A.1：分页 + 未读过滤 + bizType 过滤）。 */
+    /** 站内信列表（12BE §4 §A.1：分页 + 未读过滤 + bizType 过滤——total 与 items 同条件）。 */
     public Map<String, Object> list(boolean unreadOnly, String bizType, int page, int size) {
         TenantInfo t = tenant();
-        long total = repo.count(t.tenantId(), t.operatorId(), unreadOnly);
+        long total = repo.count(t.tenantId(), t.operatorId(), unreadOnly, bizType);
         List<Map<String, Object>> rows = repo.list(t.tenantId(), t.operatorId(), unreadOnly, bizType,
                 Math.max(0, page), Math.min(50, Math.max(1, size)));
         List<Map<String, Object>> items = new ArrayList<>();
@@ -100,12 +107,12 @@ public class NotificationService {
         return Map.of("unread", repo.count(t.tenantId(), t.operatorId(), true));
     }
 
-    /** 单条已读（幂等：COALESCE 保留首次 read_at）。 */
+    /** 单条已读（幂等：COALESCE 保留首次 read_at；收件人绑定——只能标记自己的消息）。 */
     @Transactional
     public Map<String, Object> markRead(long id) {
         TenantInfo t = tenant();
         repo.findById(t.tenantId(), id).orElseThrow(() -> new BizException("NOTIFY_NOT_FOUND", "消息不存在"));
-        repo.markRead(t.tenantId(), id, OffsetDateTime.now());
+        repo.markRead(t.tenantId(), t.operatorId(), id, OffsetDateTime.now());
         return Map.of("read", true);
     }
 

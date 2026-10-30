@@ -61,9 +61,12 @@ class FileServiceIT {
 
     @AfterAll
     void cleanup() {
-        jdbc.update("DELETE FROM file_object WHERE tenant_id IN (1, 882)");
+        // 只清理本测试隔离租户与种子用户自建记录——不动租户 1 既有数据（跨测试污染红线）
+        jdbc.update("DELETE FROM file_object WHERE tenant_id = 882");
         jdbc.update("DELETE FROM file_multipart_session WHERE file_id NOT IN (SELECT id FROM file_object)");
         jdbc.update("DELETE FROM sys_user WHERE tenant_id = 1 AND account = 'it_file_user'");
+        jdbc.update("DELETE FROM file_object WHERE tenant_id = 1 AND uploaded_by = "
+                + "(SELECT id FROM sys_user WHERE tenant_id = 1 AND account = 'admin' LIMIT 1) + 999999");
     }
 
     private Map<String, Object> presign(String name, String type, long size, String scope) {
@@ -149,6 +152,28 @@ class FileServiceIT {
         BizException e = assertThrows(BizException.class,
                 () -> TenantContext.with(T1, () -> files.downloadUrl(fileId)));
         assertEquals("FILE_EXPIRED", e.code());
+    }
+
+    @Test
+    void 删除授权_非上传者且无管理权限被拒() {
+        // 上传者 userId=1（T1）；无权限第三方 userId=2 同租户删除 → 403
+        Map<String, Object> p = presign("others-file.pdf", "application/pdf", 32, "attachment");
+        long fileId = Long.parseLong((String) p.get("fileId"));
+        storage.write((String) p.get("objectKey"), new byte[32]);
+        TenantContext.with(T1, () -> files.complete(fileId, null, null));
+        TenantInfo attacker = new TenantInfo(1, 1, 2);
+        BizException e = assertThrows(BizException.class,
+                () -> TenantContext.with(attacker, () -> {
+                    files.delete(fileId);
+                    return null;
+                }));
+        assertEquals("PERM_DENIED", e.code());
+        // 上传者本人删除不受影响
+        TenantContext.with(T1, () -> {
+            files.delete(fileId);
+            return null;
+        });
+        assertEquals("EXPIRED", TenantContext.with(T1, () -> files.meta(fileId)).get("status"));
     }
 
     @Test

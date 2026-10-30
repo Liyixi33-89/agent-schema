@@ -43,8 +43,8 @@ public class LocalFsStorage implements ObjectStorage {
 
     @Override
     public PresignedUrl presignPut(String objectKey, Duration expiry, String contentType, long maxSize) {
-        // LocalFs：一次性上传凭证（token 绑定 objectKey；真实上传经 LocalPutController）
-        String token = issueToken(objectKey);
+        // LocalFs：一次性上传凭证（token 绑定 objectKey + 过期时刻 + 大小上限 + 类型；真实上传经 LocalPutController）
+        String token = issueToken(objectKey, maxSize, contentType);
         return new PresignedUrl("/api/files/local-put/" + token, expiry);
     }
 
@@ -160,25 +160,33 @@ public class LocalFsStorage implements ObjectStorage {
         }
     }
 
-    /** 上传凭证 → objectKey 映射（内存态一次性；重启丢失属可接受降级——前端重试重新 presign）。 */
-    private static final java.util.concurrent.ConcurrentHashMap<String, String> TOKENS =
+    /** 上传凭证 → objectKey 映射（内存态一次性；重启丢失属可接受降级——前端重试重新 presign）。
+     *  凭证绑定约束：objectKey + 签发时刻（LocalPutController 消费时校验过期与大小上限）。 */
+    private static final java.util.concurrent.ConcurrentHashMap<String, TokenBinding> TOKENS =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** 凭证绑定信息（过期校验 + 大小上限——模拟 S3 预签名约束语义）。 */
+    public record TokenBinding(String objectKey, long issuedAtEpochMs, long maxBytes, String contentType) {}
+
     private String issueToken(String objectKey) {
+        return issueToken(objectKey, -1, null);
+    }
+
+    private String issueToken(String objectKey, long maxBytes, String contentType) {
         byte[] raw = new byte[24];
         random.nextBytes(raw);
         String token = HexFormat.of().formatHex(raw);
-        TOKENS.put(token, objectKey);
+        TOKENS.put(token, new TokenBinding(objectKey, System.currentTimeMillis(), maxBytes, contentType));
         return token;
     }
 
-    /** 消费凭证换取 objectKey（一次性——取出即删防重放）。 */
-    public static String consumeToken(String token) {
+    /** 消费凭证换取绑定（一次性——取出即删防重放）；null = 不存在。 */
+    public static TokenBinding consumeBinding(String token) {
         return TOKENS.remove(token);
     }
 
-    /** multipart 凭证 → objectKey（完整保留到 complete）。 */
-    public static String peekUploadTarget(String uploadId) {
+    /** multipart 凭证绑定查询（完整保留到 complete）。 */
+    public static TokenBinding peekBinding(String uploadId) {
         return TOKENS.get(uploadId);
     }
 

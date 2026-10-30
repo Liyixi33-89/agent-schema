@@ -53,11 +53,9 @@ public class MeteringEventService {
         }
 
         for (Map<String, Object> env : envelopes) {
-            UsageEventRecord r = UsageEventRecord.normalize(0, tenantId, userId, env, receivedAt);
-            // 前端漏斗事件禁止冒充服务端终审（source 白名单双保险）
-            if ("SERVER".equals(r.source()) && !env.containsKey("__server")) {
-                // CLIENT 通道写入一律归 CLIENT——服务端埋点走 recordServer() 内部入口
-            }
+            // 前端通道写入一律归 CLIENT（source 由服务端覆写，客户端声明不作数——09BE §4
+            // 「计费口径一律服务端埋点，前端事件仅漏斗」防伪造红线）；服务端终审走 recordServer()
+            UsageEventRecord r = UsageEventRecord.normalize(0, tenantId, userId, env, receivedAt, "CLIENT");
             repo.insertEvent(r);
         }
         return null;

@@ -44,14 +44,24 @@ public class JdbcMeteringRepository implements MeteringRepository {
 
     @Override
     public void aggregateDaily(LocalDate date) {
-        // 常规指标：按 (tenant, metric) 覆盖写（09BE §5 全量覆盖 = 幂等重跑安全）
+        // 计费口径常规指标：仅服务端行（09BE §4 计费一律服务端埋点；前端漏斗行不混计）
         jdbc.update("""
                 INSERT INTO usage_daily (tenant_id, metric, stat_date, quantity, dims)
                 SELECT tenant_id, metric, ?::date, SUM(quantity), NULL
                 FROM usage_event WHERE occurred_at >= ? AND occurred_at < ? + 1
-                  AND metric <> 'seat.active'
+                  AND metric <> 'seat.active' AND source = 'SERVER'
                 GROUP BY tenant_id, metric
                 ON CONFLICT (tenant_id, metric, stat_date) DO UPDATE SET quantity = EXCLUDED.quantity
+                """, date, date, date);
+        // 前端漏斗指标独立聚合（dims 标注漏斗口径——只做观测不进出账）
+        jdbc.update("""
+                INSERT INTO usage_daily (tenant_id, metric, stat_date, quantity, dims)
+                SELECT tenant_id, metric, ?::date, SUM(quantity), jsonb_build_object('source', 'FUNNEL')
+                FROM usage_event WHERE occurred_at >= ? AND occurred_at < ? + 1
+                  AND metric LIKE 'funnel.%'
+                GROUP BY tenant_id, metric
+                ON CONFLICT (tenant_id, metric, stat_date) DO UPDATE SET quantity = EXCLUDED.quantity,
+                        dims = EXCLUDED.dims
                 """, date, date, date);
         // seat.active：服务端终审去重人数（同用户 CLIENT+SERVER 双源只信 SERVER，09BE §5）
         jdbc.update("""
