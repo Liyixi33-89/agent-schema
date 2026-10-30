@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -60,15 +61,19 @@ public class DynamicQueryEngine {
     private final DataPermissionPort permissions;
     private final PhysicalTableManager tables;
     private final PreviewDataGuard previewGuard;
+    /** @Lazy 自代理：readOnly 查询事务内的建表/索引收敛必须经代理走 REQUIRES_NEW。 */
+    private final DynamicQueryEngine self;
 
     public DynamicQueryEngine(JdbcTemplate jdbc, MetadataPort metadata,
             DataPermissionPort permissions, PhysicalTableManager tables,
-            PreviewDataGuard previewGuard) {
+            PreviewDataGuard previewGuard,
+            @org.springframework.context.annotation.Lazy DynamicQueryEngine self) {
         this.jdbc = jdbc;
         this.metadata = metadata;
         this.permissions = permissions;
         this.tables = tables;
         this.previewGuard = previewGuard;
+        this.self = self;
     }
 
     // ---------- §3.1 query ----------
@@ -157,8 +162,9 @@ public class DynamicQueryEngine {
 
     @Transactional
     public Map<String, Object> create(long modelId, Map<String, Object> data) {
-        EngineContext ctx = prepare(modelId, null, false);
+        // 写拒绝判定前置于模型范围（写操作预览态本就全禁——先给明确错误码）
         previewGuard.assertWriteAllowed(PreviewContext.isPreview(), PreviewContext.allowRealWrite());
+        EngineContext ctx = prepare(modelId, null, false);
         String table = ctx.table;
         Map<String, Object> cleaned = writeNormalize(data, ctx, true);
         validateWrites(ctx, cleaned);
@@ -167,10 +173,15 @@ public class DynamicQueryEngine {
         // 唯一性应用层预检（含行级范围条件——权限外数据存在性不泄露；真唯一靠部分索引）
         checkUnique(table, ctx, cleaned, null);
 
-        jdbc.update("INSERT INTO " + table + " (id, tenant_id, data, schema_version, created_by, "
-                        + "created_at) VALUES (?, ?, ?::jsonb, ?, ?, now())",
-                id, ctx.tenant.tenantId(), Json.write(cleaned), ctx.model.currentVersion(),
-                ctx.tenant.operatorId());
+        try {
+            jdbc.update("INSERT INTO " + table + " (id, tenant_id, data, schema_version, created_by, "
+                            + "created_at) VALUES (?, ?, ?::jsonb, ?, ?, now())",
+                    id, ctx.tenant.tenantId(), Json.write(cleaned), ctx.model.currentVersion(),
+                    ctx.tenant.operatorId());
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            // 并发写入撞 UNIQUE 索引（预检 TOCTOU 窗口）——索引为唯一性唯一真源
+            throw new BizException("VALIDATION_FAILED", "唯一字段重复（并发冲突）");
+        }
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("id", id);
         return resp;
@@ -180,8 +191,8 @@ public class DynamicQueryEngine {
 
     @Transactional
     public void update(long modelId, long id, Map<String, Object> data) {
-        EngineContext ctx = prepare(modelId, null, false);
         previewGuard.assertWriteAllowed(PreviewContext.isPreview(), PreviewContext.allowRealWrite());
+        EngineContext ctx = prepare(modelId, null, false);
         String table = ctx.table;
         // 行级权限下的存在性判定：不可见记录同判不存在
         String existsSql = "SELECT data FROM " + table
@@ -214,8 +225,8 @@ public class DynamicQueryEngine {
 
     @Transactional
     public void delete(long modelId, long id) {
-        EngineContext ctx = prepare(modelId, null, false);
         previewGuard.assertWriteAllowed(PreviewContext.isPreview(), PreviewContext.allowRealWrite());
+        EngineContext ctx = prepare(modelId, null, false);
         String table = ctx.table;
         int updated = jdbc.update("UPDATE " + table
                         + " SET deleted_at = now() WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL "
@@ -231,8 +242,8 @@ public class DynamicQueryEngine {
     @Transactional
     public Map<String, Object> batchUpsert(long modelId, List<Map<String, Object>> rows,
             String keyField) {
-        EngineContext ctx = prepare(modelId, null, false);
         previewGuard.assertWriteAllowed(PreviewContext.isPreview(), PreviewContext.allowRealWrite());
+        EngineContext ctx = prepare(modelId, null, false);
         if (rows == null || rows.isEmpty()) {
             return Map.of("inserted", 0, "updated", 0, "failed", List.of());
         }
@@ -276,6 +287,13 @@ public class DynamicQueryEngine {
                 Map<String, Object> fail = new LinkedHashMap<>();
                 fail.put("index", i);
                 fail.put("reason", e.code() + ": " + e.getMessage());
+                failed.add(fail);
+            } catch (org.springframework.dao.DuplicateKeyException e) {
+                // 并发同键撞 UNIQUE 部分索引（应用层预检 TOCTOU 窗口被索引兜住）：
+                // 单行失败不影响其余行——事务不标 rollback-only，行级失败返回
+                Map<String, Object> fail = new LinkedHashMap<>();
+                fail.put("index", i);
+                fail.put("reason", "VALIDATION_FAILED: 唯一字段冲突（并发写入）");
                 failed.add(fail);
             }
         }
@@ -417,6 +435,12 @@ public class DynamicQueryEngine {
         String sql;
         if (groups.isEmpty()) {
             sql = "SELECT " + String.join(", ", selects) + " FROM " + ctx.table + where;
+        } else if (hasBucket && !hasGroup) {
+            // 纯时间桶：不按度量 topN 截断——按桶时序全量返回（跨度护栏已限桶数 ≤1000）
+            sql = "SELECT " + String.join(", ", selects)
+                    + " FROM " + ctx.table + where
+                    + " GROUP BY " + String.join(", ", groups)
+                    + " ORDER BY bucket ASC";
         } else {
             int topN = req.groupTopN() == null ? 10 : Math.min(Math.max(req.groupTopN(), 1), 50);
             sql = "SELECT * FROM (SELECT " + String.join(", ", selects)
@@ -424,23 +448,39 @@ public class DynamicQueryEngine {
                     + " GROUP BY " + String.join(", ", groups)
                     + " ORDER BY m0 DESC LIMIT " + topN + ") agg_order";
         }
-        // 超时熔断（02BE §3.6 第 7 步）：聚合查询设执行超时——超限按 AGG_TIMEOUT 熔断
+        // 超时熔断（02BE §3.6 第 7 步，2026-10-30 二轮修正）：
+        // 不再改共享 JdbcTemplate 全局超时（并发请求互相污染）；改用语句级设置。
+        org.springframework.jdbc.core.PreparedStatementCreator psc = con -> {
+            var stmt = con.prepareStatement(sql);
+            for (int i = 0; i < params.size(); i++) {
+                stmt.setObject(i + 1, params.get(i));
+            }
+            stmt.setQueryTimeout(AggregateBuilder.AGG_TIMEOUT_SECONDS);
+            return stmt;
+        };
+        org.springframework.jdbc.core.RowMapper<Map<String, Object>> rowMapper = (rs, rowNum) -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            int cols = rs.getMetaData().getColumnCount();
+            for (int i = 1; i <= cols; i++) {
+                row.put(rs.getMetaData().getColumnLabel(i), rs.getObject(i));
+            }
+            return row;
+        };
         try {
-            jdbc.setQueryTimeout(AggregateBuilder.AGG_TIMEOUT_SECONDS);
-            List<Map<String, Object>> raw = jdbc.queryForList(sql, params.toArray());
+            List<Map<String, Object>> raw = new ArrayList<>(
+                    jdbc.query(psc, rowMapper));
             Map<String, Object> resp = new LinkedHashMap<>();
             resp.put("rows", AggregateBuilder.toRows(raw, measures, hasBucket, hasGroup));
             return resp;
         } catch (org.springframework.dao.QueryTimeoutException e) {
             throw new BizException("AGG_TIMEOUT", "聚合查询超时熔断（超过 "
                     + AggregateBuilder.AGG_TIMEOUT_SECONDS + "s）——请缩小过滤范围或加索引");
-        } finally {
-            jdbc.setQueryTimeout(0); // 恢复全局默认（连接归还池前重置）
         }
     }
 
     // ---------- 建表入口（M2 建模时联动） ----------
 
+    /** 建表 + 全量索引收敛（幂等——建表/提升列/唯一表达式索引一次到位）。 */
     @Transactional
     public void ensurePhysicalTable(long tenantId, long modelId) {
         List<FieldMeta> fields = metadata.findFields(tenantId, modelId);
@@ -455,6 +495,37 @@ public class DynamicQueryEngine {
             }
         }
         tables.ensureTable(tenantId, modelId, indexed);
+        // 唯一字段表达式 UNIQUE 索引兜底（不依赖提升列路径——建模期 uniqueFlag 即生效）
+        for (FieldMeta f : fields) {
+            if (f.uniqueFlag() && f.active()) {
+                tables.ensureUniqueExprIndex(tenantId, modelId, f.fieldKey());
+            }
+        }
+    }
+
+    /**
+     * 独立可写事务建表收敛（自代理调用点）：
+     * readOnly 查询事务内触发建表/DDL 时挂起外层事务开新可写事务（DDL 与登记行原子）。
+     * 水位更新同事务提交——readOnly 外层不再执行写。
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void ensurePhysicalTableInNewTx(long tenantId, long modelId, int syncedVersion) {
+        ensurePhysicalTable(tenantId, modelId);
+        jdbc.update("UPDATE data_physical_table SET synced_version=? WHERE model_id=? AND tenant_id=?",
+                syncedVersion, modelId, tenantId);
+    }
+
+    /** schema 版本水位收敛：版本落后时幂等补索引（建表后建模变更触发——写路径前置一次性）。 */
+    private void syncIndexesIfNeeded(EngineContext ctx) {
+        Integer synced = jdbc.query(
+                "SELECT synced_version FROM data_physical_table WHERE model_id=? AND tenant_id=?",
+                (rs, i) -> rs.getInt(1), ctx.model.id(), ctx.tenant.tenantId()).stream()
+                .findFirst().orElse(null);
+        int current = ctx.model.currentVersion();
+        if (synced == null || synced >= current) {
+            return;
+        }
+        self.ensurePhysicalTableInNewTx(ctx.tenant.tenantId(), ctx.model.id(), current);
     }
 
     // ---------- 管线内部 ----------
@@ -468,16 +539,30 @@ public class DynamicQueryEngine {
         if (!model.active()) {
             throw BizException.recordNotFound();
         }
-        // 预览数据面模型范围（04BE §A.7：限页会话仅该页绑定模型可访问）
+        // 预览数据面模型范围（04BE §A.7：限页→页绑定模型∪快照引用；应用级→应用内模型）
         previewGuard.assertModelInPreviewScope(PreviewContext.isPreview(),
-                PreviewContext.pageId(), modelId);
+                PreviewContext.appId(), PreviewContext.pageId(),
+                tenant.tenantId(), modelId);
         if (!tables.tableExists(modelId)) {
-            // 未建物理表：建表幂等（首个数据请求触发——建模后未手动建表的窗口期兜底）
-            ensurePhysicalTable(tenant.tenantId(), modelId);
+            // 未建物理表：建表幂等（首个数据请求触发——建模后未手动建表的窗口期兜底）。
+            // readOnly 查询事务不可执行 DDL——走自代理 REQUIRES_NEW 独立可写事务
+            self.ensurePhysicalTableInNewTx(tenant.tenantId(), modelId, model.currentVersion());
+        } else {
+            // schema 版本水位收敛（2026-10-30 二轮收口）：建模变更后首个请求
+            // 幂等补建唯一索引/提升列——唯一约束不再依赖「建模时刚好建表」
+            syncIndexesIfNeeded(new EngineContext(tenant, model, Map.of(), List.of(), List.of(),
+                    PhysicalTableManager.tableName(modelId), "1=0", List.of()));
         }
         List<FieldMeta> allFields = metadata.findFields(tenant.tenantId(), modelId);
+        List<FieldMeta> activeFields = activeOf(allFields);
+        // 字段级权限收敛（03BE §3.4 授权集语义，2026-10-30 二轮收口）：
+        // 可见字段集 = 未配置全 ACTIVE；已配置仅授权集。fieldsBy 只收录可见字段——
+        // 过滤/排序/聚合度量与维度/唯一预检/写入校验全部以可见集为白名单，
+        // 不可见字段不可读、不可作为过滤条件（防推断）、不可参与聚合（防沙数外泄）。
+        List<FieldMeta> visibleActive = visibleFields(tenant.tenantId(),
+                tenant.operatorId(), model.id(), activeFields);
         Map<String, FieldMeta> fieldsBy = new HashMap<>();
-        for (FieldMeta f : allFields) {
+        for (FieldMeta f : visibleActive) {
             fieldsBy.put(f.fieldKey(), f);
         }
         // includeDeletedFields 白名单：仅管理员，记审计（02BE §3.1/A.2）
@@ -500,13 +585,13 @@ public class DynamicQueryEngine {
                     tenant.tenantId(), scopeParams);
         }
         return new EngineContext(tenant, model, fieldsBy,
-                activeOf(allFields), PhysicalTableManager.tableName(modelId),
+                activeFields, visibleActive, PhysicalTableManager.tableName(modelId),
                 scopeSql, scopeParams);
     }
 
     private record EngineContext(TenantInfo tenant, ModelMeta model,
             Map<String, FieldMeta> fieldsBy, List<FieldMeta> activeFields,
-            String table, String scopeSql, List<Object> scopeParams) {
+            List<FieldMeta> visibleFields, String table, String scopeSql, List<Object> scopeParams) {
     }
 
     private static List<FieldMeta> activeOf(List<FieldMeta> all) {
@@ -525,15 +610,19 @@ public class DynamicQueryEngine {
      * - 已配置 → 仅授权集内可见（"*" = 整模型字段全授权）；不可见字段物理剔除。
      */
     private List<FieldMeta> visibleFields(EngineContext ctx) {
-        boolean configured = permissions.hasFieldPermConfig(ctx.tenant.tenantId(),
-                ctx.tenant.operatorId(), ctx.model.id());
+        return ctx.visibleFields;
+    }
+
+    /** 权限解析独立入口（prepare 阶段调用——上下文未建时使用）。 */
+    private List<FieldMeta> visibleFields(long tenantId, long operatorId, long modelId,
+            List<FieldMeta> activeFields) {
+        boolean configured = permissions.hasFieldPermConfig(tenantId, operatorId, modelId);
         if (!configured) {
-            return ctx.activeFields;
+            return activeFields;
         }
-        Set<String> granted = permissions.visibleFields(ctx.tenant.tenantId(),
-                ctx.tenant.operatorId(), ctx.model.id());
+        Set<String> granted = permissions.visibleFields(tenantId, operatorId, modelId);
         List<FieldMeta> result = new ArrayList<>();
-        for (FieldMeta f : ctx.activeFields) {
+        for (FieldMeta f : activeFields) {
             if (granted.contains("*") || granted.contains(f.fieldKey())) {
                 result.add(f);
             }
@@ -541,7 +630,7 @@ public class DynamicQueryEngine {
         return result;
     }
 
-    /** 可编辑字段集（语义同 visibleFields——未配置全可编辑）。 */
+    /** 可编辑字段集（语义同 visibleFields——未配置全可编辑；权限解析独立入口供写入侧消费）。 */
     private Set<String> uneditableKeys(EngineContext ctx) {
         boolean configured = permissions.hasFieldPermConfig(ctx.tenant.tenantId(),
                 ctx.tenant.operatorId(), ctx.model.id());

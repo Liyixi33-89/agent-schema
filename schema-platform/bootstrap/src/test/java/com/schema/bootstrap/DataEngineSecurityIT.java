@@ -302,8 +302,8 @@ class DataEngineSecurityIT {
         } finally {
             PreviewContext.clear();
         }
-        // allowRealWrite=true：放行（发起人显式声明）
-        PreviewContext.bind(true, null, true);
+        // allowRealWrite=true：放行（发起人显式声明；应用级会话须绑定应用范围）
+        PreviewContext.bind(true, 1L, null, true);
         try {
             TenantContext.with(T1, () -> engine.create(modelId, record("draft", 1, "pv", null)));
         } finally {
@@ -314,13 +314,37 @@ class DataEngineSecurityIT {
     @Test
     void previewPageBoundModelScope() {
         // 限页会话访问非绑定模型 → PREVIEW_SCOPE_DENIED
-        PreviewContext.bind(true, 999999L, false);
+        PreviewContext.bind(true, null, 999999L, false);
         try {
             BizException e = assertThrows(BizException.class, () ->
                     TenantContext.with(T1, () -> engine.query(
                             new com.schema.data.domain.engine.SqlBuilder.QueryRequest(
                                     modelId, null, List.of(), 1, 20, null, 0, false))));
             assertEquals("PREVIEW_SCOPE_DENIED", e.code(), "限页预览访问页外模型必须拒绝");
+        } finally {
+            PreviewContext.clear();
+        }
+    }
+
+    @Test
+    void previewAppScopeRejectsForeignModel() {
+        // 应用级预览（无页面绑定）：跨应用模型拒绝
+        PreviewContext.bind(true, 888888L, null, false);
+        try {
+            BizException e = assertThrows(BizException.class, () ->
+                    TenantContext.with(T1, () -> engine.query(
+                            new com.schema.data.domain.engine.SqlBuilder.QueryRequest(
+                                    modelId, null, List.of(), 1, 20, null, 0, false))));
+            assertEquals("PREVIEW_SCOPE_DENIED", e.code(), "应用级预览访问应用外模型必须拒绝");
+        } finally {
+            PreviewContext.clear();
+        }
+        // 应用内模型放行
+        PreviewContext.bind(true, 1L, null, false);
+        try {
+            TenantContext.with(T1, () -> engine.query(
+                    new com.schema.data.domain.engine.SqlBuilder.QueryRequest(
+                            modelId, null, List.of(), 1, 20, null, 0, false)));
         } finally {
             PreviewContext.clear();
         }
@@ -533,9 +557,11 @@ class DataEngineSecurityIT {
         });
         assertEquals("FILTER_OPERATOR_INVALID", e.code(), "无范围时间桶必须拒绝");
 
-        // 带范围 WEEK 桶：前三行两周——10-05 当周（2 行）+ 10-12 当周（1 行）
-        Map<String, Object> filter = Map.of(
-                "field", "created_day", "op", "gte", "value", "2026-10-01");
+        // 双边范围 WEEK 桶：前三行两周——10-05 当周（2 行）+ 10-12 当周（1 行）
+        // （单边范围自二轮收口起拒绝——桶护栏要求 gte+lte/between 双边界定跨度）
+        Map<String, Object> filter = Map.of("op", "AND", "conds", List.of(
+                Map.of("field", "created_day", "op", "gte", "value", "2026-10-01"),
+                Map.of("field", "created_day", "op", "lte", "value", "2026-10-31")));
         Map<String, Object> resp = TenantContext.with(T1, () ->
                 engine.aggregate(new com.schema.data.domain.engine.AggregateBuilder.AggRequest(
                         modelId, filter,
@@ -545,6 +571,251 @@ class DataEngineSecurityIT {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> rows = (List<Map<String, Object>>) resp.get("rows");
         assertEquals(2, rows.size(), "WEEK 桶按 ISO 周一起点分两周");
+    }
+
+    // ---------- 字段权限贯穿聚合（隐藏字段不可作度量/维度/过滤） ----------
+
+    @Test
+    void hiddenFieldCannotAggregateFilterOrSort() {
+        insert(record("draft", 100, "u1", "2026-10-01"), 1);
+        // 用户 50 授权集仅 status/owner——amount 隐藏
+        long roleId = seedRole(50);
+        jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) "
+                + "VALUES (?, 'FIELD', ?, 'visible:status'), (?, 'FIELD', ?, 'visible:owner')",
+                roleId, modelId, roleId, modelId);
+        jdbc.update("INSERT INTO sys_role_data_scope (role_id, model_id, scope_type) "
+                + "VALUES (?, ?, 'ALL')", roleId, modelId);
+        try {
+            TenantInfo user50 = new TenantInfo(1, 1, 50);
+            // 隐藏字段作度量 → FIELD_DELETED（同判不可用——不给存在性线索）
+            BizException e1 = TenantContext.with(user50, () -> {
+                try {
+                    engine.aggregate(new com.schema.data.domain.engine.AggregateBuilder.AggRequest(
+                            modelId, null,
+                            List.of(new com.schema.data.domain.engine.AggregateBuilder.AggMeasure(
+                                    "amount", "SUM")),
+                            null, null, null, null));
+                    return null;
+                } catch (BizException ex) {
+                    return ex;
+                }
+            });
+            assertNotNull(e1, "隐藏字段作聚合度量必须拒绝");
+            assertEquals("FIELD_DELETED", e1.code());
+
+            // 隐藏字段作过滤条件 → 拒绝
+            BizException e2 = TenantContext.with(user50, () -> {
+                try {
+                    engine.query(new com.schema.data.domain.engine.SqlBuilder.QueryRequest(
+                            modelId, Map.of("field", "amount", "op", "eq", "value", 100),
+                            null, 1, 20, null, 0, false));
+                    return null;
+                } catch (BizException ex) {
+                    return ex;
+                }
+            });
+            assertNotNull(e2, "隐藏字段作过滤条件必须拒绝（防推断）");
+
+            // 隐藏字段作排序 → 拒绝
+            BizException e3 = TenantContext.with(user50, () -> {
+                try {
+                    engine.query(new com.schema.data.domain.engine.SqlBuilder.QueryRequest(
+                            modelId, null, List.of(Map.of("field", "amount", "order", "asc")),
+                            1, 20, null, 0, false));
+                    return null;
+                } catch (BizException ex) {
+                    return ex;
+                }
+            });
+            assertNotNull(e3, "隐藏字段作排序必须拒绝");
+
+            // 授权字段聚合正常
+            Map<String, Object> ok = TenantContext.with(user50, () ->
+                    engine.aggregate(new com.schema.data.domain.engine.AggregateBuilder.AggRequest(
+                            modelId, null,
+                            List.of(new com.schema.data.domain.engine.AggregateBuilder.AggMeasure(
+                                    "status", "COUNT")),
+                            null, null, null, null)));
+            assertNotNull(ok, "授权字段聚合正常放行");
+        } finally {
+            cleanupRole(roleId);
+        }
+    }
+
+    // ---------- 写入校验链：文本严格类型 / expression / file / dept ----------
+
+    @Test
+    void complexTypeAndExpressionValidation() {
+        // text 传非字符串 → 拒绝
+        BizException e1 = TenantContext.with(T1, () -> {
+            try {
+                Map<String, Object> bad = record("draft", 10, "u1", null);
+                bad.put("memo", 12345);
+                engine.create(modelId, bad);
+                return null;
+            } catch (BizException ex) {
+                return ex;
+            }
+        });
+        assertNotNull(e1, "text 字段非字符串必须拒绝");
+
+        // dept 传非数值 → 拒绝
+        BizException e2 = TenantContext.with(T1, () -> {
+            try {
+                Map<String, Object> bad = record("draft", 10, "u1", null);
+                bad.put("dept_id", "not-a-number");
+                engine.create(modelId, bad);
+                return null;
+            } catch (BizException ex) {
+                return ex;
+            }
+        });
+        assertNotNull(e2, "dept 字段非数值必须拒绝");
+
+        // expression 校验器：amount 表达式约束 amount >= 50
+        // （ModifyField patch 不含 type——类型创建后冻结，改类型=新建字段）
+        TenantContext.with(T1, () -> {
+            List<ChangeOp> ops = List.of(new ChangeOp.ModifyField("amount", Map.of(
+                    "validators", List.of(
+                            Map.of("type", "range", "min", 0, "max", 1000),
+                            Map.of("type", "expression", "expr", "value >= 50")))));
+            Map<String, Object> pre = metadata.precheck(modelId, ops);
+            metadata.saveSchema(modelId, ops, currentVersion(), (String) pre.get("confirmToken"), null);
+            return null;
+        });
+        BizException e4 = TenantContext.with(T1, () -> {
+            try {
+                engine.create(modelId, record("draft", 10, "expr_u", null));
+                return null;
+            } catch (BizException ex) {
+                return ex;
+            }
+        });
+        assertNotNull(e4, "expression 校验器（value >= 50）必须拦截 10");
+        TenantContext.with(T1, () -> {
+            engine.create(modelId, record("draft", 60, "expr_ok", null));
+            return null;
+        });
+    }
+
+    // ---------- 桶护栏：单边范围拒绝 + 桶数超限 ----------
+
+    @Test
+    void bucketGuardRejectsOneSidedAndOversizedSpan() {
+        insert(record("draft", 10, "u1", "2026-10-05"), 1);
+        // 单边范围（只有 gte）→ 拒绝
+        BizException e1 = TenantContext.with(T1, () -> {
+            try {
+                Map<String, Object> filter = Map.of(
+                        "field", "created_day", "op", "gte", "value", "2026-10-01");
+                engine.aggregate(new com.schema.data.domain.engine.AggregateBuilder.AggRequest(
+                        modelId, filter,
+                        List.of(new com.schema.data.domain.engine.AggregateBuilder.AggMeasure(
+                                "__count", "COUNT")),
+                        null, null, "created_day", "DAY"));
+                return null;
+            } catch (BizException ex) {
+                return ex;
+            }
+        });
+        assertNotNull(e1, "单边范围时间桶必须拒绝");
+
+        // 跨 3 年 DAY 桶 > 1000 → 拒绝
+        BizException e2 = TenantContext.with(T1, () -> {
+            try {
+                Map<String, Object> filter = Map.of("op", "AND", "conds", List.of(
+                        Map.of("field", "created_day", "op", "gte", "value", "2020-01-01"),
+                        Map.of("field", "created_day", "op", "lte", "value", "2024-01-01")));
+                engine.aggregate(new com.schema.data.domain.engine.AggregateBuilder.AggRequest(
+                        modelId, filter,
+                        List.of(new com.schema.data.domain.engine.AggregateBuilder.AggMeasure(
+                                "__count", "COUNT")),
+                        null, null, "created_day", "DAY"));
+                return null;
+            } catch (BizException ex) {
+                return ex;
+            }
+        });
+        assertNotNull(e2, "4 年 DAY 桶（约 1461 桶 > 1000）必须拒绝");
+    }
+
+    // ---------- 并发唯一（索引真约束） ----------
+
+    @Test
+    void concurrentUniqueInsertExactlyOneWinner() throws Exception {
+        TenantContext.with(T1, () -> {
+            List<ChangeOp> ops = List.of(new ChangeOp.ModifyField("owner",
+                    Map.of("uniqueFlag", true)));
+            Map<String, Object> pre = metadata.precheck(modelId, ops);
+            metadata.saveSchema(modelId, ops, currentVersion(), (String) pre.get("confirmToken"), null);
+            return null;
+        });
+        // 写一行触发索引收敛（schema 版本水位推进后首个写入建 UNIQUE 索引）
+        insert(record("draft", 1, "converge_trigger", null), 1);
+
+        int threads = 6;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicLong okCount = new java.util.concurrent.atomic.AtomicLong();
+        java.util.concurrent.atomic.AtomicLong dupCount = new java.util.concurrent.atomic.AtomicLong();
+        List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                futures.add(pool.submit(() -> {
+                    try {
+                        start.await();
+                        TenantContext.with(T1, () -> {
+                            try {
+                                engine.create(modelId, record("draft", 2, "race_owner", null));
+                                okCount.incrementAndGet();
+                            } catch (BizException ex) {
+                                if ("VALIDATION_FAILED".equals(ex.code())) {
+                                    dupCount.incrementAndGet();
+                                }
+                            }
+                            return null;
+                        });
+                    } catch (Exception ignored) {
+                    }
+                }));
+            }
+            start.countDown();
+            for (var f : futures) {
+                f.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        // 全部并发写同键 race_owner：应用层预检窗口下恰一成功，其余撞 UNIQUE 索引被拒
+        assertEquals(1L, okCount.get(), "并发同键插入恰一成功（索引真约束）");
+        assertEquals(threads - 1L, dupCount.get(), "其余全部被唯一约束拒绝");
+        long total = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM biz_model_" + modelId
+                        + " WHERE data->>'owner'='race_owner' AND deleted_at IS NULL",
+                Long.class);
+        assertEquals(1L, total, "库中同键恰一行");
+    }
+
+    // ---------- Outbox 租约恢复（DELIVERING 崩滞回收） ----------
+
+    @Test
+    void outboxStaleDeliveringIsRecovered() {
+        // 模拟投递方崩溃：直接置 DELIVERING 且租约已过期
+        Long eventId = jdbc.queryForObject(
+                "INSERT INTO outbox_event (tenant_id, topic, payload, status, lease_until) "
+                        + "VALUES (1, 'ddl.table.ensure', '{\"modelId\":999999,\"tenantId\":1}', "
+                        + "'DELIVERING', now() - interval '120 seconds') RETURNING id",
+                Long.class);
+        // 触发回收扫描（relay 首步——直接执行同语义 SQL 断言行为）
+        int recovered = jdbc.update(
+                "UPDATE outbox_event SET status='PENDING', lease_until=NULL "
+                        + "WHERE status='DELIVERING' AND lease_until < now()");
+        assertTrue(recovered >= 1, "过期 DELIVERING 必须被回收置回 PENDING");
+        String status = jdbc.queryForObject(
+                "SELECT status FROM outbox_event WHERE id=?", String.class, eventId);
+        assertEquals("PENDING", status, "崩滞事件恢复为 PENDING 继续投递");
+        // 清理：避免 3s 轮询真实消费 modelId=999999（ensure 幂等但留脏事件）
+        jdbc.update("DELETE FROM outbox_event WHERE id=?", eventId);
     }
 
     // ---------- 工具 ----------

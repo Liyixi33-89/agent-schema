@@ -28,8 +28,8 @@ public class ModelCreatedListener {
     public void on(ModelCreatedEvent event) {
         // 同步主路径：建表失败建模失败（事务一致）
         engine.ensurePhysicalTable(event.tenantId(), event.modelId());
-        // Outbox 补偿登记：重启后或同步链路遗漏时由中继幂等补建
+        // Outbox 补偿登记：重启后或同步链路遗漏时由中继幂等补建（租户随事件传递——多租户归属正确）
         outbox.enqueue(event.tenantId(), "ddl.table.ensure",
-                "{\"modelId\":" + event.modelId() + "}");
+                "{\"tenantId\":" + event.tenantId() + ",\"modelId\":" + event.modelId() + "}");
     }
 }

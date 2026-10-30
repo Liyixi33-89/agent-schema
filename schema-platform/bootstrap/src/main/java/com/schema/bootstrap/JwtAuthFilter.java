@@ -84,6 +84,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (claims.preview()) {
             boolean allowRealWrite;
             long issuerId;
+            Long sessionAppId;
             try {
                 com.schema.page.domain.repository.PreviewGrantRepository.Session session =
                         previewSessions.getObject().validateSession(claims.jti());
@@ -94,6 +95,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 // 数据面守卫消费（04BE §A.7 数据面收口）：只读判定 + 发起人上下文
                 allowRealWrite = session.allowRealWrite();
                 issuerId = session.issuerId();
+                sessionAppId = session.appId();
             } catch (com.schema.platform.common.web.BizException e) {
                 String code = "PREVIEW_SESSION_REVOKED".equals(e.code())
                         ? "PREVIEW_SESSION_REVOKED" : "UNAUTHORIZED";
@@ -114,6 +116,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             request.setAttribute("auth.tenantId", claims.tenantId());
             request.setAttribute("auth.userId", issuerId);
             request.setAttribute("auth.previewAllowRealWrite", allowRealWrite);
+            request.setAttribute("auth.previewAppId", sessionAppId);
             chain.doFilter(request, response);
             return;
         }
@@ -157,14 +160,20 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     }
 
     /** 预览态端点白名单匹配（04BE §A.7 数据面收口）：
-     *  /api/runtime/pages 只读面全方法放行；/api/data 读方法（GET）放行，
-     *  写方法不放行——由引擎侧 PreviewDataGuard 按 allowRealWrite 判定（真实写预览需显式声明）。 */
+     *  /api/runtime/pages 只读面全方法放行；/api/data 放行读方法——
+     *  GET（详情）与读语义 POST（query/aggregate/unique-check 子路径）；
+     *  写方法（POST 根、PUT、DELETE）不在此拦——由引擎侧 PreviewDataGuard
+     *  按 allowRealWrite 判定（真实写预览需显式声明，默认 403）。 */
     private static boolean isPreviewAllowed(String method, String path) {
         if (path.startsWith("/api/runtime/pages")) {
             return true;
         }
         if (path.startsWith("/api/data")) {
-            return "GET".equalsIgnoreCase(method);
+            if ("GET".equalsIgnoreCase(method)) {
+                return true;
+            }
+            return "POST".equalsIgnoreCase(method) && (path.endsWith("/query")
+                    || path.endsWith("/aggregate") || path.endsWith("/unique-check"));
         }
         return false;
     }

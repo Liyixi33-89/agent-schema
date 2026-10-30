@@ -156,9 +156,11 @@ public class DataController {
         boolean isPreview = Boolean.TRUE.equals(preview);
         Object pageId = request.getAttribute("auth.previewPageId");
         Object allowWrite = request.getAttribute("auth.previewAllowRealWrite");
+        Object appId = request.getAttribute("auth.previewAppId");
         try {
             PreviewContext.bind(isPreview,
-                    pageId instanceof Number n ? n.longValue() : null,
+                    appId instanceof Number n ? n.longValue() : null,
+                    pageId instanceof Number n2 ? n2.longValue() : null,
                     allowWrite instanceof Boolean b ? b : null);
             return body.get();
         } finally {

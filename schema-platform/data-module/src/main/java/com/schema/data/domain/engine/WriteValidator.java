@@ -71,9 +71,11 @@ public final class WriteValidator {
                 }
             }
             case "text", "richtext" -> {
-                if (value instanceof String s) {
-                    applyMaxLength(field, s, errors);
+                if (!(value instanceof String)) {
+                    errors.put(field.fieldKey(), "须为文本值");
+                    return;
                 }
+                applyMaxLength(field, (String) value, errors);
             }
             case "relation" -> {
                 if (checker != null && field.relationConfig() != null) {
@@ -83,8 +85,39 @@ public final class WriteValidator {
                     }
                 }
             }
+            case "file" -> {
+                // 11BE §A.5 附件结构：{fileId, name, size}——fileId 数值存在性由引擎批量校验
+                if (value instanceof Map<?, ?> fm) {
+                    if (!(fm.get("fileId") instanceof Number) && !isParseableLong(fm.get("fileId"))) {
+                        errors.put(field.fieldKey(), "附件结构非法：fileId 须为数值");
+                    }
+                    if (!(fm.get("name") instanceof String)) {
+                        errors.put(field.fieldKey(), "附件结构非法：name 须为文本");
+                    }
+                } else {
+                    errors.put(field.fieldKey(), "附件值须为 {fileId, name, size} 对象");
+                }
+            }
+            case "user", "dept" -> {
+                // 用户/部门引用：数值 ID 或字符串数字（与 relation 值同口径）
+                if (!isParseableLong(value)) {
+                    errors.put(field.fieldKey(), "须为" + ("user".equals(type) ? "用户" : "部门")
+                            + " ID（数值）");
+                }
+            }
+            case "geo" -> {
+                // MVP 定版：geo 仅结构校验（{lng, lat} 数值对）；坐标系换算随物料启用接线
+                if (value instanceof Map<?, ?> gm) {
+                    if (!isParseableNumber(gm.get("lng")) || !isParseableNumber(gm.get("lat"))) {
+                        errors.put(field.fieldKey(), "地理坐标结构非法：{lng, lat} 须为数值");
+                    }
+                } else {
+                    errors.put(field.fieldKey(), "地理坐标值须为 {lng, lat} 对象");
+                }
+            }
             default -> {
-                // file/geo/user/dept：MVP 无结构约束（结构校验随物料启用接线）
+                // 未知类型：登记错误（协议新增类型未同步校验器时显式拒绝——不静默放行）
+                errors.put(field.fieldKey(), "未知字段类型: " + type);
             }
         }
         // validators 编译（range/regex/expression——01BE 字段定义协议）
@@ -122,7 +155,9 @@ public final class WriteValidator {
                     errors.put(field.fieldKey(), "校验器正则配置非法");
                 }
             } else if ("expression".equals(type) && v.get("expr") instanceof String expr) {
-                // L1 表达式校验随 M6 ExprEngine 接线（表达式上下文需行级值依赖图）；此处仅结构登记
+                // L1 表达式校验（01BE validators 协议，2026-10-30 接线）：
+                // 双端同构 ExprEngine 求值（M1 契约向量共享真源）——表达式上下文 = 待写行值
+                applyExpression(field, value, expr, errors);
             }
             // range 在类型分支已按 min/max 应用（validators 内 range 与字段级 min/max 同源）
         }
@@ -155,6 +190,60 @@ public final class WriteValidator {
                     && value.length() > max.intValue()) {
                 errors.put(field.fieldKey(), "超出长度上限 " + max.intValue());
             }
+        }
+    }
+
+    /**
+     * expression 校验器求值（01BE 协议：expr 为 L1 白名单表达式，值为待校验行值绑定 `value`）。
+     * 求值失败（编译错/运行错/字段缺失）同判校验不过——不给「配置坏=放行」的旁路。
+     */
+    private static void applyExpression(FieldMeta field, Object value, String expr,
+            Map<String, String> errors) {
+        try {
+            com.schema.protocol.expr.ExprEngine.Node ast = com.schema.protocol.expr.ExprEngine.compile(expr);
+            Map<String, Object> scope = new java.util.HashMap<>();
+            scope.put("value", value);
+            scope.put(field.fieldKey(), value);
+            var result = com.schema.protocol.expr.ExprEngine.evaluate(ast, scope);
+            if (result.error() != null) {
+                errors.put(field.fieldKey(), "表达式校验执行失败: " + result.error().code());
+                return;
+            }
+            boolean pass = switch (result.value()) {
+                case Boolean b -> b;
+                case Number n -> n.doubleValue() != 0;
+                case String s -> !s.isBlank() && !"false".equals(s);
+                case null, default -> result.value() != null;
+            };
+            if (!pass) {
+                errors.put(field.fieldKey(), "不符合表达式约束");
+            }
+        } catch (Exception e) {
+            errors.put(field.fieldKey(), "表达式校验器配置非法");
+        }
+    }
+
+    private static boolean isParseableLong(Object v) {
+        if (v instanceof Number) {
+            return true;
+        }
+        try {
+            Long.parseLong(String.valueOf(v));
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static boolean isParseableNumber(Object v) {
+        if (v instanceof Number) {
+            return true;
+        }
+        try {
+            new BigDecimal(String.valueOf(v));
+            return true;
+        } catch (Exception e) {
+            return false;
         }
     }
 

@@ -171,37 +171,144 @@ public final class AggregateBuilder {
         return f;
     }
 
-    /** 桶跨度防护（02BE §3.6 第 7 步）：带时间桶时 filter 必须含桶字段范围条件，
-     *  且跨度换算桶数 ≤ MAX_BUCKETS——否则拒绝（防无限桶扫描）。 */
+    /**
+     * 桶跨度防护（02BE §3.6 第 7 步，2026-10-30 二轮收口）：
+     * 带时间桶时 filter 必须含桶字段双边范围条件（gte+lte/gt+lt/between），
+     * 且跨度按 interval 换算桶数 ≤ MAX_BUCKETS——否则拒绝（防无限桶扫描）。
+     * 单边条件（只有 gte 或只有 lte）不再放行。
+     */
     public static void guardBucketSpan(ModelMeta model, String bucketField, String interval,
             Map<String, Object> filter) {
         if (bucketField == null) {
             return;
         }
-        if (!filterMentionsField(filter, bucketField)) {
-            throw new com.schema.platform.common.web.BizException("FILTER_OPERATOR_INVALID",
-                    "时间桶聚合必须在 filter 中限定桶字段范围: " + bucketField);
+        Double min = null;
+        Double max = null;
+        collectBucketBounds(filter, bucketField, null);
+        double[] bounds = BOUNDS.get();
+        BOUNDS.remove();
+        if (!Double.isNaN(bounds[0])) {
+            min = bounds[0];
         }
-        // 显式跨度上限：范围操作符组合换算桶数（等值/区间均视作至多 1000 桶约束的候选校验点；
-        // 精确跨度换算随 M6 查询规划接入——此处以「必须显式范围」拦住无限桶）
+        if (!Double.isNaN(bounds[1])) {
+            max = bounds[1];
+        }
+        if (min == null || max == null) {
+            throw new com.schema.platform.common.web.BizException("FILTER_OPERATOR_INVALID",
+                    "时间桶聚合必须在 filter 中限定桶字段双边范围（gte+lte / between）: " + bucketField);
+        }
+        if (max < min) {
+            throw new com.schema.platform.common.web.BizException("FILTER_OPERATOR_INVALID",
+                    "时间桶范围颠倒: " + bucketField);
+        }
+        long buckets = bucketCount(min, max, interval == null ? "" : interval.toUpperCase());
+        if (buckets > MAX_BUCKETS) {
+            throw new com.schema.platform.common.web.BizException("FILTER_OPERATOR_INVALID",
+                    "时间桶数超限（" + buckets + " > " + MAX_BUCKETS + "）——请缩小范围");
+        }
     }
 
-    /** 递归检查条件树是否引用了目标字段（叶 {field,...} / 组 {op,conds}）。 */
-    private static boolean filterMentionsField(Object node, String bucketField) {
-        if (!(node instanceof Map<?, ?> m)) {
-            return false;
+    /** 递归收集线程暂存（collectBucketBounds 往返传参——领域纯函数避免逐层 new 数组）。 */
+    private static final ThreadLocal<double[]> BOUNDS = ThreadLocal.withInitial(
+            () -> new double[]{Double.NaN, Double.NaN});
+
+    /**
+     * 递归提取条件树中桶字段的下/上界（epoch 毫秒）。
+     * 认可的边界操作符：gte/gt → 下界；lte/lt → 上界；between → 双界。
+     * eq（等值）视作跨度 0 的合法范围。
+     */
+    private static void collectBucketBounds(Object node, String bucketField, double[] ignored) {        if (!(node instanceof Map<?, ?> m)) {
+            return;
         }
         if (bucketField.equals(m.get("field"))) {
-            return true;
-        }
-        if (m.get("conds") instanceof List<?> conds) {
-            for (Object c : conds) {
-                if (filterMentionsField(c, bucketField)) {
-                    return true;
+            String op = String.valueOf(m.get("op"));
+            Object v = m.get("value");
+            double[] b = BOUNDS.get();
+            switch (op) {
+                case "gte", "gt" -> setBound(b, v, 0);
+                case "lte", "lt" -> setBound(b, v, 1);
+                case "eq" -> {
+                    setBound(b, v, 0);
+                    setBound(b, v, 1);
+                }
+                case "between" -> {
+                    if (v instanceof List<?> pair && pair.size() == 2) {
+                        setBound(b, pair.get(0), 0);
+                        setBound(b, pair.get(1), 1);
+                    }
+                }
+                default -> {
+                    // in/nin/like/isnull 等不构成连续范围——不参与跨度换算
                 }
             }
         }
-        return false;
+        if (m.get("conds") instanceof List<?> conds) {
+            for (Object c : conds) {
+                collectBucketBounds(c, bucketField, ignored);
+            }
+        }
+    }
+
+    /** 边界写入（保留最紧界：下界取最大、上界取最小——多条件 AND 语义）。 */
+    private static void setBound(double[] b, Object value, int idx) {
+        Double ms = toEpochMillis(value);
+        if (ms == null) {
+            return;
+        }
+        if (idx == 0) {
+            if (Double.isNaN(b[0]) || ms > b[0]) {
+                b[0] = ms;
+            }
+        } else {
+            if (Double.isNaN(b[1]) || ms < b[1]) {
+                b[1] = ms;
+            }
+        }
+    }
+
+    /** 值转 epoch 毫秒：数值（秒/毫秒自适应）或 ISO 日期文本。 */
+    private static Double toEpochMillis(Object v) {
+        try {
+            if (v instanceof Number n) {
+                double d = n.doubleValue();
+                return d < 1e11 ? d * 1000.0 : d;
+            }
+            if (v instanceof String s && !s.isBlank()) {
+                return (double) java.time.Instant.parse(normalizeIso(s)).toEpochMilli();
+            }
+        } catch (Exception ignored) {
+            // 无法解析的边界值：留给执行层类型校验报错（此处不拦截）
+        }
+        return null;
+    }
+
+    /** ISO 文本规范化：纯日期补 UTC 零点（Instant.parse 要求完整时间形态）。 */
+    private static String normalizeIso(String s) {
+        if (s.length() == 10) {
+            return s + "T00:00:00Z";
+        }
+        if (s.length() == 16) {
+            return s + ":00Z";
+        }
+        if (s.endsWith("Z") || s.contains("+") || (s.length() > 10 && s.charAt(10) == 'T'
+                && !s.endsWith("Z") && !s.contains(":"))) {
+            return s;
+        }
+        if (s.length() > 10 && s.charAt(10) == 'T') {
+            return s + "Z";
+        }
+        return s;
+    }
+
+    /** 跨度换算桶数：DAY=86400s / WEEK=7 天 / MONTH≈30.44 天（保守估计防绕过）。 */
+    private static long bucketCount(double minMs, double maxMs, String interval) {
+        double spanMs = Math.max(0, maxMs - minMs);
+        return switch (interval) {
+            case "DAY" -> (long) Math.ceil(spanMs / 86_400_000.0);
+            case "WEEK" -> (long) Math.ceil(spanMs / (7 * 86_400_000.0));
+            case "MONTH" -> (long) Math.ceil(spanMs / (30.44 * 86_400_000.0));
+            default -> Long.MAX_VALUE; // 白名单外 interval 由调用方先行拦截
+        };
     }
 
     /** 解析聚合请求体（A.4 协议）。 */

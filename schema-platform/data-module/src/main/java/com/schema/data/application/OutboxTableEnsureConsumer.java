@@ -22,8 +22,11 @@ public class OutboxTableEnsureConsumer {
             return;
         }
         Object modelId = event.payload().get("modelId");
+        // 租户上下文从事件真源恢复（不再硬编码——多租户建表归属正确）
+        Object tenantId = event.payload().get("tenantId");
+        long tenant = tenantId instanceof Number n ? n.longValue() : 1L;
         if (modelId instanceof Number n) {
-            engine.ensurePhysicalTable(1L, n.longValue()); // 单租户 MVP：tenant 恒 1
+            engine.ensurePhysicalTable(tenant, n.longValue());
         }
     }
 }

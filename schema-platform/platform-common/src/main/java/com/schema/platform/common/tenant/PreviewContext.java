@@ -15,14 +15,24 @@ public final class PreviewContext {
     private PreviewContext() {
     }
 
-    /** 预览态绑定值：preview=false 时其余字段无意义。 */
+    /** 预览态绑定值：preview=false 时其余字段无意义。appId=null 表示会话应用未知（不校验应用范围）。 */
+    public static void bind(boolean preview, Long appId, Long pageId, Boolean allowRealWrite) {
+        STATE.set(new State(preview, appId, pageId, allowRealWrite));
+    }
+
+    /** 兼容旧签名（无应用上下文）。 */
     public static void bind(boolean preview, Long pageId, Boolean allowRealWrite) {
-        STATE.set(new State(preview, pageId, allowRealWrite));
+        bind(preview, null, pageId, allowRealWrite);
     }
 
     public static boolean isPreview() {
         State s = STATE.get();
         return s != null && s.preview;
+    }
+
+    public static Long appId() {
+        State s = STATE.get();
+        return s == null ? null : s.appId;
     }
 
     public static Long pageId() {
@@ -43,6 +53,6 @@ public final class PreviewContext {
         STATE.remove();
     }
 
-    private record State(boolean preview, Long pageId, Boolean allowRealWrite) {
+    private record State(boolean preview, Long appId, Long pageId, Boolean allowRealWrite) {
     }
 }

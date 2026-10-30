@@ -68,6 +68,27 @@ public class PhysicalTableManager {
                     (String) f.get("fieldType"),
                     Boolean.TRUE.equals(f.get("uniqueFlag")));
         }
+        // 4) 唯一表达式索引兜底（2026-10-30 二轮收口）：uniqueFlag=true 但未提升的字段
+        //    直接建 JSONB 表达式 UNIQUE 部分索引——唯一性不再依赖「提升列路径」，
+        //    建模期设置 uniqueFlag 即生效（02BE §3.4 第 5 步并发语义的唯一真源）
+        for (java.util.Map<String, Object> f : indexedFields) {
+            if (Boolean.TRUE.equals(f.get("uniqueFlag"))) {
+                ensureUniqueExprIndex(tenantId, modelId, (String) f.get("fieldKey"));
+            }
+        }
+    }
+
+    /**
+     * 唯一字段 JSONB 表达式 UNIQUE 部分索引（幂等）：
+     * (data->>'k') 恒为 text——数值唯一字段跨类型比较由引擎规范化保证写入值形态一致；
+     * 提升列唯一索引若已存在则二者共存（约束语义相同，重复索引由提升列路径收敛）。
+     */
+    public void ensureUniqueExprIndex(long tenantId, long modelId, String fieldKey) {
+        String table = tableName(modelId);
+        String col = safeColumn(fieldKey);
+        jdbc.update("CREATE UNIQUE INDEX IF NOT EXISTS uq_" + modelId + "_" + col + "_expr ON "
+                + table + "(tenant_id, (data->>'" + col + "')) "
+                + "WHERE deleted_at IS NULL AND data->>'" + col + "' IS NOT NULL");
     }
 
     /**
