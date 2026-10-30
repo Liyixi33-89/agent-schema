@@ -8,12 +8,28 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConfigProvider, Typography } from 'antd';
 import { RequestClient } from './request';
+import { UsageTracker } from '@schema/usage-tracker';
 import FormPageHost from './FormPageHost';
 
 const client = new RequestClient({
   baseUrl: import.meta.env.VITE_API_BASE ?? '',
   getToken: () => localStorage.getItem('schema_token'),
   getTenantId: () => localStorage.getItem('schema_tenant'),
+});
+
+/** 计量埋点（09FE）：认证头与请求层同通道（schema_token）——上报通道需登录态。 */
+const tracker = new UsageTracker({
+  authHeader: () => {
+    const token = localStorage.getItem('schema_token');
+    const tenant = localStorage.getItem('schema_tenant');
+    const h: Record<string, string> = {};
+    if (token) h.Authorization = `Bearer ${token}`;
+    if (tenant) h['X-Tenant-Id'] = tenant;
+    return h;
+  },
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') tracker.onVisibilityHidden();
 });
 
 interface RouteInfo { pageId: string; recordId?: string }

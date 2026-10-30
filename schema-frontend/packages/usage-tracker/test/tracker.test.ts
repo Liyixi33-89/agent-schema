@@ -19,7 +19,7 @@ function makeTracker(opts: {
     flushIntervalMs: opts.flushIntervalMs,
     uuid: () => `id-${++uuidSeq}`,
     now: () => 1_700_000_000_000,
-    transport: async (_url, body) => {
+    transport: async (_url, body, _headers) => {
       bodies.push(body);
       transportCalls++;
       if (opts.failFirst && transportCalls <= opts.failFirst) return false;
@@ -102,33 +102,39 @@ describe('seat.active 按日去重（09FE §4）', () => {
 });
 
 describe('visibilitychange flush（09FE §3）', () => {
-  it('hidden 时 sendBeacon 排队成功清 buffer', () => {
+  it('hidden 走可确认通道（keepalive fetch）：成功清 buffer 且带认证头', async () => {
+    // sendBeacon 排队成功≠服务端受理（无法带 JWT）——不再使用，hidden 直接 flush
     const beacon = vi.fn(() => true);
     vi.stubGlobal('navigator', { sendBeacon: beacon });
-    const { tracker } = makeTracker({ batchSize: 100 });
+    const headers: Record<string, string>[] = [];
+    let uuidSeq = 0;
+    const tracker = new UsageTracker({
+      batchSize: 100,
+      uuid: () => `id-${++uuidSeq}`,
+      now: () => 1_700_000_000_000,
+      authHeader: () => ({ Authorization: 'Bearer schema-token-x' }),
+      transport: async (_url, _body, h) => {
+        headers.push(h);
+        return true;
+      },
+    });
     tracker.track({ type: 'artifact.load', pageId: '1', hash: 'a' });
     tracker.onVisibilityHidden();
-    expect(beacon).toHaveBeenCalledTimes(1);
-    expect(tracker.bufferedCount).toBe(0);
+    await vi.waitFor(() => expect(tracker.bufferedCount).toBe(0));
+    expect(beacon).not.toHaveBeenCalled();   // 不再盲信 beacon 排队
+    expect(headers[0].Authorization).toBe('Bearer schema-token-x');   // 认证头真实注入
     vi.unstubAllGlobals();
     tracker.dispose();
   });
 
-  it('sendBeacon 排队失败保留 buffer 回退 flush（09FE §3 降级链路）', () => {
-    const beacon = vi.fn(() => false);   // 排队失败
-    vi.stubGlobal('navigator', { sendBeacon: beacon });
-    const { tracker, bodies } = makeTracker({ batchSize: 100 });
+  it('hidden 上报失败保留 buffer（服务端未受理不清队列）', async () => {
+    const { tracker, bodies } = makeTracker({ batchSize: 100, failFirst: 1 });
     tracker.track({ type: 'artifact.load', pageId: '1', hash: 'a' });
     tracker.onVisibilityHidden();
-    expect(beacon).toHaveBeenCalledTimes(1);
-    // 失败不清队列——回退 fetch 通道重试
-    return vi.waitFor(() => {
-      expect(bodies).toHaveLength(1);
-      expect(tracker.bufferedCount).toBe(0);
-    }).then(() => {
-      vi.unstubAllGlobals();
-      tracker.dispose();
-    });
+    // 失败保留队列——eventId 不变，后续重试幂等
+    await vi.waitFor(() => expect(bodies).toHaveLength(1));
+    expect(tracker.bufferedCount).toBe(1);
+    tracker.dispose();
   });
 });
 

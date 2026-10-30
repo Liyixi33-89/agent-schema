@@ -16,7 +16,8 @@
     "@schema/schema-form": "workspace:*",
     "@schema/schema-renderer": "workspace:*",
     "@schema/component-materials": "workspace:*",
-    "@schema/schema-protocol": "workspace:*"
+    "@schema/schema-protocol": "workspace:*",
+    "@schema/usage-tracker": "workspace:*"
   },
   "devDependencies": {
     "vite": "6.3.5",

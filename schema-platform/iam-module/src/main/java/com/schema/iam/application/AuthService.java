@@ -256,13 +256,21 @@ public class AuthService {
                 throw new BizException("ROLE_NOT_FOUND", "角色不属于该应用: " + roleId);
             }
         }
-        iam.replaceUserRoles(tenantId, userId, appId, roleIds);
-        // 授权席位硬限判定（13BE §7 并发控制）：本次授予设计能力角色的用户触限校验。
+        // 授权席位硬限判定（13BE §7 并发控制）——必须先于角色写入：
+        // 后置校验读到的是已写入后的角色，净新增恒为 0 形同虚设；先锁后校验失败则事务回滚不落库。
         // SPI 经 ObjectProvider 装配（metering-module 提供 LicensedSeatCalculator 实现）；未装配时跳过。
         if (seatGuard != null) {
             SeatGrantGuard guard = seatGuard.getIfAvailable();
             if (guard != null) {
                 guard.assertGrantAllowed(tenantId, designGrantees(tenantId, roleIds, userId));
+            }
+        }
+        iam.replaceUserRoles(tenantId, userId, appId, roleIds);
+        // 授权落库即时快照重算（13BE §2.4：成员变更当天快照必须同步——不等次日调度）
+        if (seatGuard != null) {
+            SeatGrantGuard guard = seatGuard.getIfAvailable();
+            if (guard != null) {
+                guard.onSeatChanged(tenantId);
             }
         }
         iam.insertAudit("PERM_CHANGE", tenantId, operatorId, "USER", String.valueOf(userId),

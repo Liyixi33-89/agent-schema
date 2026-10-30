@@ -30,10 +30,10 @@ export interface TrackerConfig {
   maxBuffer?: number;
   /** 当前用户 ID（seat.active 去重标记按用户隔离）。 */
   userId?: string;
-  /** 认证头注入（默认从 localStorage 读 access token——上报通道需登录态）。 */
+  /** 认证头注入（上报通道需登录态；宿主按实际 token 键注入——缺省回退 localStorage access_token）。 */
   authHeader?: () => Record<string, string>;
   /** 上报通道注入（测试替身；默认 fetch keepalive）。 */
-  transport?: (url: string, body: string) => Promise<boolean>;
+  transport?: (url: string, body: string, headers: Record<string, string>) => Promise<boolean>;
   /** 时间源注入（测试替身）。 */
   now?: () => number;
   /** UUID 源注入（测试替身）。 */
@@ -91,7 +91,7 @@ export class UsageTracker {
   private readonly cfg: Required<Pick<TrackerConfig, 'endpoint' | 'flushIntervalMs' | 'batchSize' | 'maxBuffer'>>;
   private readonly userId?: string;
   private readonly authHeader?: () => Record<string, string>;
-  private readonly transport: (url: string, body: string) => Promise<boolean>;
+  private readonly transport: (url: string, body: string, headers: Record<string, string>) => Promise<boolean>;
   private readonly now: () => number;
   private readonly uuid: () => string;
 
@@ -154,6 +154,20 @@ export class UsageTracker {
     }
   }
 
+  /** 组装上报请求头：authHeader 注入优先（宿主实际 token 通道），缺省回退 localStorage access_token。 */
+  private buildHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    try {
+      if (this.authHeader) {
+        Object.assign(headers, this.authHeader());
+      } else {
+        const token = typeof localStorage !== 'undefined' ? localStorage.getItem('access_token') : null;
+        if (token) headers.Authorization = `Bearer ${token}`;
+      }
+    } catch { /* 隐私模式忽略 */ }
+    return headers;
+  }
+
   /**
    * flush：eventId 不变的可靠重试（幂等键红线——重试必须复用原 eventId）。
    * 失败保留 buffer 下轮重试；并发防护：进行中不重入（inFlight 标记）。
@@ -174,7 +188,7 @@ export class UsageTracker {
       });
       let ok = false;
       try {
-        ok = await this.transport(this.cfg.endpoint, body);
+        ok = await this.transport(this.cfg.endpoint, body, this.buildHeaders());
       } catch {
         ok = false;
       }
@@ -191,27 +205,14 @@ export class UsageTracker {
     }
   }
 
-  /** visibilitychange(hidden) 立即 flush（sendBeacon 保底——失败不清队列，回退 fetch 重试）。 */
+  /**
+   * visibilitychange(hidden) 立即上报保底。
+   * sendBeacon 无法携带 Authorization 头（计量端点要求 JWT）——排队成功≠服务端受理，
+   * 盲清队列会丢事件。改用 keepalive fetch 同步发送（可带认证头且能感知结果）；
+   * sendBeacon 仅在 fetch 不可用时降级且保留 buffer（下次启动重试）。
+   */
   onVisibilityHidden(): void {
     if (this.buffer.length === 0) return;
-    const batch = this.buffer.slice(0, 100);
-    const body = JSON.stringify({
-      events: batch.map((e) => ({
-        eventId: e.eventId,
-        occurredAt: new Date(e.occurredAt).toISOString(),
-        metric: e.metric,
-        quantity: e.quantity,
-        attrs: e.attrs,
-      })),
-    });
-    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-      // sendBeacon 返回 false = 排队失败：保留 buffer 回退 keepalive fetch（09FE §3 降级链路）
-      const queued = navigator.sendBeacon(this.cfg.endpoint, new Blob([body], { type: 'application/json' }));
-      if (queued) {
-        this.buffer = this.buffer.filter((e) => !batch.includes(e));
-        return;
-      }
-    }
     void this.flush();
   }
 
@@ -236,13 +237,8 @@ export class UsageTracker {
   }
 }
 
-function defaultTransport(url: string, body: string): Promise<boolean> {
-  // 上报通道需登录态：默认携带 Authorization（可经 authHeader 注入覆盖；09FE §3 独立通道≠匿名通道）
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  try {
-    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('access_token') : null;
-    if (token) headers.Authorization = `Bearer ${token}`;
-  } catch { /* 隐私模式忽略 */ }
+function defaultTransport(url: string, body: string, headers: Record<string, string>): Promise<boolean> {
+  // headers 已含认证头（buildHeaders 组装——authHeader 注入或 access_token 回退）
   return fetch(url, {
     method: 'POST',
     keepalive: true,

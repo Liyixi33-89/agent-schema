@@ -261,4 +261,174 @@ class MeteringIT {
             jdbc.update("DELETE FROM sys_user WHERE tenant_id = 881 AND account IN ('it_seat_a','it_seat_b')");
         }
     }
+
+    // ===== FIX-M8 席位并发验收（2026-10-30）：限流生效 / 并发不超限 / 成员变更即时重算 =====
+
+    /** 并发验收专用隔离租户。 */
+    private static final long CONC_TENANT = 883;
+
+    @Autowired
+    private com.schema.iam.application.AuthService auth;
+
+    /** 临时改写席位上限（测试隔离——原值恢复由调用方负责）。 */
+    private void setSeatLimit(long limit) throws Exception {
+        java.lang.reflect.Field f = LicensedSeatCalculator.class.getDeclaredField("seatLimit");
+        f.setAccessible(true);
+        f.setLong(seats, limit);
+    }
+
+    /** 并发构造隔离租户角色/用户（每次调用重置状态）。 */
+    private Long[] setupConcFixtures(int userCount) {
+        jdbc.update("DELETE FROM sys_user_role WHERE user_id IN (SELECT id FROM sys_user WHERE tenant_id=" + CONC_TENANT + ")");
+        jdbc.update("DELETE FROM sys_user WHERE tenant_id = " + CONC_TENANT);
+        jdbc.update("DELETE FROM sys_role WHERE tenant_id = " + CONC_TENANT);
+        jdbc.update("DELETE FROM seat_license_daily WHERE tenant_id = " + CONC_TENANT);
+        jdbc.update("INSERT INTO sys_role (tenant_id, app_id, code, name, role_type) VALUES (" + CONC_TENANT
+                + ", 1, 'app_admin', 'IT并发管理员', 'APP') ON CONFLICT DO NOTHING");
+        jdbc.update("INSERT INTO sys_role (tenant_id, app_id, code, name, role_type) VALUES (" + CONC_TENANT
+                + ", 2, 'developer', 'IT并发开发者', 'APP') ON CONFLICT DO NOTHING");
+        Long devRoleApp2 = jdbc.queryForObject(
+                "SELECT id FROM sys_role WHERE tenant_id=" + CONC_TENANT + " AND code='developer'", Long.class);
+        Long adminRoleApp1 = jdbc.queryForObject(
+                "SELECT id FROM sys_role WHERE tenant_id=" + CONC_TENANT + " AND code='app_admin'", Long.class);
+        for (int i = 0; i < userCount; i++) {
+            jdbc.update("INSERT INTO sys_user (tenant_id, account, status) VALUES (" + CONC_TENANT
+                    + ", 'it_conc_" + i + "', 'ACTIVE')");
+        }
+        return new Long[]{adminRoleApp1, devRoleApp2};
+    }
+
+    private List<Long> concUsers(int count) {
+        return jdbc.queryForList(
+                "SELECT id FROM sys_user WHERE tenant_id=" + CONC_TENANT + " ORDER BY id LIMIT " + count, Long.class);
+    }
+
+    @Test
+    void 席位限流_超限授权被拒且角色不落库() throws Exception {
+        long originalLimit = 0;
+        java.lang.reflect.Field f = LicensedSeatCalculator.class.getDeclaredField("seatLimit");
+        f.setAccessible(true);
+        originalLimit = f.getLong(seats);
+        setSeatLimit(1);
+        try {
+            setupConcFixtures(2);
+            List<Long> users = concUsers(2);
+            Long[] roles = setupConcFixtures(2);
+            Long devRole = roles[1];
+            // 直接写 A 的设计角色（绕过 grantRoles——基线席位 1）
+            jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?)", users.get(0), devRole);
+            try {
+                com.schema.platform.common.web.BizException e = org.junit.jupiter.api.Assertions.assertThrows(
+                        com.schema.platform.common.web.BizException.class,
+                        () -> seats.assertGrantAllowed(CONC_TENANT, List.of(users.get(1))));
+                assertEquals("SEAT_LIMIT_EXCEEDED", e.code());
+                // 拒绝后 B 无任何角色落库
+                Long bRoles = jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM sys_user_role WHERE user_id = ?", Long.class, users.get(1));
+                assertEquals(0L, bRoles);
+            } finally {
+                jdbc.update("DELETE FROM sys_user_role WHERE user_id IN (?, ?)", users.get(0), users.get(1));
+            }
+        } finally {
+            setSeatLimit(originalLimit);
+        }
+    }
+
+    @Test
+    void 席位并发_多线程同时授权不突破上限() throws Exception {
+        java.lang.reflect.Field f = LicensedSeatCalculator.class.getDeclaredField("seatLimit");
+        f.setAccessible(true);
+        long originalLimit = f.getLong(seats);
+        setSeatLimit(2);
+        try {
+            setupConcFixtures(5);
+            List<Long> users = concUsers(5);
+            Long[] roles = setupConcFixtures(5);
+            Long devRole = roles[1];
+            java.util.concurrent.atomic.AtomicInteger granted = new java.util.concurrent.atomic.AtomicInteger();
+            java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(5);
+            // 与真实 grantRoles 同构：校验+写入同事务（校验独占锁释放后写入会放行超限）
+            org.springframework.transaction.support.TransactionTemplate tx =
+                    new org.springframework.transaction.support.TransactionTemplate(
+                            new org.springframework.jdbc.datasource.DataSourceTransactionManager(
+                                    jdbc.getDataSource()));
+            try {
+                java.util.List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+                for (Long uid : users) {
+                    futures.add(pool.submit(() -> {
+                        try {
+                            tx.executeWithoutResult(status -> {
+                                seats.assertGrantAllowed(CONC_TENANT, List.of(uid));
+                                jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?) "
+                                        + "ON CONFLICT DO NOTHING", uid, devRole);
+                            });
+                            granted.incrementAndGet();
+                        } catch (com.schema.platform.common.web.BizException e) {
+                            if (!"SEAT_LIMIT_EXCEEDED".equals(e.code())) {
+                                throw e;
+                            }
+                        }
+                        return null;
+                    }));
+                }
+                for (java.util.concurrent.Future<?> fut : futures) {
+                    fut.get();
+                }
+            } finally {
+                pool.shutdown();
+            }
+            try {
+                assertEquals(2, granted.get());
+                assertEquals(2L, seats.licensedSeats(CONC_TENANT));
+            } finally {
+                jdbc.update("DELETE FROM sys_user_role WHERE user_id IN (" + users.stream()
+                        .map(String::valueOf).collect(java.util.stream.Collectors.joining(",")) + ")");
+            }
+        } finally {
+            setSeatLimit(originalLimit);
+        }
+    }
+
+    @Test
+    void 成员变更_授权后即时快照重算() {
+        setupConcFixtures(1);
+        List<Long> users = concUsers(1);
+        Long[] roles = setupConcFixtures(1);
+        try {
+            // 即时重算入口：onSeatChanged 同步刷新当日快照
+            jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?)",
+                    users.get(0), roles[1]);
+            seats.onSeatChanged(CONC_TENANT);
+            Long snap = jdbc.queryForObject("""
+                    SELECT licensed_seats FROM seat_license_daily
+                    WHERE tenant_id = ? AND stat_date = CURRENT_DATE
+                    """, Long.class, CONC_TENANT);
+            assertEquals(1L, snap);
+        } finally {
+            jdbc.update("DELETE FROM sys_user_role WHERE user_id = ?", users.get(0));
+            jdbc.update("DELETE FROM seat_license_daily WHERE tenant_id = " + CONC_TENANT);
+        }
+    }
+
+    @Test
+    void 快照兜底_角色全部撤销租户写零值() {
+        // 历史持席位租户（快照表有记录）当前无角色 → 快照必须归零而非残留旧值
+        setupConcFixtures(1);
+        Long[] roles = setupConcFixtures(1);
+        List<Long> users = concUsers(1);
+        jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?)", users.get(0), roles[1]);
+        seats.snapshot(CONC_TENANT, LocalDate.now());
+        assertEquals(1L, seats.licensedSeats(CONC_TENANT));
+        // 撤销全部角色
+        jdbc.update("DELETE FROM sys_user_role WHERE user_id = ?", users.get(0));
+        com.schema.metering.application.MeteringSchedule schedule =
+                new com.schema.metering.application.MeteringSchedule(metering, seats, jdbc);
+        schedule.snapshotAllTenants(LocalDate.now());
+        Long snap = jdbc.queryForObject("""
+                SELECT licensed_seats FROM seat_license_daily
+                WHERE tenant_id = ? AND stat_date = CURRENT_DATE
+                """, Long.class, CONC_TENANT);
+        assertEquals(0L, snap);
+        jdbc.update("DELETE FROM seat_license_daily WHERE tenant_id = " + CONC_TENANT);
+    }
 }
