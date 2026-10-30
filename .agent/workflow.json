@@ -55,7 +55,7 @@
           "id": "suppression",
           "requirement": "SUPPRESSED 不进入用户列表或未读数，审计可追溯",
           "evidence": {
-            "commit": "PENDING_COMMIT",
+            "commit": "f9d9297",
             "command": "wsl bash run_full.sh（mvn test + mvn -pl bootstrap -am test -Dtest=8个IT）",
             "report": ".agent/evidence/FIX-M10/backend-it-report.txt",
             "passed": true
@@ -65,7 +65,7 @@
           "id": "tenant-rate",
           "requirement": "跨 bizRef 不绕过租户上限；收件人隔离和安全告警负例",
           "evidence": {
-            "commit": "PENDING_COMMIT",
+            "commit": "f9d9297",
             "command": "wsl bash run_full.sh（NotificationIT 12 用例含 3 新增）",
             "report": ".agent/evidence/FIX-M10/backend-it-report.txt",
             "passed": true
