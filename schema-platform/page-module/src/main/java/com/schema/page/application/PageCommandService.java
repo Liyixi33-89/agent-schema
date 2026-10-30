@@ -27,13 +27,16 @@ public class PageCommandService {
     private final FieldReferencePort references;
     private final PagePermGate perms;
     private final PageSchemaValidator validator;
+    private final org.springframework.context.ApplicationEventPublisher events;
 
     public PageCommandService(PageRepository pages, FieldReferencePort references,
-            PagePermGate perms, PageSchemaValidator validator) {
+            PagePermGate perms, PageSchemaValidator validator,
+            org.springframework.context.ApplicationEventPublisher events) {
         this.pages = pages;
         this.references = references;
         this.perms = perms;
         this.validator = validator;
+        this.events = events;
     }
 
     // ---------- 页面 CRUD（§A.1） ----------
@@ -214,6 +217,9 @@ public class PageCommandService {
                 .toList());
         pages.insertAppRelease(tenant.tenantId(), appId, releaseVersion, Json.write(snapshot),
                 changelog, tenant.operatorId());
+        // seat.active 服务端终审埋点（09BE §4：发布属设计器写操作）
+        events.publishEvent(new com.schema.platform.common.event.DesignerWriteEvent(
+                tenant.tenantId(), tenant.operatorId(), "designer", "publish"));
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("releaseVersion", releaseVersion);

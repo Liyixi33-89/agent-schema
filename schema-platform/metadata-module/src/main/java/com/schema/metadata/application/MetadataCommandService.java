@@ -75,6 +75,9 @@ public class MetadataCommandService {
         // 建模→物理表联动（02BE §2.1 建模时自动创建；事件解耦防模块反向依赖）
         events.publishEvent(new com.schema.metadata.domain.event.ModelCreatedEvent(
                 tenant.tenantId(), id, modelKey));
+        // seat.active 服务端终审埋点（09BE §4：建模属设计器写操作）
+        events.publishEvent(new com.schema.platform.common.event.DesignerWriteEvent(
+                tenant.tenantId(), tenant.operatorId(), "designer", "create_model"));
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("id", Long.toString(id));       // ID string 传输（10BE §A.1）
         resp.put("modelKey", modelKey);
@@ -281,6 +284,9 @@ public class MetadataCommandService {
         persistChanges(model, tenant, changes, targetVersion);
         registerComputedReferences(tenant, model);
         snapshot(model, diff, tenant.operatorId(), null);
+        // seat.active 服务端终审埋点（09BE §4：保存模型属设计器写操作）
+        events.publishEvent(new com.schema.platform.common.event.DesignerWriteEvent(
+                tenant.tenantId(), tenant.operatorId(), "designer", "save_schema"));
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("version", targetVersion);

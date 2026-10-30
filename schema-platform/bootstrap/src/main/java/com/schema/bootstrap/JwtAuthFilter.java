@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -34,6 +35,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     private static final Set<String> PUBLIC_PATHS = Set.of(
             "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/security/csp-reports",
             "/api/preview/exchange");
+
+    /**
+     * 前缀放行端点（11BE §2 预签名直传语义）：LocalFs 占位实现的凭证消费端点——
+     * 鉴权由一次性预签名 token 承担（取出即删防重放），不带 JWT。
+     */
+    private static final List<String> PUBLIC_PREFIXES = List.of(
+            "/api/files/local-put/", "/api/files/local-get/");
 
     /** 预览态可访问端点（04BE §A.7：权限 = 发起人 ∩ 预览范围——预览 token 不得进入设计面/管理面）。
      *  /api/data：运行时页面数据源读取面；写操作默认拒绝（isPreviewAllowed 方法感知 +
@@ -64,7 +72,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             // 无凭证：公开端点放行；其余 401（不再走 TenantContextFilter 头值退化——退化路径仅剩公开端点）
-            if (PUBLIC_PATHS.contains(path)) {
+            if (PUBLIC_PATHS.contains(path) || PUBLIC_PREFIXES.stream().anyMatch(path::startsWith)) {
                 chain.doFilter(request, response);
                 return;
             }

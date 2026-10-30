@@ -3,5 +3,5 @@
   <parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.5.0</version><relativePath/></parent>
   <groupId>com.schema</groupId><artifactId>schema-platform</artifactId><version>0.1.0-SNAPSHOT</version><packaging>pom</packaging>
   <properties><java.version>21</java.version><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
-  <modules><module>platform-common</module><module>schema-protocol</module><module>metadata-module</module><module>data-module</module><module>page-module</module><module>flow-module</module><module>iam-module</module><module>integration-module</module><module>metering-module</module><module>bootstrap</module></modules>
+  <modules><module>platform-common</module><module>schema-protocol</module><module>metadata-module</module><module>data-module</module><module>page-module</module><module>flow-module</module><module>iam-module</module><module>integration-module</module><module>metering-module</module><module>file-module</module><module>notification-module</module><module>bootstrap</module></modules>
 </project>
