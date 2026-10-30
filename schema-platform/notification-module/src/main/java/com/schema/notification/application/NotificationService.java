@@ -44,19 +44,35 @@ public class NotificationService {
         if (!"SECURITY_ALERT".equals(bizType) && prefDisabled(tenantId, recipientId, bizType)) {
             long id = repo.insert(tenantId, bizType, bizRefId, recipientId, templateKey,
                     NotifyPolicy.renderedJson(bizType, "", jumpUrl, false),
-                    "[]", "SUPPRESSED", OffsetDateTime.now());
+                    "[]", "SUPPRESSED", "USER_PREF_DISABLED", OffsetDateTime.now());
             return Map.of("id", Long.toString(id), "status", "SUPPRESSED", "reason", "USER_PREF_DISABLED");
         }
 
-        // ② 频控（12BE §5）：超窗 SUPPRESS——SECURITY_ALERT 豁免；键维度 bizType:recipient（bizRefId 入键防绕过）
-        String rateKey = rateKey(tenantId, bizType, bizRefId, recipientId);
+        // ② 频控（12BE §5）三级判定，SECURITY_ALERT 豁免——超窗 SUPPRESS 且留痕
+        //    2a. 租户级护栏：单租户投递上限（跨 bizRef 跨用户合计，防刷屏穿透业务键维度）
+        //    2b. 用户级兜底：单收件人单类型合计（跨 bizRef 合并——换业务键不绕过）
+        //    2c. 业务键级：bizType:recipient:bizRef 精确窗口（同任务催办限频）
         if (!NotifyPolicy.unlimited(bizType)) {
-            int[] window = NotifyPolicy.rateWindowOf(bizType);
-            int n = repo.bumpRate(rateKey, window[0]);
-            if (n > window[1]) {
+            if (overTenantRate(tenantId)) {
                 long id = repo.insert(tenantId, bizType, bizRefId, recipientId, templateKey,
                         NotifyPolicy.renderedJson(bizType, "", jumpUrl, false),
-                        "[]", "SUPPRESSED", OffsetDateTime.now());
+                        "[]", "SUPPRESSED", "TENANT_RATE_LIMITED", OffsetDateTime.now());
+                return Map.of("id", Long.toString(id), "status", "SUPPRESSED", "reason", "TENANT_RATE_LIMITED");
+            }
+            int[] fallback = NotifyPolicy.USER_FALLBACK;
+            String userKey = "rate:" + tenantId + ":user:" + recipientId + ":" + bizType;
+            if (repo.bumpRate(userKey, fallback[0]) > fallback[1]) {
+                long id = repo.insert(tenantId, bizType, bizRefId, recipientId, templateKey,
+                        NotifyPolicy.renderedJson(bizType, "", jumpUrl, false),
+                        "[]", "SUPPRESSED", "USER_RATE_LIMITED", OffsetDateTime.now());
+                return Map.of("id", Long.toString(id), "status", "SUPPRESSED", "reason", "USER_RATE_LIMITED");
+            }
+            String rateKey = rateKey(tenantId, bizType, bizRefId, recipientId);
+            int[] window = NotifyPolicy.rateWindowOf(bizType);
+            if (repo.bumpRate(rateKey, window[0]) > window[1]) {
+                long id = repo.insert(tenantId, bizType, bizRefId, recipientId, templateKey,
+                        NotifyPolicy.renderedJson(bizType, "", jumpUrl, false),
+                        "[]", "SUPPRESSED", "RATE_LIMITED", OffsetDateTime.now());
                 return Map.of("id", Long.toString(id), "status", "SUPPRESSED", "reason", "RATE_LIMITED");
             }
         }
@@ -74,7 +90,7 @@ public class NotificationService {
 
         // ⑤ 落库
         long id = repo.insert(tenantId, bizType, bizRefId, recipientId, templateKey,
-                renderedJson, channelsJson, status, OffsetDateTime.now());
+                renderedJson, channelsJson, status, null, OffsetDateTime.now());
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("id", Long.toString(id));
         resp.put("status", status);
@@ -155,6 +171,13 @@ public class NotificationService {
         // 维度：bizType + bizRef（同一任务催办独立计数）+ 收件人
         return "rate:" + tenantId + ":" + bizType + ":" + (bizRefId == null ? "-" : bizRefId)
                 + ":" + recipientId;
+    }
+
+    /** 租户级护栏（12BE §5「单租户投递上限」）：滑动窗口内租户合计投递数。 */
+    private boolean overTenantRate(long tenantId) {
+        int[] guard = NotifyPolicy.TENANT_GUARD;
+        String tenantKey = "rate:" + tenantId + ":tenant";
+        return repo.bumpRate(tenantKey, guard[0]) > guard[1];
     }
 
     private Template resolveTemplate(long tenantId, String bizType, String templateKey) {

@@ -41,3 +41,7 @@ CREATE TABLE notify_rate_window (
     window_start TIMESTAMPTZ NOT NULL,
     count       INT NOT NULL DEFAULT 0
 );
+
+-- FIX-M10：SUPPRESS 审计追溯（12BE §5「可审计为什么没收到」）
+ALTER TABLE notify_message ADD COLUMN suppress_reason VARCHAR(32);
+CREATE INDEX idx_notify_audit ON notify_message(tenant_id, status, created_at DESC);

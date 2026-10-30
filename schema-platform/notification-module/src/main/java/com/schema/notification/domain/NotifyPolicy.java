@@ -33,6 +33,19 @@ public final class NotifyPolicy {
         return "SECURITY_ALERT".equals(bizType);
     }
 
+    /**
+     * 租户级护栏（12BE §5 全局护栏）：单租户滑动窗口合计投递上限——
+     * 跨 bizType/bizRef/收件人合并计数，防业务键维度刷屏穿透（SECURITY_ALERT 不受此限）。
+     */
+    public static final int[] TENANT_GUARD = new int[]{3600, 200};   // 200 条/小时/租户
+
+    /**
+     * 用户级兜底：单用户单类型滑动窗口合计上限——跨 bizRef 合并计数。
+     * 刻意宽松于业务键级窗口：只拦截换业务键刷屏的绕过行为，不收紧文档声明的精确频控
+     * （如 FLOW_URGE 用户级合计 50/小时，业务键级仍 1/小时/任务）。
+     */
+    public static final int[] USER_FALLBACK = new int[]{3600, 50};   // 50 条/小时/用户/类型
+
     /** 系统内置模板（12BE §3 首版 12 个——代码真源，不入库）。 */
     public static final Map<String, String[]> SYSTEM_TEMPLATES = buildSystemTemplates();
 

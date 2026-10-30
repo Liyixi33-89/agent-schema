@@ -11,7 +11,8 @@ import java.util.Optional;
 public interface NotificationRepository {
 
     long insert(long tenantId, String bizType, String bizRefId, long recipientId, String templateKey,
-            String renderedJson, String channelsJson, String status, OffsetDateTime occurredAt);
+            String renderedJson, String channelsJson, String status, String suppressReason,
+            OffsetDateTime occurredAt);
 
     Optional<Map<String, Object>> findById(long tenantId, long id);
 

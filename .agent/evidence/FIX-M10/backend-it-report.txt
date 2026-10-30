@@ -1,0 +1,33 @@
+FIX-M10 验证报告（通知抑制展示与频控边界）
+执行时刻：2026-10-30 19:08-19:15 (UTC+8)
+环境：WSL Ubuntu 24.04 / OpenJDK 21.0.12.1 / PostgreSQL 16.15（WSL 本机 5432）
+命令（与 scripts/verify.ps1 backend-test/backend-it 同口径，因 Windows→WSL 网络栈异常改为 WSL 内执行）：
+  cd schema-platform && mvn -q test                                   -> UNIT_EXIT=0
+  mvn -q -pl bootstrap -am test -Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false -> IT_EXIT=0
+
+结果（surefire 报告原文）：
+MetadataCommandServiceIT: Tests run: 17, Failures: 0, Errors: 0
+IamServiceIT:              Tests run:  9, Failures: 0, Errors: 0
+IamSecurityChainIT:        Tests run:  9, Failures: 0, Errors: 0
+PageServiceIT:             Tests run:  8, Failures: 0, Errors: 0
+PageSecurityChainIT:       Tests run:  8, Failures: 0, Errors: 0
+MeteringIT:                Tests run: 14, Failures: 0, Errors: 0
+FileServiceIT:             Tests run: 14, Failures: 0, Errors: 0
+NotificationIT:            Tests run: 12, Failures: 0, Errors: 0   （9 既有 + 3 新增 FIX-M10 用例）
+合计：91 用例，0 失败，0 错误
+
+FIX-M10 新增/变更验收点（NotificationIT）：
+1. FIX_M10_抑制消息不进列表与未读数：SUPPRESSED 不出现在用户列表/total/unread；
+   markAllRead 与 markRead 均不触碰 SUPPRESSED（read_at 保持 NULL）；审计行带 suppress_reason=USER_PREF_DISABLED
+2. FIX_M10_跨bizRef不绕过用户级上限：同用户换 60 个 bizRef 发 CUSTOM，恰好 50 条 DONE，
+   10 条 USER_RATE_LIMITED 抑制（业务键级每键 1 次不误伤）
+3. FIX_M10_租户级护栏跨bizType跨用户合计（独立租户 884）：护栏计数达 200 后任意发送
+   TENANT_RATE_LIMITED；SECURITY_ALERT 豁免护栏；suppress_reason 落库可审计
+4. 既有「频控_同一任务二次催办被SUPPRESS」补充断言：抑制原因落库（suppress_reason=RATE_LIMITED）
+
+环境备注（非本任务缺陷）：
+- Docker Desktop 已于 2026-10-30 18:05 被卸载（卸载日志确认），原 PG 容器环境消失；
+  本轮改用 WSL Ubuntu apt 安装的 PostgreSQL 16（同版本系列），数据源参数不变（schema_dev/schema_local_only@5432）
+- Windows→WSL 网络在 mirrored 半失效状态下不可达（127.0.0.1 连接随机重置），
+  验证命令改为 WSL 内执行；wsl --shutdown 重启网络栈被安全策略拦截未执行
+- V12 迁移新增列 suppress_reason 与索引 idx_notify_audit；开发库 checksum 一致性由 Flyway validate 通过（IT 内含 flyway clean-disabled=false 全迁移执行）

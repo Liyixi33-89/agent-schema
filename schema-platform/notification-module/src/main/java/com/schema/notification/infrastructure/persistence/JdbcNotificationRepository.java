@@ -24,14 +24,15 @@ public class JdbcNotificationRepository implements NotificationRepository {
 
     @Override
     public long insert(long tenantId, String bizType, String bizRefId, long recipientId, String templateKey,
-            String renderedJson, String channelsJson, String status, OffsetDateTime occurredAt) {
+            String renderedJson, String channelsJson, String status, String suppressReason,
+            OffsetDateTime occurredAt) {
         Long id = jdbc.queryForObject("""
                 INSERT INTO notify_message (tenant_id, biz_type, biz_ref_id, recipient_id, template_key,
-                                            rendered, channels, status, occurred_at)
-                VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?)
+                                            rendered, channels, status, suppress_reason, occurred_at)
+                VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?)
                 RETURNING id
                 """, Long.class, tenantId, bizType, bizRefId, recipientId, templateKey,
-                renderedJson, channelsJson, status, occurredAt);
+                renderedJson, channelsJson, status, suppressReason, occurredAt);
         return id == null ? 0L : id;
     }
 
@@ -45,8 +46,9 @@ public class JdbcNotificationRepository implements NotificationRepository {
     @Override
     public List<Map<String, Object>> list(long tenantId, long recipientId, boolean unreadOnly,
             String bizType, int page, int size) {
+        // 用户视图只含可投递消息：SUPPRESSED 仅审计可见（12BE §5 留痕不出箱）
         StringBuilder sql = new StringBuilder(
-                "SELECT * FROM notify_message WHERE tenant_id = ? AND recipient_id = ?");
+                "SELECT * FROM notify_message WHERE tenant_id = ? AND recipient_id = ? AND status <> 'SUPPRESSED'");
         java.util.List<Object> args = new java.util.ArrayList<>(List.of(tenantId, recipientId));
         if (unreadOnly) {
             sql.append(" AND read_at IS NULL");
@@ -68,8 +70,9 @@ public class JdbcNotificationRepository implements NotificationRepository {
 
     @Override
     public long count(long tenantId, long recipientId, boolean unreadOnly, String bizType) {
+        // 未读/总数均不含 SUPPRESSED——抑制消息不得进入红点（同 list 过滤）
         StringBuilder sql = new StringBuilder(
-                "SELECT COUNT(*) FROM notify_message WHERE tenant_id = ? AND recipient_id = ?");
+                "SELECT COUNT(*) FROM notify_message WHERE tenant_id = ? AND recipient_id = ? AND status <> 'SUPPRESSED'");
         java.util.List<Object> args = new java.util.ArrayList<>(List.of(tenantId, recipientId));
         if (unreadOnly) {
             sql.append(" AND read_at IS NULL");
@@ -87,7 +90,7 @@ public class JdbcNotificationRepository implements NotificationRepository {
         // 收件人绑定：只能标记自己的消息（同租户他人消息 0 行更新——不给越权线索）
         jdbc.update("""
                 UPDATE notify_message SET read_at = COALESCE(read_at, ?)
-                WHERE tenant_id = ? AND recipient_id = ? AND id = ?
+                WHERE tenant_id = ? AND recipient_id = ? AND id = ? AND status <> 'SUPPRESSED'
                 """, readAt, tenantId, recipientId, id);
     }
 
@@ -101,9 +104,10 @@ public class JdbcNotificationRepository implements NotificationRepository {
 
     @Override
     public int markAllReadReturning(long tenantId, long recipientId) {
+        // 全部已读只作用于用户可见集（SUPPRESSED 不被触碰——保持审计原貌）
         return jdbc.update("""
                 UPDATE notify_message SET read_at = now()
-                WHERE tenant_id = ? AND recipient_id = ? AND read_at IS NULL
+                WHERE tenant_id = ? AND recipient_id = ? AND read_at IS NULL AND status <> 'SUPPRESSED'
                 """, tenantId, recipientId);
     }
 
