@@ -91,7 +91,21 @@ importers:
 
   packages/chart-kit: {}
 
-  packages/component-materials: {}
+  packages/component-materials:
+    dependencies:
+      '@schema/schema-renderer':
+        specifier: workspace:*
+        version: link:../schema-renderer
+    devDependencies:
+      '@types/react':
+        specifier: 18.3.23
+        version: 18.3.23
+      antd:
+        specifier: 5.25.4
+        version: 5.25.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   packages/data-model-designer: {}
 
@@ -101,7 +115,14 @@ importers:
 
   packages/request-sdk: {}
 
-  packages/schema-form: {}
+  packages/schema-form:
+    dependencies:
+      '@schema/schema-protocol':
+        specifier: workspace:*
+        version: link:../schema-protocol
+      '@schema/schema-renderer':
+        specifier: workspace:*
+        version: link:../schema-renderer
 
   packages/schema-protocol:
     devDependencies:
@@ -115,7 +136,18 @@ importers:
         specifier: ^3.24.0
         version: 3.25.2(zod@3.25.76)
 
-  packages/schema-renderer: {}
+  packages/schema-renderer:
+    dependencies:
+      '@schema/schema-protocol':
+        specifier: workspace:*
+        version: link:../schema-protocol
+    devDependencies:
+      '@types/react':
+        specifier: 18.3.23
+        version: 18.3.23
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   packages/script-host: {}
 

@@ -8,6 +8,14 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@schema/schema-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "react": "18.3.1",
+    "@types/react": "18.3.23"
   }
 }

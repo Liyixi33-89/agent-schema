@@ -2,5 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "include": [
     "src"
-  ]
+  ],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@schema/schema-protocol": ["../schema-protocol/src/index.ts"],
+      "@schema/schema-renderer": ["../schema-renderer/src/index.ts"]
+    }
+  }
 }

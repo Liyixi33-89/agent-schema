@@ -4,10 +4,23 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.tsx"
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@schema/schema-renderer": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "antd": ">=5"
+  },
+  "devDependencies": {
+    "react": "18.3.1",
+    "antd": "5.25.4",
+    "@types/react": "18.3.23"
   }
 }
