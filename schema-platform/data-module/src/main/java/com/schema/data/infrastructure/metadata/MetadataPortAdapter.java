@@ -64,6 +64,7 @@ public class MetadataPortAdapter implements MetadataPort {
                             (String) f.get("promoteStatus"),
                             f.get("defaultValue"),
                             (List<Map<String, Object>>) f.get("validators"),
+                            (List<Map<String, Object>>) f.get("enumOptions"),
                             (Map<String, Object>) f.get("relation"),
                             (Map<String, Object>) f.get("computed")));
                 }

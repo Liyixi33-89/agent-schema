@@ -42,14 +42,18 @@ public class MetadataCommandService {
     private final FieldRepository fields;
     private final SchemaVersionRepository versions;
     private final org.springframework.context.ApplicationEventPublisher events;
+    /** 数据量影响分析端口（M5 收口接入——组合根装配实现，模块零反向依赖）。 */
+    private final com.schema.metadata.domain.repository.DataVolumePort dataVolume;
 
     public MetadataCommandService(ModelRepository models, FieldRepository fields,
             SchemaVersionRepository versions,
-            org.springframework.context.ApplicationEventPublisher events) {
+            org.springframework.context.ApplicationEventPublisher events,
+            com.schema.metadata.domain.repository.DataVolumePort dataVolume) {
         this.models = models;
         this.fields = fields;
         this.versions = versions;
         this.events = events;
+        this.dataVolume = dataVolume;
     }
 
     // ---------- 模型 CRUD ----------
@@ -573,9 +577,14 @@ public class MetadataCommandService {
         return risks;
     }
 
+    /**
+     * 数据量影响分析（01BE §4.3，2026-10-30 接入真实统计）：
+     * 业务物理表 biz_model_<id> 存在时统计「任一数据键非空」的行数。
+     * 表不存在（未建表窗口期）= 0——风险面由元数据引擎兜底（无数据无风险）。
+     * 物理表访问经 DataVolumePort 端口注入（metadata 不依赖 data-module——组合根装配）。
+     */
     private long countDataVolume(long modelId, List<String> fieldKeys) {
-        // M5 建表后接入真实扫描；当前以引用表存在性降级（保持 precheck 响应形状稳定）
-        return 0;
+        return dataVolume.countNonEmptyRows(modelId, fieldKeys);
     }
 
     /** 三档判定（01BE §4.3）。 */

@@ -7,12 +7,14 @@ import com.schema.data.domain.engine.ReadCompatibility;
 import com.schema.data.domain.engine.ScopeResolver;
 import com.schema.data.domain.engine.SqlBuilder;
 import com.schema.data.domain.engine.SqlBuilder.QueryRequest;
+import com.schema.data.domain.engine.WriteValidator;
 import com.schema.data.domain.repository.DataPermissionPort;
 import com.schema.data.domain.repository.MetadataPort;
 import com.schema.data.domain.repository.MetadataPort.FieldMeta;
 import com.schema.data.domain.repository.MetadataPort.ModelMeta;
 import com.schema.data.infrastructure.table.PhysicalTableManager;
 import com.schema.platform.common.json.Json;
+import com.schema.platform.common.tenant.PreviewContext;
 import com.schema.platform.common.tenant.TenantContext;
 import com.schema.platform.common.tenant.TenantInfo;
 import com.schema.platform.common.web.BizException;
@@ -37,6 +39,13 @@ import java.util.UUID;
  * SQL 构建管线（§3.3，顺序不可变）：
  *   元数据加载与校验 → 字段物理映射 → 固定条件注入（tenant/deleted/行级权限）→
  *   过滤树 → 投影与字段权限剔除 → 参数化执行 → 读时兼容 → 响应
+ *
+ * 安全收口（2026-10-30）：
+ * - 字段级权限改为「授权集」语义：未配置 FIELD 行=全可见；已配置=仅授权集可见（03BE §3.4）；
+ * - 聚合参数序修正为 tenant → filter → scope（与 SQL 条件段同序）；
+ * - 唯一性校验/预检注入行级范围条件（权限外数据存在性不泄露）；
+ * - 更新保留历史 JSONB 键（DELETED 字段值不丢——02BE §2.4 键永不移除）；
+ * - 预览态写拒绝 + 限页模型范围（PreviewDataGuard——04BE §A.7 数据面）。
  */
 @Service
 public class DynamicQueryEngine {
@@ -44,18 +53,22 @@ public class DynamicQueryEngine {
     private static final Logger log = LoggerFactory.getLogger(DynamicQueryEngine.class);
     private static final int MAX_SIZE = 200;
     private static final long MAX_OFFSET = 100_000L;
+    private static final int MAX_BATCH_ROWS = 500;
 
     private final JdbcTemplate jdbc;
     private final MetadataPort metadata;
     private final DataPermissionPort permissions;
     private final PhysicalTableManager tables;
+    private final PreviewDataGuard previewGuard;
 
     public DynamicQueryEngine(JdbcTemplate jdbc, MetadataPort metadata,
-            DataPermissionPort permissions, PhysicalTableManager tables) {
+            DataPermissionPort permissions, PhysicalTableManager tables,
+            PreviewDataGuard previewGuard) {
         this.jdbc = jdbc;
         this.metadata = metadata;
         this.permissions = permissions;
         this.tables = tables;
+        this.previewGuard = previewGuard;
     }
 
     // ---------- §3.1 query ----------
@@ -145,11 +158,13 @@ public class DynamicQueryEngine {
     @Transactional
     public Map<String, Object> create(long modelId, Map<String, Object> data) {
         EngineContext ctx = prepare(modelId, null, false);
+        previewGuard.assertWriteAllowed(PreviewContext.isPreview(), PreviewContext.allowRealWrite());
         String table = ctx.table;
         Map<String, Object> cleaned = writeNormalize(data, ctx, true);
-        long id = Math.abs(UUID.randomUUID().getLeastSignificantBits()) >> 1 | 1;
+        validateWrites(ctx, cleaned);
+        long id = nextId();
 
-        // 唯一性应用层预检（真唯一靠提升列 + 部分索引；02BE §3.4 第 5 步说明并发风险）
+        // 唯一性应用层预检（含行级范围条件——权限外数据存在性不泄露；真唯一靠部分索引）
         checkUnique(table, ctx, cleaned, null);
 
         jdbc.update("INSERT INTO " + table + " (id, tenant_id, data, schema_version, created_by, "
@@ -166,6 +181,7 @@ public class DynamicQueryEngine {
     @Transactional
     public void update(long modelId, long id, Map<String, Object> data) {
         EngineContext ctx = prepare(modelId, null, false);
+        previewGuard.assertWriteAllowed(PreviewContext.isPreview(), PreviewContext.allowRealWrite());
         String table = ctx.table;
         // 行级权限下的存在性判定：不可见记录同判不存在
         String existsSql = "SELECT data FROM " + table
@@ -181,11 +197,16 @@ public class DynamicQueryEngine {
         if (currentData == null) {
             currentData = new LinkedHashMap<>();
         }
-        // 不可编辑字段静默剔除（03BE §3.4——前端全量表单提交容错）
-        Map<String, Object> cleaned = writeNormalize(mergeForUpdate(currentData, data, ctx), ctx, false);
+        // 更新场景同等 required 校验：显式传 null/空串清空必填字段 → 拒绝
+        enforceRequiredOnUpdate(ctx, data);
+        // 写入集 = 本次提交规范化（不可编辑剔除、类型校验、未知字段剔除）
+        Map<String, Object> cleaned = writeNormalize(updateBaseline(currentData, data, ctx), ctx, false);
+        validateWrites(ctx, cleaned);
         checkUnique(table, ctx, cleaned, id);
-        jdbc.update("UPDATE " + table + " SET data = ?::jsonb, schema_version = ?, updated_at = now() "
-                        + "WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL",
+        // JSONB merge 写入（02BE §2.4 历史键永不移除）：只覆盖待写键，
+        // DELETED 字段历史键与库中其它未知键原样保留——不整体覆写 data
+        jdbc.update("UPDATE " + table + " SET data = data || ?::jsonb, schema_version = ?, "
+                        + "updated_at = now() WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL",
                 Json.write(cleaned), ctx.model.currentVersion(), id, ctx.tenant.tenantId());
     }
 
@@ -194,6 +215,7 @@ public class DynamicQueryEngine {
     @Transactional
     public void delete(long modelId, long id) {
         EngineContext ctx = prepare(modelId, null, false);
+        previewGuard.assertWriteAllowed(PreviewContext.isPreview(), PreviewContext.allowRealWrite());
         String table = ctx.table;
         int updated = jdbc.update("UPDATE " + table
                         + " SET deleted_at = now() WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL "
@@ -202,6 +224,100 @@ public class DynamicQueryEngine {
         if (updated == 0) {
             throw BizException.recordNotFound();
         }
+    }
+
+    // ---------- A.1 批量 upsert（02BE §6：单批 ≤500 行，keyField 冲突更新） ----------
+
+    @Transactional
+    public Map<String, Object> batchUpsert(long modelId, List<Map<String, Object>> rows,
+            String keyField) {
+        EngineContext ctx = prepare(modelId, null, false);
+        previewGuard.assertWriteAllowed(PreviewContext.isPreview(), PreviewContext.allowRealWrite());
+        if (rows == null || rows.isEmpty()) {
+            return Map.of("inserted", 0, "updated", 0, "failed", List.of());
+        }
+        if (rows.size() > MAX_BATCH_ROWS) {
+            throw new BizException("BATCH_TOO_LARGE", "单批上限 " + MAX_BATCH_ROWS + " 行");
+        }
+        FieldMeta keyMeta = requireActive(keyField, ctx.fieldsBy);
+        if (!keyMeta.uniqueFlag()) {
+            throw new BizException("VALIDATION_FAILED", "keyField 须为唯一字段: " + keyField);
+        }
+
+        int inserted = 0;
+        int updated = 0;
+        List<Map<String, Object>> failed = new ArrayList<>();
+        for (int i = 0; i < rows.size(); i++) {
+            Map<String, Object> row = rows.get(i);
+            try {
+                Object keyValue = row == null ? null : row.get(keyField);
+                if (keyValue == null || String.valueOf(keyValue).isBlank()) {
+                    throw new BizException("VALIDATION_FAILED", "keyField 值缺失: " + keyField);
+                }
+                // 按 keyField 查既有行（租户 + 未删除 + 行级范围内）
+                String keyExpr = SqlBuilder.fieldExpr(keyField, keyMeta);
+                String findSql = "SELECT id, data FROM " + ctx.table
+                        + " WHERE tenant_id = ? AND deleted_at IS NULL AND " + keyExpr + " = ?"
+                        + " AND (" + ctx.scopeSql + ")";
+                List<Object> findParams = new ArrayList<>(
+                        List.of(ctx.tenant.tenantId(), keyValue));
+                findParams.addAll(ctx.scopeParams);
+                List<Map<String, Object>> hits = jdbc.queryForList(findSql, findParams.toArray());
+                if (hits.isEmpty()) {
+                    Map<String, Object> resp = doCreate(ctx, row);
+                    inserted++;
+                    resp.put("_index", i);
+                } else {
+                    long existId = ((Number) hits.get(0).get("id")).longValue();
+                    doUpdate(ctx, existId, hits.get(0), row);
+                    updated++;
+                }
+            } catch (BizException e) {
+                Map<String, Object> fail = new LinkedHashMap<>();
+                fail.put("index", i);
+                fail.put("reason", e.code() + ": " + e.getMessage());
+                failed.add(fail);
+            }
+        }
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("inserted", inserted);
+        resp.put("updated", updated);
+        resp.put("failed", failed);
+        return resp;
+    }
+
+    /** create 的可复用内核（batch 复用——外层已在事务内）。 */
+    private Map<String, Object> doCreate(EngineContext ctx, Map<String, Object> data) {
+        String table = ctx.table;
+        Map<String, Object> cleaned = writeNormalize(data, ctx, true);
+        validateWrites(ctx, cleaned);
+        long id = nextId();
+        checkUnique(table, ctx, cleaned, null);
+        jdbc.update("INSERT INTO " + table + " (id, tenant_id, data, schema_version, created_by, "
+                        + "created_at) VALUES (?, ?, ?::jsonb, ?, ?, now())",
+                id, ctx.tenant.tenantId(), Json.write(cleaned), ctx.model.currentVersion(),
+                ctx.tenant.operatorId());
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("id", id);
+        return resp;
+    }
+
+    /** update 的可复用内核（batch 复用——传入已查出的既有行避免二次查询）。 */
+    private void doUpdate(EngineContext ctx, long id, Map<String, Object> existingRow,
+            Map<String, Object> data) {
+        String table = ctx.table;
+        Map<String, Object> currentData = Json.readMap(String.valueOf(existingRow.get("data")));
+        if (currentData == null) {
+            currentData = new LinkedHashMap<>();
+        }
+        enforceRequiredOnUpdate(ctx, data);
+        Map<String, Object> cleaned = writeNormalize(updateBaseline(currentData, data, ctx), ctx, false);
+        validateWrites(ctx, cleaned);
+        checkUnique(table, ctx, cleaned, id);
+        // JSONB merge 写入：历史键永不移除（02BE §2.4）
+        jdbc.update("UPDATE " + table + " SET data = data || ?::jsonb, schema_version = ?, "
+                        + "updated_at = now() WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL",
+                Json.write(cleaned), ctx.model.currentVersion(), id, ctx.tenant.tenantId());
     }
 
     // ---------- A.3 唯一性校验 ----------
@@ -217,13 +333,16 @@ public class DynamicQueryEngine {
             return resp;
         }
         String expr = SqlBuilder.fieldExpr(fieldKey, field);
+        // 行级范围条件注入：权限外数据的唯一性冲突不暴露（02BE §A.6 不给线索口径）
         String sql = "SELECT COUNT(*) FROM " + ctx.table
                 + " WHERE tenant_id = ? AND deleted_at IS NULL AND " + expr + " = ?"
-                + (excludeId == null ? "" : " AND id <> ?");
+                + (excludeId == null ? "" : " AND id <> ?")
+                + " AND (" + ctx.scopeSql + ")";
         List<Object> params = new ArrayList<>(List.of(ctx.tenant.tenantId(), value));
         if (excludeId != null) {
             params.add(excludeId);
         }
+        params.addAll(ctx.scopeParams);
         Long count = jdbc.queryForObject(sql, params.toArray(), Long.class);
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("unique", count == null || count == 0);
@@ -241,9 +360,12 @@ public class DynamicQueryEngine {
                 measures.add(m);
             }
         }
-        // 参数序：tenant_id 固定第一，scope 参数随后，过滤参数最后
+        // 桶跨度防护（02BE §3.6 第 7 步）：无限桶拒绝
+        AggregateBuilder.guardBucketSpan(ctx.model, req.bucketField(), req.bucketInterval(),
+                req.filter());
+        // 参数序修正（2026-10-30）：SQL 条件段顺序 tenant → filter → scope，
+        // 参数同序追加——此前 scope 在 filter 前导致带 SELF + 过滤条件时错位
         List<Object> params = new ArrayList<>(List.of(ctx.tenant.tenantId()));
-        params.addAll(ctx.scopeParams);
 
         StringBuilder filterPart = new StringBuilder();
         SqlBuilder.buildCondition(req.filter(), ctx.fieldsBy, params, filterPart, null);
@@ -252,25 +374,41 @@ public class DynamicQueryEngine {
         if (!filterPart.isEmpty()) {
             where.append(" AND (").append(filterPart).append(")");
         }
-        where.append(" AND ").append(ctx.scopeSql);
+        where.append(" AND (").append(ctx.scopeSql).append(")");
+        params.addAll(ctx.scopeParams);
 
-        List<String> dims = new ArrayList<>();
+        // 度量执行路径校验（02BE §3.6：1-5 个；函数白名单；__count 仅 COUNT；SUM/AVG 须数值）
+        if (measures.isEmpty() || measures.size() > 5) {
+            throw new BizException("FILTER_OPERATOR_INVALID", "度量数量须为 1-5");
+        }
         List<String> selects = new ArrayList<>();
         List<String> groups = new ArrayList<>();
+        boolean hasBucket = false;
+        boolean hasGroup = false;
         if (req.bucketField() != null) {
             FieldMeta bf = requireActive(req.bucketField(), ctx.fieldsBy);
-            String trunc = "date_trunc('" + req.bucketInterval().toLowerCase() + "', "
+            if (!"date".equals(bf.fieldType())) {
+                throw new BizException("FILTER_OPERATOR_INVALID",
+                        "时间桶字段须为 date 类型: " + req.bucketField());
+            }
+            // 时间桶间隔白名单（执行路径校验——永不拼入未校验文本）
+            String interval = req.bucketInterval() == null ? ""
+                    : req.bucketInterval().toUpperCase();
+            if (!AggregateBuilder.BUCKET_INTERVALS.contains(interval)) {
+                throw new BizException("FILTER_OPERATOR_INVALID", "非法分桶间隔: " + req.bucketInterval());
+            }
+            String trunc = "date_trunc('" + interval.toLowerCase() + "', "
                     + SqlBuilder.fieldExpr(req.bucketField(), bf) + ")";
             selects.add(trunc + " AS bucket");
             groups.add(trunc);
-            dims.add("bucket");
+            hasBucket = true;
         }
         if (req.groupField() != null) {
             FieldMeta gf = requireActive(req.groupField(), ctx.fieldsBy);
             String expr = SqlBuilder.fieldExpr(req.groupField(), gf);
             selects.add(expr + " AS dimension");
             groups.add(expr);
-            dims.add("dimension");
+            hasGroup = true;
         }
         for (int i = 0; i < measures.size(); i++) {
             selects.add(measureExpr(measures.get(i), ctx) + " AS m" + i);
@@ -286,11 +424,19 @@ public class DynamicQueryEngine {
                     + " GROUP BY " + String.join(", ", groups)
                     + " ORDER BY m0 DESC LIMIT " + topN + ") agg_order";
         }
-        List<Map<String, Object>> raw = jdbc.queryForList(sql, params.toArray());
-        Map<String, Object> resp = new LinkedHashMap<>();
-        resp.put("rows", AggregateBuilder.toRows(raw, measures,
-                req.bucketField() != null, req.groupField() != null));
-        return resp;
+        // 超时熔断（02BE §3.6 第 7 步）：聚合查询设执行超时——超限按 AGG_TIMEOUT 熔断
+        try {
+            jdbc.setQueryTimeout(AggregateBuilder.AGG_TIMEOUT_SECONDS);
+            List<Map<String, Object>> raw = jdbc.queryForList(sql, params.toArray());
+            Map<String, Object> resp = new LinkedHashMap<>();
+            resp.put("rows", AggregateBuilder.toRows(raw, measures, hasBucket, hasGroup));
+            return resp;
+        } catch (org.springframework.dao.QueryTimeoutException e) {
+            throw new BizException("AGG_TIMEOUT", "聚合查询超时熔断（超过 "
+                    + AggregateBuilder.AGG_TIMEOUT_SECONDS + "s）——请缩小过滤范围或加索引");
+        } finally {
+            jdbc.setQueryTimeout(0); // 恢复全局默认（连接归还池前重置）
+        }
     }
 
     // ---------- 建表入口（M2 建模时联动） ----------
@@ -304,6 +450,7 @@ public class DynamicQueryEngine {
                 Map<String, Object> m = new HashMap<>();
                 m.put("fieldKey", f.fieldKey());
                 m.put("fieldType", f.fieldType());
+                m.put("uniqueFlag", f.uniqueFlag());
                 indexed.add(m);
             }
         }
@@ -321,6 +468,9 @@ public class DynamicQueryEngine {
         if (!model.active()) {
             throw BizException.recordNotFound();
         }
+        // 预览数据面模型范围（04BE §A.7：限页会话仅该页绑定模型可访问）
+        previewGuard.assertModelInPreviewScope(PreviewContext.isPreview(),
+                PreviewContext.pageId(), modelId);
         if (!tables.tableExists(modelId)) {
             // 未建物理表：建表幂等（首个数据请求触发——建模后未手动建表的窗口期兜底）
             ensurePhysicalTable(tenant.tenantId(), modelId);
@@ -336,7 +486,7 @@ public class DynamicQueryEngine {
                     tenant.tenantId(), tenant.operatorId(), modelId);
         }
 
-        // 行级权限解析（03BE §3.3）
+        // 行级权限解析（03BE §3.3）——用户属性取真实部门上下文（不再占位 0/null）
         List<Object> scopeParams = new ArrayList<>();
         String scopeSql;
         if (tenant.operatorId() <= 0) {
@@ -344,7 +494,10 @@ public class DynamicQueryEngine {
         } else {
             List<DataPermissionPort.ScopeCondition> scopes =
                     permissions.resolveScopes(tenant.tenantId(), tenant.operatorId(), modelId);
-            scopeSql = ScopeResolver.resolve(scopes, tenant.operatorId(), 0, null, scopeParams);
+            DataPermissionPort.UserAttrs attrs = permissions.resolveUserAttrs(
+                    tenant.tenantId(), tenant.operatorId());
+            scopeSql = ScopeResolver.resolve(scopes, tenant.operatorId(), attrs,
+                    tenant.tenantId(), scopeParams);
         }
         return new EngineContext(tenant, model, fieldsBy,
                 activeOf(allFields), PhysicalTableManager.tableName(modelId),
@@ -366,17 +519,48 @@ public class DynamicQueryEngine {
         return result;
     }
 
-    /** 可见字段 = ACTIVE ∩ 字段权限授权（默认全可见——FIELD 授权集为空表示未配置字段权限）。 */
+    /**
+     * 可见字段（03BE §3.4 授权集语义，2026-10-30 修正）：
+     * - 模型未配置 FIELD 权限 → 全 ACTIVE 字段可见（不锁死未配置模型）；
+     * - 已配置 → 仅授权集内可见（"*" = 整模型字段全授权）；不可见字段物理剔除。
+     */
     private List<FieldMeta> visibleFields(EngineContext ctx) {
-        Set<String> invisible = permissions.invisibleFields(ctx.tenant.tenantId(),
+        boolean configured = permissions.hasFieldPermConfig(ctx.tenant.tenantId(),
+                ctx.tenant.operatorId(), ctx.model.id());
+        if (!configured) {
+            return ctx.activeFields;
+        }
+        Set<String> granted = permissions.visibleFields(ctx.tenant.tenantId(),
                 ctx.tenant.operatorId(), ctx.model.id());
         List<FieldMeta> result = new ArrayList<>();
         for (FieldMeta f : ctx.activeFields) {
-            if (!invisible.contains(f.fieldKey())) {
+            if (granted.contains("*") || granted.contains(f.fieldKey())) {
                 result.add(f);
             }
         }
         return result;
+    }
+
+    /** 可编辑字段集（语义同 visibleFields——未配置全可编辑）。 */
+    private Set<String> uneditableKeys(EngineContext ctx) {
+        boolean configured = permissions.hasFieldPermConfig(ctx.tenant.tenantId(),
+                ctx.tenant.operatorId(), ctx.model.id());
+        if (!configured) {
+            return Set.of();
+        }
+        Set<String> granted = permissions.editableFields(ctx.tenant.tenantId(),
+                ctx.tenant.operatorId(), ctx.model.id());
+        if (granted.contains("*")) {
+            return Set.of();
+        }
+        // 不可编辑 = ACTIVE 字段集 − 授权集
+        Set<String> uneditable = new HashSet<>();
+        for (FieldMeta f : ctx.activeFields) {
+            if (!granted.contains(f.fieldKey())) {
+                uneditable.add(f.fieldKey());
+            }
+        }
+        return uneditable;
     }
 
     /** 读时兼容入口（02BE §3.5）。 */
@@ -423,24 +607,44 @@ public class DynamicQueryEngine {
         return result;
     }
 
-    /** 写入规范化：未知字段剔除 + required 校验 + DELETED 字段写入拒绝。 */
+    /**
+     * 写入规范化（02BE §3.4 第 1 步）：
+     * 未知字段剔除 + required 校验 + 不可编辑保留原值（不丢键）+ computed READ_TIME 剔除。
+     * 更新场景 isCreate=false：输入为「库中现值 ∪ 本次提交」合并集——
+     * DELETED 字段历史键保留在合并集中（writeNormalize 只按 ACTIVE 集输出清洗结果，
+     * 历史键由调用方 mergeForUpdate 保留——见 update/doUpdate）。
+     */
     private Map<String, Object> writeNormalize(Map<String, Object> data, EngineContext ctx,
             boolean isCreate) {
         if (data == null) {
             data = new LinkedHashMap<>();
         }
         Map<String, Object> cleaned = new LinkedHashMap<>();
-        Set<String> uneditable = permissions.uneditableFields(ctx.tenant.tenantId(),
-                ctx.tenant.operatorId(), ctx.model.id());
+        Set<String> uneditable = uneditableKeys(ctx);
         List<String> missing = new ArrayList<>();
         for (FieldMeta f : ctx.activeFields) {
+            if ("computed".equals(f.fieldType())) {
+                // computed 字段不可直接写入（PERSISTED 重算随 M6 ExprEngine；READ_TIME 剔除）
+                if (isCreate && f.defaultValue() != null) {
+                    cleaned.put(f.fieldKey(), f.defaultValue());
+                }
+                continue;
+            }
             if (data.containsKey(f.fieldKey())) {
                 if (uneditable.contains(f.fieldKey())) {
-                    continue; // 不可编辑静默忽略（03BE §3.4）
+                    // 不可编辑：保留现值（键不丢——不可编辑 ≠ 可删值；create 场景无现值即剔除）
+                    if (!isCreate) {
+                        cleaned.put(f.fieldKey(), data.get(f.fieldKey()));
+                    }
+                    continue;
                 }
                 Object v = data.get(f.fieldKey());
-                if (isCreate && f.required() && (v == null || String.valueOf(v).isBlank())) {
-                    missing.add(f.fieldKey());
+                if (f.required() && isNullOrBlank(v)) {
+                    if (isCreate) {
+                        missing.add(f.fieldKey());
+                        continue;
+                    }
+                    cleaned.put(f.fieldKey(), v); // 更新清空非必填语义走 validateWrites
                     continue;
                 }
                 cleaned.put(f.fieldKey(), v);
@@ -450,24 +654,113 @@ public class DynamicQueryEngine {
                 } else {
                     missing.add(f.fieldKey());
                 }
-            } else if (isCreate && f.defaultValue() != null && !"computed".equals(f.fieldType())) {
+            } else if (isCreate && f.defaultValue() != null) {
                 cleaned.put(f.fieldKey(), f.defaultValue());
             }
         }
         if (!missing.isEmpty()) {
             Map<String, Object> detail = new LinkedHashMap<>();
             detail.put("fields", missing);
-            throw new BizException("VALIDATION_FAILED", "必填字段缺失: " + String.join(", ", missing));
+            throw new BizException("VALIDATION_FAILED", "必填字段缺失: " + String.join(", ", missing),
+                    detail);
         }
         return cleaned;
     }
 
-    /** 更新合并：不可编辑字段保留库中现值（静默忽略语义——前端全量提交容错）。 */
-    private Map<String, Object> mergeForUpdate(Map<String, Object> current,
+    /** 更新场景 required 口径（2026-10-30 收口）：显式传 null/空串清空必填字段 → 拒绝。 */
+    private static void enforceRequiredOnUpdate(EngineContext ctx, Map<String, Object> incoming) {
+        if (incoming == null) {
+            return;
+        }
+        List<String> missing = new ArrayList<>();
+        for (FieldMeta f : ctx.activeFields) {
+            if (f.required() && incoming.containsKey(f.fieldKey())
+                    && isNullOrBlank(incoming.get(f.fieldKey()))) {
+                missing.add(f.fieldKey());
+            }
+        }
+        if (!missing.isEmpty()) {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("fields", missing);
+            throw new BizException("VALIDATION_FAILED",
+                    "必填字段不可清空: " + String.join(", ", missing), detail);
+        }
+    }
+
+    private static boolean isNullOrBlank(Object v) {
+        return v == null || (v instanceof String s && s.isBlank());
+    }
+
+    /**
+     * 写入值校验链（02BE §3.4 第 1 步：类型/长度/正则/范围/枚举/relation 存在性）。
+     * relation 目标存在性批量查询防 N+1（02BE §6 DataLoader 同思路）。
+     */
+    private void validateWrites(EngineContext ctx, Map<String, Object> cleaned) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        // 批量收集 relation 目标存在性入参
+        Map<String, List<Object>> relationChecks = WriteValidator.collectRelationChecks(
+                ctx.activeFields, cleaned);
+        Map<String, Set<Object>> existingTargets = new HashMap<>();
+        for (var entry : relationChecks.entrySet()) {
+            String targetModelKey = entry.getKey();
+            List<Object> ids = entry.getValue();
+            try {
+                Long targetId = Long.parseLong(targetModelKey);
+                String targetTable = PhysicalTableManager.tableName(targetId);
+                if (!tables.tableExists(targetId)) {
+                    for (Object id : ids) {
+                        errors.put("relation", "关联目标模型不可用: " + targetModelKey);
+                    }
+                    continue;
+                }
+                String placeholders = String.join(",",
+                        java.util.Collections.nCopies(ids.size(), "?"));
+                List<Object> hits = jdbc.queryForList(
+                        "SELECT (data->>'_id') AS rid, id FROM " + targetTable
+                                + " WHERE tenant_id=? AND deleted_at IS NULL AND id IN ("
+                                + placeholders + ")",
+                        concat(List.of(ctx.tenant.tenantId()), ids).toArray())
+                        .stream().map(r -> r.get("id")).toList();
+                existingTargets.put(targetModelKey, new HashSet<>(hits));
+            } catch (NumberFormatException e) {
+                errors.put("relation", "关联目标模型标识非法: " + targetModelKey);
+            }
+        }
+        for (FieldMeta f : ctx.activeFields) {
+            Object value = cleaned.get(f.fieldKey());
+            if (value == null) {
+                continue;
+            }
+            final Set<Object> allowed = existingTargets.get(
+                    f.relationConfig() == null ? null
+                            : String.valueOf(f.relationConfig().get("targetModelId")));
+            WriteValidator.validate(f, value, errors,
+                    (targetModelKey, v) -> allowed != null && allowed.contains(normalizeId(v)));
+        }
+        WriteValidator.throwIfFailed(errors);
+    }
+
+    /** relation 值规范化：字符串数字与数值主键互认。 */
+    private static Object normalizeId(Object v) {
+        if (v instanceof Number n) {
+            return n.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(v));
+        } catch (NumberFormatException e) {
+            return v;
+        }
+    }
+
+    /**
+     * 更新合并基线（02BE §2.4 历史键保留）：
+     * 基线 = 库中现值 ∪ 本次提交（仅 ACTIVE 且可编辑字段可覆盖）；
+     * DELETED 字段历史键留在基线外由 JSONB merge 天然保留（update 不整体覆写 data）。
+     */
+    private Map<String, Object> updateBaseline(Map<String, Object> current,
             Map<String, Object> incoming, EngineContext ctx) {
         Map<String, Object> merged = new LinkedHashMap<>(current);
-        Set<String> uneditable = permissions.uneditableFields(ctx.tenant.tenantId(),
-                ctx.tenant.operatorId(), ctx.model.id());
+        Set<String> uneditable = uneditableKeys(ctx);
         for (FieldMeta f : ctx.activeFields) {
             if (incoming.containsKey(f.fieldKey()) && !uneditable.contains(f.fieldKey())) {
                 merged.put(f.fieldKey(), incoming.get(f.fieldKey()));
@@ -476,19 +769,25 @@ public class DynamicQueryEngine {
         return merged;
     }
 
-    /** 唯一应用层预检（02BE §3.4 第 5 步：真唯一靠提升列部分索引，此处为友好报错）。 */
+    /**
+     * 唯一应用层预检（02BE §3.4 第 5 步）：
+     * 行级范围条件注入（权限外数据冲突不暴露）；真唯一靠提升列 + UNIQUE 部分索引。
+     */
     private void checkUnique(String table, EngineContext ctx, Map<String, Object> data, Long excludeId) {
         for (FieldMeta f : ctx.activeFields) {
-            if (f.uniqueFlag() && data.containsKey(f.fieldKey())) {
+            if (f.uniqueFlag() && data.containsKey(f.fieldKey())
+                    && !isNullOrBlank(data.get(f.fieldKey()))) {
                 String expr = SqlBuilder.fieldExpr(f.fieldKey(), f);
                 String sql = "SELECT COUNT(*) FROM " + table
                         + " WHERE tenant_id = ? AND deleted_at IS NULL AND " + expr + " = ?"
-                        + (excludeId == null ? "" : " AND id <> ?");
+                        + (excludeId == null ? "" : " AND id <> ?")
+                        + " AND (" + ctx.scopeSql + ")";
                 List<Object> params = new ArrayList<>(
                         List.of(ctx.tenant.tenantId(), data.get(f.fieldKey())));
                 if (excludeId != null) {
                     params.add(excludeId);
                 }
+                params.addAll(ctx.scopeParams);
                 Long count = jdbc.queryForObject(sql, params.toArray(), Long.class);
                 if (count != null && count > 0) {
                     throw new BizException("VALIDATION_FAILED",
@@ -541,5 +840,10 @@ public class DynamicQueryEngine {
         List<Object> result = new ArrayList<>(a);
         result.addAll(b);
         return result;
+    }
+
+    /** 雪花替代：随机 63 位正整数（MVP 单机口径；分布式 ID 随拆分引入）。 */
+    private static long nextId() {
+        return (Math.abs(UUID.randomUUID().getLeastSignificantBits()) >> 1) | 1;
     }
 }

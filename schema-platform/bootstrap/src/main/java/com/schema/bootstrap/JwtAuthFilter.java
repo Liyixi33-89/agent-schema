@@ -36,7 +36,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             "/api/preview/exchange");
 
     /** 预览态可访问端点（04BE §A.7：权限 = 发起人 ∩ 预览范围——预览 token 不得进入设计面/管理面）。
-     *  /api/data：运行时页面数据源读取（allowRealWrite=false 会话走只读——写操作由引擎侧拦截，M6 接线）。 */
+     *  /api/data：运行时页面数据源读取面；写操作默认拒绝（isPreviewAllowed 方法感知 +
+     *  引擎侧 PreviewDataGuard 按 allowRealWrite 二次判定——04BE §A.7 数据面收口）。 */
     private static final Set<String> PREVIEW_ALLOWED_PATHS = Set.of(
             "/api/runtime/pages", "/api/data");
 
@@ -81,6 +82,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         // 预览态会话校验（04BE §A.7 吊销闭环）：preview token 必须查会话存在且未吊销——
         // 吊销后下一请求即 401（无需等 15min 过期）；普通 token 不走此路径（无额外查询开销）
         if (claims.preview()) {
+            boolean allowRealWrite;
+            long issuerId;
             try {
                 com.schema.page.domain.repository.PreviewGrantRepository.Session session =
                         previewSessions.getObject().validateSession(claims.jti());
@@ -88,6 +91,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 if (session.pageId() != null) {
                     request.setAttribute("auth.previewPageId", session.pageId());
                 }
+                // 数据面守卫消费（04BE §A.7 数据面收口）：只读判定 + 发起人上下文
+                allowRealWrite = session.allowRealWrite();
+                issuerId = session.issuerId();
             } catch (com.schema.platform.common.web.BizException e) {
                 String code = "PREVIEW_SESSION_REVOKED".equals(e.code())
                         ? "PREVIEW_SESSION_REVOKED" : "UNAUTHORIZED";
@@ -97,14 +103,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
             // 预览态端点隔离（04BE §A.7 权限=发起人∩预览范围）：预览凭证只可访问运行时读取面，
             // 不得以签发人身份进入设计面/管理面/IAM 面（否则预览 token = 签发人完整凭证）
-            if (!isPreviewAllowed(path)) {
+            if (!isPreviewAllowed(request.getMethod(), path)) {
                 writeError(response, HttpServletResponse.SC_FORBIDDEN, "PREVIEW_SCOPE_DENIED",
                         "预览凭证仅可访问预览范围端点");
                 return;
             }
-            // 预览态无登录主体（会话为真源）；透传预览上下文供运行时限页消费
+            // 预览态无登录主体（会话为真源）；透传预览上下文供数据面守卫消费：
+            // auth.preview=true 标记 + 发起人 ID（TenantContext 操作者）+ allowRealWrite 只读判定源
             request.setAttribute("auth.preview", true);
             request.setAttribute("auth.tenantId", claims.tenantId());
+            request.setAttribute("auth.userId", issuerId);
+            request.setAttribute("auth.previewAllowRealWrite", allowRealWrite);
             chain.doFilter(request, response);
             return;
         }
@@ -147,9 +156,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    /** 预览态端点白名单匹配：路径前缀匹配（/api/runtime/pages/** 全开放给预览读取）。 */
-    private static boolean isPreviewAllowed(String path) {
-        return PREVIEW_ALLOWED_PATHS.stream().anyMatch(path::startsWith);
+    /** 预览态端点白名单匹配（04BE §A.7 数据面收口）：
+     *  /api/runtime/pages 只读面全方法放行；/api/data 读方法（GET）放行，
+     *  写方法不放行——由引擎侧 PreviewDataGuard 按 allowRealWrite 判定（真实写预览需显式声明）。 */
+    private static boolean isPreviewAllowed(String method, String path) {
+        if (path.startsWith("/api/runtime/pages")) {
+            return true;
+        }
+        if (path.startsWith("/api/data")) {
+            return "GET".equalsIgnoreCase(method);
+        }
+        return false;
     }
 
     private void auditTenantMismatch(JwtCodec.Claims claims, long headerTenant, HttpServletRequest request) {

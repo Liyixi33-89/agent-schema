@@ -1,24 +1,35 @@
 package com.schema.data.application;
 
+import com.schema.data.infrastructure.outbox.OutboxRelay;
 import com.schema.metadata.domain.event.ModelCreatedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 /**
- * 模型创建 → 物理表自动创建监听器（02BE §2.1「建模时自动创建」）。
- * 与建模同事务（@EventListener 默认同步参与发布者事务——建表失败连带建模失败，保证一致）。
+ * 模型创建 → 物理表自动创建（02BE §2.1「建模时自动创建」）。
+ *
+ * 双链路（2026-10-30 收口）：
+ * 1. 同步链：@EventListener 同事务直连建表（建表失败连带建模失败——强一致主路径）；
+ * 2. Outbox 链：同事务登记 outbox_event（ddl.table.ensure），进程重启/同步链失败后
+ *    由 OutboxRelay 补偿建表（ensureTable 幂等——至少一次投递语义安全）。
  */
 @Component
 public class ModelCreatedListener {
 
     private final DynamicQueryEngine engine;
+    private final OutboxRelay outbox;
 
-    public ModelCreatedListener(DynamicQueryEngine engine) {
+    public ModelCreatedListener(DynamicQueryEngine engine, OutboxRelay outbox) {
         this.engine = engine;
+        this.outbox = outbox;
     }
 
     @EventListener
     public void on(ModelCreatedEvent event) {
+        // 同步主路径：建表失败建模失败（事务一致）
         engine.ensurePhysicalTable(event.tenantId(), event.modelId());
+        // Outbox 补偿登记：重启后或同步链路遗漏时由中继幂等补建
+        outbox.enqueue(event.tenantId(), "ddl.table.ensure",
+                "{\"modelId\":" + event.modelId() + "}");
     }
 }

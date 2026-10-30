@@ -16,6 +16,10 @@ import java.io.IOException;
  * 租户上下文还原（03BE §2.1）。
  * M3 起（JwtAuthFilter 前置）：优先取 JWT claim（auth.* 属性——claim 为鉴权真源）；
  * 无 claim 的头值退化仅在公开端点（登录/刷新/登出/CSP）可达——业务端点已被 401 挡在前面。
+ *
+ * 预览态透传（04BE §A.7 数据面收口）：auth.preview/auth.previewPageId/
+ * auth.previewAllowRealWrite 以请求属性传递——引擎侧 PreviewContext 静态读取
+ * （TenantInfo 为值对象不承载预览态；拆分后随 RPC 上下文头传递）。
  */
 @Component
 @Order(2)
@@ -29,6 +33,7 @@ public class TenantContextFilter extends OncePerRequestFilter {
         String tenantIdHeader = request.getHeader("X-Tenant-Id");
         String appIdHeader = request.getHeader("X-App-Id");
         String operatorIdHeader = request.getHeader("X-Operator-Id");
+        Boolean preview = (Boolean) request.getAttribute("auth.preview");
         try {
             TenantInfo tenant = new TenantInfo(
                     tenantId != null ? tenantId : parseOr(tenantIdHeader, 1L),

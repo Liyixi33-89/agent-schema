@@ -4,20 +4,40 @@ import java.util.List;
 
 /**
  * 行级/字段级数据权限端口（03BE §3.3/§3.4）：权限定义归 iam，data-engine 只消费。
- * resolveScopes 返回该用户在该模型上的数据范围并集（多角色 OR 连接）；
- * 字段级权限返回不可见/不可编辑字段键集。
+ *
+ * 行级：resolveScopes 返回该用户在该模型上的数据范围并集（多角色 OR 连接）；
+ * 用户属性上下文（部门/角色）由 resolveUserAttrs 提供——DEPT/DEPT_TREE/CUSTOM_EXPR 编译消费。
+ *
+ * 字段级（语义定版，修正 2026-10-30）：sys_role_permission 行 resource_type='FIELD'，
+ * resource_id=model_id，action='visible'/'editable' 时，字段键编码在 scope 列——
+ * 真源表无独立字段键存储位，故授权行形态为 scope='visible:<fieldKey>'。
+ * 返回「已授权字段键集」（而非不可见集）：空集语义二义（未配置 vs 全拒绝）由调用方以
+ * hasFieldPermConfig 判定——未配置 = 全可见；已配置 = 仅授权集可见（最小权限）。
  */
 public interface DataPermissionPort {
 
     record ScopeCondition(String scopeType, String scopeExpr) {
     }
 
+    /** 当前用户属性（03BE §3.3 表达式上下文注入源）。 */
+    record UserAttrs(long deptId, String deptPath) {
+    }
+
     /** 用户在模型上的行级范围集（空集 = 无任何数据范围授权——默认拒绝）。 */
     List<ScopeCondition> resolveScopes(long tenantId, long userId, long modelId);
 
-    /** 不可见字段键集（SELECT 与响应物理剔除，03BE §3.4——置 null 仍暴露存在性故必须剔除）。 */
-    java.util.Set<String> invisibleFields(long tenantId, long userId, long modelId);
+    /** 用户属性（部门 ID/物化路径）——无部门时 deptId=0/deptPath=null（范围编译按拒绝处理）。 */
+    UserAttrs resolveUserAttrs(long tenantId, long userId);
 
-    /** 不可编辑字段键集（写入静默忽略 + debug 日志）。 */
-    java.util.Set<String> uneditableFields(long tenantId, long userId, long modelId);
+    /**
+     * 该模型是否配置了 FIELD 级权限（visible 或 editable 任一授权行存在）。
+     * false = 未配置 → 字段全可见/全可编辑（不锁死未配置模型）。
+     */
+    boolean hasFieldPermConfig(long tenantId, long userId, long modelId);
+
+    /** 已授权「可见」字段键集（仅在 hasFieldPermConfig=true 时有意义）。 */
+    java.util.Set<String> visibleFields(long tenantId, long userId, long modelId);
+
+    /** 已授权「可编辑」字段键集（仅在 hasFieldPermConfig=true 时有意义）。 */
+    java.util.Set<String> editableFields(long tenantId, long userId, long modelId);
 }

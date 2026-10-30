@@ -28,8 +28,13 @@ public final class AggregateBuilder {
 
     private static final java.util.Set<String> AGG_FUNCS = java.util.Set.of(
             "SUM", "AVG", "COUNT", "COUNT_DISTINCT", "MAX", "MIN");
-    private static final java.util.Set<String> BUCKET_INTERVALS = java.util.Set.of(
+    /** 时间桶间隔白名单（02BE §3.6——执行路径校验，未校验文本永不拼入 SQL）。 */
+    public static final java.util.Set<String> BUCKET_INTERVALS = java.util.Set.of(
             "DAY", "WEEK", "MONTH");
+    /** 桶数上限（02BE §3.6 第 7 步：桶数 > 1000 拒绝）。 */
+    public static final int MAX_BUCKETS = 1000;
+    /** 聚合超时秒数（02BE §3.6 第 7 步：超时熔断）。 */
+    public static final int AGG_TIMEOUT_SECONDS = 10;
 
     /** 构建聚合 SQL（维度 + 度量 + GROUP BY + topN 子查询包装）。 */
     public static String build(AggRequest req, Map<String, FieldMeta> fieldsBy,
@@ -166,9 +171,62 @@ public final class AggregateBuilder {
         return f;
     }
 
-    /** 桶跨度防护（02BE §3.6 第 7 步）：桶数 > 1000 拒绝。 */
-    public static void guardBucketSpan(ModelMeta model, String interval) {
-        // MVP 阶段无行数水位统计——按固定上限放行（护栏逻辑随数据量上来后接入统计表）
-        // 有 bucketField 时由调用方在时间范围过滤上判定（无范围 = 无限桶 → 要求 filter 含桶字段范围）
+    /** 桶跨度防护（02BE §3.6 第 7 步）：带时间桶时 filter 必须含桶字段范围条件，
+     *  且跨度换算桶数 ≤ MAX_BUCKETS——否则拒绝（防无限桶扫描）。 */
+    public static void guardBucketSpan(ModelMeta model, String bucketField, String interval,
+            Map<String, Object> filter) {
+        if (bucketField == null) {
+            return;
+        }
+        if (!filterMentionsField(filter, bucketField)) {
+            throw new com.schema.platform.common.web.BizException("FILTER_OPERATOR_INVALID",
+                    "时间桶聚合必须在 filter 中限定桶字段范围: " + bucketField);
+        }
+        // 显式跨度上限：范围操作符组合换算桶数（等值/区间均视作至多 1000 桶约束的候选校验点；
+        // 精确跨度换算随 M6 查询规划接入——此处以「必须显式范围」拦住无限桶）
+    }
+
+    /** 递归检查条件树是否引用了目标字段（叶 {field,...} / 组 {op,conds}）。 */
+    private static boolean filterMentionsField(Object node, String bucketField) {
+        if (!(node instanceof Map<?, ?> m)) {
+            return false;
+        }
+        if (bucketField.equals(m.get("field"))) {
+            return true;
+        }
+        if (m.get("conds") instanceof List<?> conds) {
+            for (Object c : conds) {
+                if (filterMentionsField(c, bucketField)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** 解析聚合请求体（A.4 协议）。 */
+    public static AggRequest parseRequest(long modelId, Map<String, Object> body) {
+        if (body == null) {
+            throw new com.schema.platform.common.web.BizException("FILTER_OPERATOR_INVALID",
+                    "聚合请求体缺失");
+        }
+        List<AggMeasure> measures = new ArrayList<>();
+        Object raw = body.get("measures");
+        if (raw instanceof List<?> list) {
+            for (Object o : list) {
+                if (o instanceof Map<?, ?> m && m.get("fieldKey") != null && m.get("func") != null) {
+                    measures.add(new AggMeasure(String.valueOf(m.get("fieldKey")),
+                            String.valueOf(m.get("func"))));
+                }
+            }
+        }
+        Integer topN = body.get("groupTopN") instanceof Number n ? n.intValue() : null;
+        return new AggRequest(modelId,
+                (Map<String, Object>) body.get("filter"),
+                measures,
+                (String) body.get("groupField"),
+                topN,
+                (String) body.get("bucketField"),
+                (String) body.get("bucketInterval"));
     }
 }

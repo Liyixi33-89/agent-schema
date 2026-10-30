@@ -3,7 +3,7 @@ spec_id: 002-metadata-service
 status: active
 milestone: M2                # 依赖图 §3.3 元数据服务（关键路径）
 created: 2026-10-28
-last_verified_at: 2026-10-29
+last_verified_at: 2026-10-30
 owner: 待定
 ---
 
@@ -34,11 +34,11 @@ owner: 待定
 
 **不做**（随后续里程碑）：
 
-- Redis 缓存 + pub/sub 失效 + 两阶段 ACK（M2.5 原范围——本地无 Redis；以版本号单调比对兜底，Redis 层随 M5 数据引擎读取链路一并落地，届时补两阶段 ACK）
-- Outbox 事件发布（建表/失效事件消费方 data-engine 未落地，M5 联调时补）
-- data-engine 侧 DDL 执行器（M5）
-- 页面服务引用登记写入方（M4.3）
-- 提升列任务执行（M5.4；本 spec 已产出 promote_status='PENDING' 状态与 promotedTasks 响应）
+- Redis 缓存 + pub/sub 失效 + 两阶段 ACK（M2.5 原范围——本地无 Redis；以版本号单调比对兜底，Redis 层随多租户/拆分性能需求分期；DATA_VOLUME 已于 2026-10-30 经 DataVolumePort 接真实业务表扫描，不再依赖 Redis 排期）
+- ~~Outbox 事件发布~~（**2026-10-30 收口**：V7 outbox_event 表 + OutboxRelay 轮询投递（CAS 抢占/至少一次/FAILED 上限）+ Spring 本地投递桥；建表事件双链路（同事务直连 + Outbox 补偿）已落地，Kafka producer 桥随 ADR-001 事件基建分期）
+- data-engine 侧 DDL 执行器（M5——已落地 PhysicalTableManager/PromoteTaskConsumer，见 spec-005）
+- 页面服务引用登记写入方（M4.3——已落地，见 spec-004）
+- 提升列任务执行（M5.4——已落地；本 spec 已产出 promote_status='PENDING' 状态与 promotedTasks 响应）
 
 ## 3. 接口契约
 
@@ -50,10 +50,10 @@ owner: 待定
 - [x] T2 ModelAggregate 领域模型（字段状态机收口；field_key/field_type 无改写入口）
 - [x] T3 两段式保存 + precheck 三档 confirmMode + token 四元组校验（一次性消费/binding hash/baseVersion/confirmValue）
 - [x] T4 版本快照/回滚（回滚独立 precheck 绑定 targetVersion；复活走草稿态不自动 promote）
-- [x] T5 field_reference 登记 + 影响面聚合（DATA_VOLUME 随 M5 接真实扫描）
+- [x] T5 field_reference 登记 + 影响面聚合（DATA_VOLUME 已于 2026-10-30 经 DataVolumePort 接真实业务表扫描——`data ?|` 键存在行数统计）
 - [x] T6 租户上下文（接口化 TenantContextHolder + Filter 还原 + 跨租户拦截测试）
 - [x] T7 01BE §测试要求全绿（真实 PG 集成测试 17 用例 + 领域测试 8 用例；2026-10-29 补校验器/删模型两段式/回滚删除语义/并发乐观锁达 15，二轮收口补 token 跨模型挪用拒绝/引用重建无残留达 17）
-- [ ] T8 Redis 缓存失效两阶段 ACK（随 M5 数据引擎读取链路落地时补）
+- [x] T8 Outbox 事件链路（2026-10-30 收口：V7 表 + OutboxRelay + 建表事件双链路；Redis ACK 仍分期——本地无 Redis，版本号单调比对兜底）
 
 ## 5. Acceptance
 
@@ -62,7 +62,7 @@ owner: 待定
 - [x] A3 precheck 三档按引用数正确分档；confirmToken 一次性消费 + 五元组绑定（modelId/bindingHash/baseVersion）篡改拒绝
 - [x] A4 回滚后字段复活 ACTIVE 且新版本标记 rollback_from
 - [x] A5 伪造租户上下文被拦截（MODEL_NOT_FOUND 不给数据线索）
-- [ ] A6 缓存失效端到端（Redis 未引入，随 M5 补；版本号单调比对先行）
+- [ ] A6 缓存失效端到端（Redis 未引入——分期随多租户/拆分性能需求；版本号单调比对 + Outbox 事件链路已先行兜底）
 
 ## 6. 验证步骤
 

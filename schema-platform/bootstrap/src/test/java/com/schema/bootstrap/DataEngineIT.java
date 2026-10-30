@@ -76,6 +76,22 @@ class DataEngineIT {
         for (String t : oldTables) {
             jdbc.update("DROP TABLE IF EXISTS " + t);
         }
+        // 种子角色自愈（幂等重建 userId=1 的 ALL 范围——历史库可能缺失）
+        jdbc.update("""
+                INSERT INTO sys_role (tenant_id, app_id, code, name, role_type)
+                VALUES (1, 1, 'seed_data_admin', '种子数据管理员', 'TENANT')
+                ON CONFLICT DO NOTHING
+                """);
+        jdbc.update("""
+                INSERT INTO sys_user_role (user_id, role_id)
+                SELECT 1, id FROM sys_role WHERE tenant_id=1 AND code='seed_data_admin'
+                ON CONFLICT DO NOTHING
+                """);
+        jdbc.update("""
+                INSERT INTO sys_role_data_scope (role_id, model_id, scope_type)
+                SELECT id, 0, 'ALL' FROM sys_role WHERE tenant_id=1 AND code='seed_data_admin'
+                ON CONFLICT DO NOTHING
+                """);
     }
 
     @AfterAll
@@ -162,12 +178,13 @@ class DataEngineIT {
         assertEquals("FILTER_OPERATOR_INVALID", e2.code());
 
         // 3) 值注入：值走占位符——字符串值含注入 payload 只当普通文本匹配，不执行
-        insert(1, record("a' OR 1=1; --", 200, "u2", "2026-10-02"), 1);
-        Map<String, Object> valueFilter = Map.of("field", "status", "op", "eq",
+        //（owner 为 text 字段——枚举字段 status 受值域校验，注入文本会被枚举拦截而非注入面）
+        insert(1, record("draft", 200, "a' OR 1=1; --", "2026-10-02"), 1);
+        Map<String, Object> ownerFilter = Map.of("field", "owner", "op", "eq",
                 "value", "a' OR 1=1; --");
         Map<String, Object> resp = TenantContext.with(T1, () -> engine.query(
                 new com.schema.data.domain.engine.SqlBuilder.QueryRequest(
-                        modelId, valueFilter, List.of(), 1, 20, null, 1, false)));
+                        modelId, ownerFilter, List.of(), 1, 20, null, 1, false)));
         assertEquals(1L, ((Number) resp.get("total")).longValue(), "注入 payload 作为文本精确匹配恰好 1 行");
     }
 

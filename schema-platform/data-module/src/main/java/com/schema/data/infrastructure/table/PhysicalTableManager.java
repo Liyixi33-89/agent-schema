@@ -62,21 +62,35 @@ public class PhysicalTableManager {
                 + table + "(tenant_id, deleted_at)");
         jdbc.update("CREATE INDEX IF NOT EXISTS idx_" + modelId + "_gin ON "
                 + table + " USING GIN(data)");
-        // 3) 提升列（建表时机已知的 indexed 字段一次性生成）
+        // 3) 提升列（建表时机已知的 indexed 字段一次性生成——唯一字段建 UNIQUE 部分索引）
         for (java.util.Map<String, Object> f : indexedFields) {
             addPromotedColumn(tenantId, modelId, (String) f.get("fieldKey"),
-                    (String) f.get("fieldType"));
+                    (String) f.get("fieldType"),
+                    Boolean.TRUE.equals(f.get("uniqueFlag")));
         }
     }
 
-    /** 提升列 DDL：GENERATED STORED + 单列索引（不锁写——小表直接建，CONCURRENTLY 随 M5.4 异步化）。 */
-    public void addPromotedColumn(long tenantId, long modelId, String fieldKey, String fieldType) {
+    /**
+     * 提升列 DDL：GENERATED STORED + 索引（不锁写——小表直接建，CONCURRENTLY 随 M5.4 异步化）。
+     *
+     * 表达式 immutable 约束（2026-10-30 修正）：GENERATED STORED 列表达式必须是 immutable——
+     * `(x)::timestamptz` 依赖会话时区是 stable，PG 直接拒绝建列。date 提升列改用
+     * `to_timestamp((data->>'k'), 'YYYY-MM-DD"T"HH24:MI:SS')::timestamptz` 仍不满足——
+     * MVP 定版：date 类型提升列落地为 text 提升列（`(data->>'k')`，immutable），
+     * 排序/等值语义不受影响；范围比较走 JSONB 表达式回退（promoted() 只对
+     * number/boolean/text 生效——date 字段 fieldExpr 永不命中提升列）。
+     *
+     * 唯一字段提升列建 UNIQUE 部分索引（tenant_id, col）WHERE deleted_at IS NULL——
+     * 逻辑删除行释放唯一值（02BE §A.1 upsert 口径），应用层预检 TOCTOU 由该索引兜底。
+     */
+    public void addPromotedColumn(long tenantId, long modelId, String fieldKey, String fieldType,
+            boolean uniqueFlag) {
         String table = tableName(modelId);
         String col = safeColumn(fieldKey);
-        String expr = switch (fieldType == null ? "text" : fieldType) {
+        String type = fieldType == null ? "text" : fieldType;
+        String expr = switch (type) {
             case "number", "computed" -> "((data->>'" + col + "')::numeric)";
             case "boolean" -> "((data->>'" + col + "')::boolean)";
-            case "date" -> "((data->>'" + col + "')::timestamptz)";
             default -> "(data->>'" + col + "')";
         };
         // 列存在性预检：已存在则跳过（幂等）；GENERATED 列不可 IF NOT EXISTS（PG 限制）
@@ -84,14 +98,45 @@ public class PhysicalTableManager {
             jdbc.queryForObject(
                     "SELECT 1 FROM information_schema.columns WHERE table_name=? AND column_name=?",
                     Integer.class, table, col);
-            return; // 已存在
+            ensurePromotedIndex(tenantId, modelId, fieldKey); // 列已在：仅补索引（失败残留修复）
+            return;
         } catch (EmptyResultDataAccessException ignored) {
             // 不存在 → 建
         }
         jdbc.update("ALTER TABLE " + table + " ADD COLUMN " + col
                 + " GENERATED ALWAYS AS " + expr + " STORED");
-        jdbc.update("CREATE INDEX IF NOT EXISTS idx_" + modelId + "_" + col
-                + " ON " + table + "(" + col + ")");
+        createIndex(modelId, fieldKey, col, table, uniqueFlag);
+    }
+
+    /** 兼容旧签名（默认非唯一——建表批量路径）。 */
+    public void addPromotedColumn(long tenantId, long modelId, String fieldKey, String fieldType) {
+        addPromotedColumn(tenantId, modelId, fieldKey, fieldType, false);
+    }
+
+    /** 提升列索引补建（列已存在/残留修复场景）。 */
+    public void ensurePromotedIndex(long tenantId, long modelId, String fieldKey) {
+        String table = tableName(modelId);
+        String col = safeColumn(fieldKey);
+        Boolean unique = null;
+        try {
+            unique = jdbc.queryForObject(
+                    "SELECT unique_flag FROM meta_field WHERE model_id=? AND field_key=?",
+                    Boolean.class, modelId, fieldKey);
+        } catch (EmptyResultDataAccessException ignored) {
+            // 元数据缺失：按普通索引补
+        }
+        createIndex(modelId, fieldKey, col, table, Boolean.TRUE.equals(unique));
+    }
+
+    private void createIndex(long modelId, String fieldKey, String col, String table, boolean uniqueFlag) {
+        String idxName = "idx_" + modelId + "_" + col + (uniqueFlag ? "_uq" : "");
+        if (uniqueFlag) {
+            // UNIQUE 部分索引：逻辑删除行释放唯一值（与 upsert/预检口径一致）
+            jdbc.update("CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + table
+                    + "(tenant_id, " + col + ") WHERE deleted_at IS NULL AND " + col + " IS NOT NULL");
+        } else {
+            jdbc.update("CREATE INDEX IF NOT EXISTS " + idxName + " ON " + table + "(" + col + ")");
+        }
     }
 
     /** 表是否已建（查询前置校验——未建表直接 404 语义）。 */

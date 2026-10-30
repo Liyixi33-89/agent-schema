@@ -17,6 +17,7 @@ public interface MetadataPort {
     record FieldMeta(String fieldKey, String label, String fieldType, String fieldStatus,
             boolean required, boolean uniqueFlag, boolean indexed, String promoteStatus,
             Object defaultValue, List<Map<String, Object>> validators,
+            List<Map<String, Object>> enumOptions,
             Map<String, Object> relationConfig, Map<String, Object> computedConfig) {
 
         public boolean active() {

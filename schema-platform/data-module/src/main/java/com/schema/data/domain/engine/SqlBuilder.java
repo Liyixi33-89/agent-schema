@@ -176,7 +176,9 @@ public final class SqlBuilder {
         }
     }
 
-    /** 值规范化：数值字段传字符串数字自动转 Number（Gson 反序列化 Map 值为 Double/Long）。 */
+    /** 值规范化：数值字段传字符串数字自动转 Number；date 字段字符串转 Timestamp
+     *  （PG 无 varchar→timestamptz 隐式转换——字符串参数与提升/CAST 后表达式比较会
+     *   operator does not exist，必须发送类型化参数）。 */
     private static Object normalizeValue(Object value, FieldMeta meta) {
         if (value == null) {
             return null;
@@ -190,6 +192,19 @@ public final class SqlBuilder {
             } catch (NumberFormatException e) {
                 throw new BizException("FILTER_OPERATOR_INVALID",
                         "字段 " + meta.fieldKey() + " 需数值");
+            }
+        }
+        if ("date".equals(meta.fieldType()) && value instanceof String s && !s.isBlank()) {
+            try {
+                return java.sql.Timestamp.from(java.time.OffsetDateTime.parse(s).toInstant());
+            } catch (Exception ignored) {
+                // fallthrough
+            }
+            try {
+                return java.sql.Timestamp.valueOf(java.time.LocalDate.parse(s).atStartOfDay());
+            } catch (Exception ignored) {
+                throw new BizException("FILTER_OPERATOR_INVALID",
+                        "字段 " + meta.fieldKey() + " 需日期值: " + s);
             }
         }
         return value;
