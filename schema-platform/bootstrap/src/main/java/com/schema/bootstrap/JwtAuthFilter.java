@@ -3,6 +3,7 @@ package com.schema.bootstrap;
 import com.schema.iam.domain.model.UserAccount;
 import com.schema.iam.domain.repository.IamRepository;
 import com.schema.iam.infrastructure.security.JwtCodec;
+import com.schema.iam.infrastructure.security.SessionCookies;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,8 +34,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     /** 登录态无关端点（公开）。 */
     private static final Set<String> PUBLIC_PATHS = Set.of(
-            "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/security/csp-reports",
-            "/api/preview/exchange");
+            "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/auth/csrf",
+            "/api/security/csp-reports", "/api/preview/exchange");
 
     /**
      * 前缀放行端点（11BE §2 预签名直传语义）：LocalFs 占位实现的凭证消费端点——
@@ -68,9 +69,23 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
             FilterChain chain) throws ServletException, IOException {
         String path = request.getRequestURI();
+        // v0.4 双通道识别（03BE §4.1）：schema_at cookie 优先，缺失回落 Authorization Bearer
+        String accessToken = SessionCookies.read(request, SessionCookies.AT);
+        boolean viaCookie = accessToken != null && !accessToken.isBlank();
         String authHeader = request.getHeader("Authorization");
+        if (!viaCookie) {
+            accessToken = authHeader != null && authHeader.startsWith("Bearer ")
+                    ? authHeader.substring(7) : null;
+        }
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        // Cookie 通道访问预览端点拒绝（通道强制隔离——防设计器身份意外串入预览态）
+        if (viaCookie && path.startsWith("/api/preview/")) {
+            writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "PREVIEW_CREDENTIAL_REJECTED",
+                    "预览端点不接受正式会话凭证");
+            return;
+        }
+
+        if (accessToken == null || accessToken.isBlank()) {
             // 无凭证：公开端点放行；其余 401（不再走 TenantContextFilter 头值退化——退化路径仅剩公开端点）
             if (PUBLIC_PATHS.contains(path) || PUBLIC_PREFIXES.stream().anyMatch(path::startsWith)) {
                 chain.doFilter(request, response);
@@ -80,9 +95,10 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        String token = authHeader.substring(7);
+        String token = accessToken;
         JwtCodec.Claims claims = jwt.verify(token);
         if (claims == null || !("access".equals(claims.tokenType()) || claims.preview())) {
+            JwtCodec.clearPwdVersion();
             writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "登录态无效或已过期");
             return;
         }
@@ -133,9 +149,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         UserAccount user = iam.findUserById(claims.userId()).orElse(null);
         if (user == null || "DISABLED".equals(user.status())
                 || user.tenantId() != claims.tenantId()) {
+            JwtCodec.clearPwdVersion();
             writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "登录态无效或已过期");
             return;
         }
+
+        // v0.4 强失效（03BE §4.1）：pwdVersion claim 与库值比对——改密/重置后旧 access 下一请求 401
+        if (JwtCodec.lastPwdVersion() != user.pwdVersion()) {
+            JwtCodec.clearPwdVersion();
+            writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "UNAUTHORIZED", "登录态已失效，请重新登录");
+            return;
+        }
+        JwtCodec.clearPwdVersion();
 
         // 会话绑定（03BE §4）：鉴权以 claim 为准；头与 claim 不一致 403 + 安全审计
         String tenantHeader = request.getHeader("X-Tenant-Id");

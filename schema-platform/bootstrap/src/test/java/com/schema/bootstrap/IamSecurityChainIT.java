@@ -210,10 +210,10 @@ class IamSecurityChainIT {
                 .andExpect(status().isUnauthorized());
     }
 
-    // ---------- 03BE §7：refresh 并发一次性消费 ----------
+    // ---------- 03BE §7：refresh 并发消费（v0.4 ±10s 容忍窗口内全部成功——多标签不误踢） ----------
 
     @Test
-    void concurrentRefreshConsumesTokenExactlyOnce() throws Exception {
+    void concurrentRefreshWithinToleranceAllSucceed() throws Exception {
         int threads = 8;
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         CountDownLatch start = new CountDownLatch(1);
@@ -232,23 +232,37 @@ class IamSecurityChainIT {
         }
         start.countDown();
         int ok = 0;
-        int rejected = 0;
         for (Future<Integer> f : futures) {
-            int status = f.get(15, TimeUnit.SECONDS);
-            if (status == 200) {
+            if (f.get(15, TimeUnit.SECONDS) == 200) {
                 ok++;
-            } else if (status == 401) {
-                rejected++;
             }
         }
         pool.shutdown();
-        assertEquals(1, ok, "并发刷新同一 refresh 必须恰好一个成功");
-        assertEquals(threads - 1, rejected, "其余全部 REFRESH_REVOKED");
-        // 重放审计留痕
+        // v0.4 §4.1：首次消费后 10s 容忍窗口内同 token 重放全部成功（滚动出新会话不误踢）
+        assertEquals(threads, ok, "容忍窗口内并发刷新必须全部成功");
+        // 容忍窗口语义下并发刷新不记重放审计（偶发竞态窗口判定偏差允许 ≤1 条——宁可多记不可漏记）
         Long replays = jdbc.queryForObject(
                 "SELECT count(*) FROM sys_audit_log WHERE event_type='SECURITY' "
                         + "AND diff->>'reason'='REFRESH_REPLAY'", Long.class);
-        assertTrue(replays >= threads - 1, "并发重放必须逐次记审计");
+        assertTrue(replays <= 1, "容忍窗口内并发刷新不得逐次记重放审计");
+    }
+
+    @Test
+    void staleRefreshOutsideToleranceIsRejectedAndAudited() throws Exception {
+        // 构造已消费且超出容忍窗口的行：直接置 consumed_at 为 1 分钟前
+        String stale = "stale-refresh-" + System.nanoTime();
+        jdbc.update("INSERT INTO sys_refresh_token (tenant_id, user_id, token_hash, expires_at, "
+                        + "revoked, revoked_at, consumed_at) VALUES (1, ?, ?, now() + interval '7 days', "
+                        + "true, now() - interval '1 minute', now() - interval '1 minute')",
+                plainId, JwtCodec.hashRefreshToken(stale));
+        mvc.perform(post("/api/auth/refresh").contentType("application/json")
+                        .content("{\"refreshToken\":\"" + stale + "\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REFRESH_REVOKED"));
+        Long replays = jdbc.queryForObject(
+                "SELECT count(*) FROM sys_audit_log WHERE event_type='SECURITY' "
+                        + "AND diff->>'reason'='REFRESH_REPLAY'", Long.class);
+        assertTrue(replays >= 1, "窗口外重放必须记安全审计");
     }
 
     // ---------- 03BE §7：审计独立事务（拒绝路径留痕） ----------

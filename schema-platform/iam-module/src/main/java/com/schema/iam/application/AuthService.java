@@ -4,6 +4,7 @@ import com.schema.iam.domain.model.PermissionPolicy.Perm;
 import com.schema.iam.domain.model.UserAccount;
 import com.schema.iam.domain.repository.IamRepository;
 import com.schema.iam.infrastructure.security.JwtCodec;
+import com.schema.iam.infrastructure.security.SessionCookies;
 import com.schema.platform.common.tenant.TenantContext;
 import com.schema.platform.common.tenant.TenantInfo;
 import com.schema.platform.common.web.BizException;
@@ -82,7 +83,7 @@ public class AuthService {
         events.publishEvent(new com.schema.platform.common.event.LoginSucceededEvent(tenantId, user.id()));
 
         iam.insertAudit("LOGIN", tenantId, user.id(), "USER", user.account(), null, ip, ua);
-        return sessionResponse(user, jwt.issueAccess(user.id(), tenantId));
+        return sessionResponse(user);
     }
 
     /** 失败计数持久化（独立提交——login 主事务抛异常回滚不影响计数累积）。 */
@@ -107,10 +108,18 @@ public class AuthService {
     @Lazy
     private AuthService selfRef;
 
-    // ---------- 刷新（§A.1：滚动签发 + 旧 token 即刻吊销） ----------
+    // ---------- 刷新（v0.4 §4.1：零 body cookie 携带 + ±10s 重放容忍 + csrf 滚动） ----------
 
+    /**
+     * Cookie 通道刷新：schema_rt cookie 自动携带（控制器解析传入）。
+     * 容忍窗口语义（03BE §4.1 并发刷新）：首次消费成功后 10s 内同 token 重放返回同一逻辑结果
+     * （重放请求也会滚动出新会话——多标签各自拿到可用三件套，无端被踢）；窗口外按重放拒绝记审计。
+     */
     @Transactional
     public Map<String, Object> refresh(String refreshToken, String ip, String ua) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw BizException.refreshRevoked();   // cookie 缺失（过期/未登录）与吊销同判
+        }
         String hash = JwtCodec.hashRefreshToken(refreshToken);
         Map<String, Object> row = findRefreshRow(hash);
         long userId = ((Number) row.get("user_id")).longValue();
@@ -120,14 +129,20 @@ public class AuthService {
         if ("DISABLED".equals(user.status())) {
             throw BizException.refreshRevoked();
         }
-        // 滚动：原子一次性消费（并发刷新同一 token 仅一个成功）+ 新对签发；
-        // 消费失败 = 已吊销/过期 → SECURITY 审计（重放检测）
+        // 滚动：原子一次性消费；失败时查容忍窗口（多标签并发刷新不误踢）
         if (!iam.consumeRefreshToken(hash)) {
-            selfRef.auditSecurity(tenantId, userId, user.account(), "REFRESH_REPLAY", ip, ua);
-            throw BizException.refreshRevoked();   // 401 REFRESH_REVOKED（前端清快照跳登录）
+            OffsetDateTime consumedAt = iam.refreshConsumedAt(hash);
+            boolean tolerated = consumedAt != null
+                    && consumedAt.isAfter(OffsetDateTime.now().minusSeconds(
+                            SessionCookies.REFRESH_TOLERANCE_SECONDS));
+            if (!tolerated) {
+                selfRef.auditSecurity(tenantId, userId, user.account(), "REFRESH_REPLAY", ip, ua);
+                throw BizException.refreshRevoked();   // 401 REFRESH_REVOKED（前端清快照跳登录）
+            }
+            // 容忍窗口内重放：不记审计不踢出（并发刷新正常路径）
         }
-        issueSession(tenantId, userId);
-        return sessionResponse(user, jwt.issueAccess(userId, tenantId));
+        issueSession(tenantId, userId, user.pwdVersion());
+        return sessionResponse(user);
     }
 
     // ---------- 登出（§A.1） ----------
@@ -237,10 +252,10 @@ public class AuthService {
         iam.updateUser(user);
         iam.revokeAllRefreshTokens(userId);             // 全部旧 refresh 入黑名单（多设备踢出）
 
-        issueSession(tenantId, userId);                 // 新会话
+        issueSession(tenantId, userId, user.pwdVersion());   // 新会话（持新 pwdVersion——旧 access 即失效）
         iam.insertAudit("SENSITIVE_OP", tenantId, userId, "USER", user.account(),
                 Map.of("action", "CHANGE_PASSWORD"), ip, ua);
-        Map<String, Object> resp = sessionResponse(user, jwt.issueAccess(userId, tenantId));
+        Map<String, Object> resp = sessionResponse(user);
         resp.put("mustChangePassword", false);
         return resp;
     }
@@ -329,23 +344,43 @@ public class AuthService {
         }
     }
 
-    private void issueSession(long tenantId, long userId) {
-        String refresh = JwtCodec.newRefreshToken();
-        iam.insertRefreshToken(tenantId, userId, JwtCodec.hashRefreshToken(refresh),
-                OffsetDateTime.now().plusSeconds(JwtCodec.REFRESH_TTL_SECONDS));
-        // refresh 原文经 ThreadLocal 传递给 sessionResponse（不落日志）
-        CURRENT_REFRESH.set(new StringBuilder(refresh));
+    // ---------- 会话记录（v0.4 §4.1：三件套经控制器 Set-Cookie 签发；ThreadLocal 传递不落日志） ----------
+
+    /** 本次请求签发的会话三件套（accessToken/refreshToken 原文/csrf 值）。 */
+    public record SessionIssue(String accessToken, String refreshToken, String csrfValue) { }
+
+    private static final ThreadLocal<SessionIssue> CURRENT_SESSION = new ThreadLocal<>();
+
+    /** 最近一次 issueSession 的会话（控制器读后须 consume——防线程池串请求）。 */
+    public static SessionIssue consumeSessionIssue() {
+        SessionIssue s = CURRENT_SESSION.get();
+        CURRENT_SESSION.remove();
+        return s;
     }
 
-    private static final ThreadLocal<StringBuilder> CURRENT_REFRESH = new ThreadLocal<>();
+    /** 会话签发（v0.4）：滚动 refresh + csrf 绑定 + pwdVersion 感知 access。 */
+    private void issueSession(long tenantId, long userId, int pwdVersion) {
+        String refresh = JwtCodec.newRefreshToken();
+        String csrf = SessionCookies.newCsrfValue();
+        iam.insertRefreshToken(tenantId, userId, JwtCodec.hashRefreshToken(refresh),
+                OffsetDateTime.now().plusSeconds(JwtCodec.REFRESH_TTL_SECONDS), csrf);
+        CURRENT_SESSION.set(new SessionIssue(
+                jwt.issueAccess(userId, tenantId, pwdVersion), refresh, csrf));
+    }
 
-    private Map<String, Object> sessionResponse(UserAccount user, String accessToken) {
-        StringBuilder refresh = CURRENT_REFRESH.get();
+    /** 旧构造签名兼容（pwdVersion 缺省——不改密路径登录时态未知，取库值）。 */
+    private void issueSession(long tenantId, long userId) {
+        issueSession(tenantId, userId, iam.findPwdVersion(userId));
+    }
+
+    private Map<String, Object> sessionResponse(UserAccount user) {
         Map<String, Object> resp = new LinkedHashMap<>();
-        resp.put("accessToken", accessToken);
-        resp.put("refreshToken", refresh != null ? refresh.toString() : null);
+        // v0.4：token 不再入体（前端零凭证存储）——三件套经 Set-Cookie 签发；
+        // 过渡期保留 accessToken 字段（旧前端/Bearer 集成迁移窗口，03BE §4.1 双通道识别）。
+        // ThreadLocal 由控制器 withSessionCookies 消费（服务层测试也可直接取——不在此清）
+        SessionIssue session = CURRENT_SESSION.get();
+        resp.put("accessToken", session != null ? session.accessToken() : null);
         resp.put("mustChangePassword", user.mustChangePassword());
-        CURRENT_REFRESH.remove();
         return resp;
     }
 

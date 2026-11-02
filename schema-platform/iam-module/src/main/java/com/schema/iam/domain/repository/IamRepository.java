@@ -85,9 +85,16 @@ public interface IamRepository {
      */
     void lockAppRow(long tenantId, long appId);
 
-    // ---------- 刷新令牌（03BE §4：滚动签发 + 黑名单吊销） ----------
+    // ---------- 刷新令牌（03BE §4：滚动签发 + 黑名单吊销；v0.4 附 csrf 绑定） ----------
 
     void insertRefreshToken(long tenantId, long userId, String tokenHash, java.time.OffsetDateTime expiresAt);
+
+    /**
+     * 签发会话绑定 csrf（v0.4 §4.1）：刷新令牌行携带本次会话的 schema_csrf 值——
+     * 双提交服务端比对真源（cookie 可能被多标签并发刷新滚动，库值跟随最后一次签发）。
+     */
+    void insertRefreshToken(long tenantId, long userId, String tokenHash,
+            java.time.OffsetDateTime expiresAt, String csrfValue);
 
     boolean isRefreshTokenActive(String tokenHash);
 
@@ -100,10 +107,19 @@ public interface IamRepository {
      */
     boolean consumeRefreshToken(String tokenHash);
 
+    /**
+     * v0.4 §4.1 并发刷新容忍：消费时间在 ±10s 容忍窗口内的重复请求按重放容忍处理
+     * （多标签并发刷新不误踢）——返回该行最近一次消费时间，null = 未消费。
+     */
+    java.time.OffsetDateTime refreshConsumedAt(String tokenHash);
+
     /** 吊销用户全部 refresh（改密/登出全部设备/停用）。 */
     void revokeAllRefreshTokens(long userId);
 
     void revokeRefreshToken(String tokenHash);
+
+    /** 用户密码版本（v0.4 强失效：access claim 与库值比对）。 */
+    int findPwdVersion(long userId);
 
     // ---------- 审计（03BE §6） ----------
 

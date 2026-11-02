@@ -114,6 +114,13 @@ class IamServiceIT {
         return TenantContext.with(T1, () -> auth.login(1, account, "InitPass123", "test", "test"));
     }
 
+    /** v0.4：会话三件套不入体——登录/改密后从应用层取 refresh 原文（控制器经 Set-Cookie 签发）。 */
+    private String issuedRefreshToken() {
+        AuthService.SessionIssue session = AuthService.consumeSessionIssue();
+        assertNotNull(session, "issueSession 后控制器未消费前可取三件套");
+        return session.refreshToken();
+    }
+
     // ---------- 03BE §7：登录锁定 ----------
 
     @Test
@@ -162,26 +169,22 @@ class IamServiceIT {
     void refreshRotatesAndOldTokenRevoked() {
         String account = currentAccount();
         Map<String, Object> session = loginOk(account);
-        String refresh1 = (String) session.get("refreshToken");
-        assertNotNull(refresh1);
+        String refresh1 = issuedRefreshToken();   // v0.4：refresh 不再入体
+        assertNull(session.get("refreshToken"), "v0.4 refresh 不得入响应体");
 
         // 滚动刷新：新对签发
         Map<String, Object> rotated = TenantContext.with(T1, () -> auth.refresh(refresh1, "test", "test"));
-        String refresh2 = (String) rotated.get("refreshToken");
+        String refresh2 = issuedRefreshToken();
         assertNotNull(rotated.get("accessToken"));
         assertFalse(refresh2.equals(refresh1), "refresh 必须滚动签发");
 
-        // 旧 token 再来：REFRESH_REVOKED（重放检测）
-        BizException replay = TenantContext.with(T1, () -> {
-            try {
-                auth.refresh(refresh1, "test", "test");
-                return null;
-            } catch (BizException e) {
-                return e;
-            }
-        });
-        assertNotNull(replay);
-        assertEquals("REFRESH_REVOKED", replay.code());
+        // v0.4 ±10s 容忍窗口内旧 token 重放：成功滚动（多标签并发刷新正常路径）
+        Map<String, Object> tolerated = TenantContext.with(T1, () -> auth.refresh(refresh1, "test", "test"));
+        assertNotNull(tolerated.get("accessToken"), "容忍窗口内重放必须成功（多标签不误踢）");
+        String refresh3 = issuedRefreshToken();
+        assertFalse(refresh3.equals(refresh2), "容忍重放同样滚动新对");
+
+        // 窗口外重放拒绝语义由安全链 IT（staleRefreshOutsideToleranceIsRejectedAndAudited）覆盖
     }
 
     // ---------- 03BE §7：P1 建号/重置一次性密码 ----------
@@ -241,13 +244,13 @@ class IamServiceIT {
     void changePasswordIssuesNewSessionAndKicksOthers() {
         String account = currentAccount();
         Map<String, Object> session = loginOk(account);
-        String oldRefresh = (String) session.get("refreshToken");
+        String oldRefresh = issuedRefreshToken();   // v0.4：refresh 不再入体
 
         // 改密响应内联签发新 token 对（不强制重登录）
         Map<String, Object> changed = TenantContext.with(T1, () ->
                 auth.changePassword(1, userId, "InitPass123", "NewPass456", "test", "test"));
         assertNotNull(changed.get("accessToken"), "改密响应必须内联新 access");
-        assertNotNull(changed.get("refreshToken"), "改密响应必须内联新 refresh");
+        assertNotNull(issuedRefreshToken(), "改密响应必须内联新 refresh（Set-Cookie 签发）");
         assertEquals(false, changed.get("mustChangePassword"));
 
         // 旧 refresh 刷新被拒（多设备踢出）

@@ -38,8 +38,16 @@ public class JwtCodec {
         }
     }
 
+    /** access claim 的密码版本（v0.4 强失效）：claim 缺失视同 1（兼容过渡期 Bearer）。 */
+    public static final int PWD_VERSION_DEFAULT = 1;
+
     public String issueAccess(long userId, long tenantId) {
-        return issue(userId, tenantId, "access", ACCESS_TTL_SECONDS);
+        return issue(userId, tenantId, "access", ACCESS_TTL_SECONDS, PWD_VERSION_DEFAULT);
+    }
+
+    /** v0.4：签发携带 pwdVersion 的 access（改密后新会话持新版本，旧 access 比对即失效）。 */
+    public String issueAccess(long userId, long tenantId, int pwdVersion) {
+        return issue(userId, tenantId, "access", ACCESS_TTL_SECONDS, pwdVersion);
     }
 
     /** 预览会话 token（04BE §A.7）：typ=preview + previewSessionId claim（JTI 同值）——网关按会话校验。 */
@@ -56,15 +64,16 @@ public class JwtCodec {
     }
 
     public String issueRefresh(long userId, long tenantId) {
-        return issue(userId, tenantId, "refresh", REFRESH_TTL_SECONDS);
+        return issue(userId, tenantId, "refresh", REFRESH_TTL_SECONDS, PWD_VERSION_DEFAULT);
     }
 
-    private String issue(long userId, long tenantId, String type, long ttlSeconds) {
+    private String issue(long userId, long tenantId, String type, long ttlSeconds, int pwdVersion) {
         long now = System.currentTimeMillis() / 1000;
         String header = b64url("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
         String payload = b64url(("{\"sub\":\"" + userId + "\",\"tenant\":" + tenantId
                 + ",\"typ\":\"" + type + "\",\"iat\":" + now
                 + ",\"exp\":" + (now + ttlSeconds)
+                + ",\"pwdv\":" + pwdVersion
                 + ",\"jti\":\"" + randomToken() + "\"}").getBytes(StandardCharsets.UTF_8));
         String signingInput = header + "." + payload;
         return signingInput + "." + b64url(hmac(signingInput));
@@ -97,7 +106,24 @@ public class JwtCodec {
         // preview 态：previewSessionId 为会话真源（JTI 同值）；普通 token 无此键回落 jti
         String previewSessionId = extractString(json, "\"previewSessionId\":\"");
         String jti = extractString(json, "\"jti\":\"");
-        return new Claims(userId, tenantId, typ, exp, previewSessionId != null ? previewSessionId : jti);
+        Claims claims = new Claims(userId, tenantId, typ, exp, previewSessionId != null ? previewSessionId : jti);
+        PWD_VERSION.set(extractNumber(json, "\"pwdv\":") != null
+                ? extractNumber(json, "\"pwdv\":").intValue() : PWD_VERSION_DEFAULT);
+        return claims;
+    }
+
+    /** 本次 verify 解析出的 pwdv claim（ThreadLocal 传递——record 不可变，避免改构造器扩散）。 */
+    private static final ThreadLocal<Integer> PWD_VERSION = new ThreadLocal<>();
+
+    /** 最近一次 verify() 解析的 pwdVersion（用后须 clear——过滤器逐请求调用）。 */
+    public static int lastPwdVersion() {
+        Integer v = PWD_VERSION.get();
+        return v != null ? v : PWD_VERSION_DEFAULT;
+    }
+
+    /** 清理 ThreadLocal（过滤器 finally 调用——线程池复用防串请求）。 */
+    public static void clearPwdVersion() {
+        PWD_VERSION.remove();
     }
 
     /** refresh token 原文生成（非 JWT——随机串；库中存 SHA-256 摘要）。 */

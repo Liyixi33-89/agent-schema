@@ -22,10 +22,18 @@ public class UserAccount {
     private int failedAttempts;
     private OffsetDateTime lockedUntil;
     private OffsetDateTime lastLoginAt;
+    private int pwdVersion;             // 强失效语义（v0.4 §4.1）：改密/停用自增，旧 access 下一请求 401
 
     public UserAccount(Long id, long tenantId, String account, String name, String passwordHash,
             Long deptId, String status, boolean mustChangePassword, int failedAttempts,
             OffsetDateTime lockedUntil, OffsetDateTime lastLoginAt) {
+        this(id, tenantId, account, name, passwordHash, deptId, status, mustChangePassword,
+                failedAttempts, lockedUntil, lastLoginAt, 1);
+    }
+
+    public UserAccount(Long id, long tenantId, String account, String name, String passwordHash,
+            Long deptId, String status, boolean mustChangePassword, int failedAttempts,
+            OffsetDateTime lockedUntil, OffsetDateTime lastLoginAt, int pwdVersion) {
         this.id = id;
         this.tenantId = tenantId;
         this.account = account;
@@ -37,6 +45,7 @@ public class UserAccount {
         this.failedAttempts = failedAttempts;
         this.lockedUntil = lockedUntil;
         this.lastLoginAt = lastLoginAt;
+        this.pwdVersion = pwdVersion;
     }
 
     // ---------- 登录判定（03BE §4：失败 5 次锁 15 分钟） ----------
@@ -75,18 +84,20 @@ public class UserAccount {
         }
     }
 
-    /** 改密成功：换哈希 + 清强制改密标记（改密后由应用层吊销全部 refresh + 签发新 token 对）。 */
+    /** 改密成功：换哈希 + 清强制改密标记 + pwdVersion 自增（v0.4 强失效——旧 access 下一请求 401）。 */
     public void changePassword(String newHash) {
         this.passwordHash = newHash;
         this.mustChangePassword = false;
+        this.pwdVersion++;
     }
 
-    /** 管理员重置：一次性密码 + 强制下次登录改密。 */
+    /** 管理员重置：一次性密码 + 强制下次登录改密 + pwdVersion 自增（既有会话全部失效）。 */
     public void resetPassword(String newHash) {
         this.passwordHash = newHash;
         this.mustChangePassword = true;
         this.failedAttempts = 0;
         this.lockedUntil = null;
+        this.pwdVersion++;
     }
 
     // ---------- 访问器 ----------
@@ -103,4 +114,5 @@ public class UserAccount {
     public int failedAttempts() { return failedAttempts; }
     public OffsetDateTime lockedUntil() { return lockedUntil; }
     public OffsetDateTime lastLoginAt() { return lastLoginAt; }
+    public int pwdVersion() { return pwdVersion; }
 }

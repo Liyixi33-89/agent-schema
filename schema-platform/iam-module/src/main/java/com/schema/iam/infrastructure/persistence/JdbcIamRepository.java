@@ -48,7 +48,8 @@ public class JdbcIamRepository implements IamRepository {
                 Boolean.TRUE.equals(r.get("must_change_password")),
                 r.get("failed_attempts") instanceof Number n ? n.intValue() : 0,
                 toOdt((Timestamp) r.get("locked_until")),
-                toOdt((Timestamp) r.get("last_login_at")));
+                toOdt((Timestamp) r.get("last_login_at")),
+                r.get("pwd_version") instanceof Number n ? n.intValue() : 1);
     }
 
     @Override
@@ -78,10 +79,10 @@ public class JdbcIamRepository implements IamRepository {
     public void updateUser(UserAccount u) {
         jdbc.update("""
                 UPDATE sys_user SET name=?, password_hash=?, dept_id=?, status=?, must_change_password=?,
-                    failed_attempts=?, locked_until=?, last_login_at=?
+                    failed_attempts=?, locked_until=?, last_login_at=?, pwd_version=?
                 WHERE id=?
                 """, u.name(), u.passwordHash(), u.deptId(), u.status(), u.mustChangePassword(),
-                u.failedAttempts(), toTs(u.lockedUntil()), toTs(u.lastLoginAt()), u.id());
+                u.failedAttempts(), toTs(u.lockedUntil()), toTs(u.lastLoginAt()), u.pwdVersion(), u.id());
     }
 
     @Override
@@ -265,10 +266,16 @@ public class JdbcIamRepository implements IamRepository {
 
     @Override
     public void insertRefreshToken(long tenantId, long userId, String tokenHash, OffsetDateTime expiresAt) {
+        insertRefreshToken(tenantId, userId, tokenHash, expiresAt, "");
+    }
+
+    @Override
+    public void insertRefreshToken(long tenantId, long userId, String tokenHash, OffsetDateTime expiresAt,
+            String csrfValue) {
         jdbc.update("""
-                INSERT INTO sys_refresh_token (tenant_id, user_id, token_hash, expires_at)
-                VALUES (?, ?, ?, ?)
-                """, tenantId, userId, tokenHash, toTs(expiresAt));
+                INSERT INTO sys_refresh_token (tenant_id, user_id, token_hash, expires_at, csrf_value)
+                VALUES (?, ?, ?, ?, ?)
+                """, tenantId, userId, tokenHash, toTs(expiresAt), csrfValue);
     }
 
     @Override
@@ -300,14 +307,31 @@ public class JdbcIamRepository implements IamRepository {
 
     @Override
     public boolean consumeRefreshToken(String tokenHash) {
-        // 条件 UPDATE：只有未吊销行会被置 revoked——并发刷新同一 token 仅一个事务返回 true
-        return jdbc.update("UPDATE sys_refresh_token SET revoked=true, revoked_at=now() "
+        // 条件 UPDATE：只有未吊销行会被置 revoked——并发刷新同一 token 仅一个事务返回 true；
+        // consumed_at 记录首次消费时间（v0.4 ±10s 容忍窗口判定输入）
+        return jdbc.update("UPDATE sys_refresh_token SET revoked=true, revoked_at=now(), consumed_at=now() "
                 + "WHERE token_hash=? AND revoked=false AND expires_at > now()", tokenHash) == 1;
+    }
+
+    @Override
+    public OffsetDateTime refreshConsumedAt(String tokenHash) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT consumed_at FROM sys_refresh_token WHERE token_hash=?", tokenHash);
+        if (rows.isEmpty()) {
+            return null;
+        }
+        return toOdt((Timestamp) rows.get(0).get("consumed_at"));
     }
 
     @Override
     public void revokeRefreshToken(String tokenHash) {
         jdbc.update("UPDATE sys_refresh_token SET revoked=true, revoked_at=now() WHERE token_hash=?", tokenHash);
+    }
+
+    @Override
+    public int findPwdVersion(long userId) {
+        Integer v = jdbc.queryForObject("SELECT pwd_version FROM sys_user WHERE id=?", Integer.class, userId);
+        return v != null ? v : 1;
     }
 
     @Override

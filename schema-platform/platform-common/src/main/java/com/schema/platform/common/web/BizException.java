@@ -90,6 +90,22 @@ public class BizException extends RuntimeException {
         return new BizException("REFRESH_REVOKED", "登录态已失效，请重新登录");
     }
 
+    // v0.4 Cookie 会话错误码（03BE §A.4）
+    /** 状态变更请求双提交校验失败（403 CSRF_TOKEN_REJECTED）。 */
+    public static BizException csrfTokenRejected() {
+        return new BizException("CSRF_TOKEN_REJECTED", "请求缺少有效的防伪令牌，请刷新页面重试");
+    }
+
+    /** Origin/Referer 校验失败（403 CSRF_ORIGIN_REJECTED）。 */
+    public static BizException csrfOriginRejected() {
+        return new BizException("CSRF_ORIGIN_REJECTED", "请求来源校验失败");
+    }
+
+    /** Cookie 通道访问预览端点或预览 Bearer 访问业务端点（401 PREVIEW_CREDENTIAL_REJECTED）。 */
+    public static BizException previewCredentialRejected() {
+        return new BizException("PREVIEW_CREDENTIAL_REJECTED", "凭证通道不匹配");
+    }
+
     /** 请求头租户与 JWT claim 不一致（403 TENANT_MISMATCH，记安全审计）。 */
     public static BizException tenantMismatch() {
         return new BizException("TENANT_MISMATCH", "请求租户与登录租户不一致");
