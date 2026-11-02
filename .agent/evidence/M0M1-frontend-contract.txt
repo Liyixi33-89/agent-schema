@@ -1,0 +1,31 @@
+M0-1 前端双端契约 + 架构违规样本验证
+执行环境: Windows / Node 24 / Vitest 3.2.4 / pnpm 10.33.0
+执行时间: 2026-11-02 10:01-10:02 (UTC+8)
+
+== 双端共享语义向量（expr-test-vectors.json 唯一真源）==
+命令: cd schema-frontend/packages/schema-protocol && pnpm vitest run test/vectors.test.ts
+结果: 31 tests passed
+覆盖: 20+ 向量按 5 类语义（日期时区/空值传播/数值精度/短路求值/类型转换）+ 编译 AST + 求值结果 + 步数预算 E2EBudgetError
+
+== Schema 结构双端比对 ==
+命令: pnpm vitest run test/schema-contract.test.ts
+结果: 19 tests passed
+覆盖: Page/Model/Field 结构、枚举冻结、负样本（datetime/textare 不得作为字段类型）
+
+== Protocol 类型契约 ==
+命令: pnpm vitest run test/protocol.test.ts
+结果: 21 tests passed
+
+== 架构违规样本（依赖注入方向红线）==
+命令: pnpm vitest run tests/architecture.test.ts
+结果: 1 test passed
+覆盖: 构造 cross-package import 违规样本，断言 dependency-cruiser 报 protocol-zero-dependencies 规则（负向验证真实生效）
+
+== 整体架构门禁 ==
+命令: cd schema-frontend && pnpm architecture
+结果: no dependency violations found (64 modules, 110 dependencies cruised)
+
+== 汇总 ==
+前端契约相关测试: 71 passed（3 文件）
+架构门禁: 通过
+说明: 前端"双端同判"由同一份 expr-test-vectors.json 驱动，后端 ExprVectorTest 亦通过（见 M0M1-backend-contract.txt）

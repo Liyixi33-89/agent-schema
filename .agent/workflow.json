@@ -4,7 +4,7 @@
     {
       "id": "FIX-M9",
       "title": "修复真实文件上传与凭证安全链路",
-      "status": "implemented",
+      "status": "accepted",
       "priority": 0,
       "dependsOn": [],
       "spec": ".agent/workflow.md",
@@ -13,7 +13,7 @@
           "id": "http-multipart",
           "requirement": "真实 HTTP 多块上传并 complete；校验会话、块号、过期、PUT/GET 方法绑定",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -23,7 +23,7 @@
           "id": "content-integrity",
           "requirement": "魔数、SHA-256、ETag 不匹配负例全部拒绝；测试只清自建记录",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -32,7 +32,7 @@
       ],
       "review": {
         "approved": true,
-        "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+        "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
         "reviewer": "independent-reviewer",
         "report": ".agent/evidence/review-M8M9M10.md"
       }
@@ -40,7 +40,7 @@
     {
       "id": "FIX-M8",
       "title": "修复计量认证、可靠队列与席位并发",
-      "status": "implemented",
+      "status": "accepted",
       "priority": 1,
       "dependsOn": [],
       "spec": ".agent/workflow.md",
@@ -49,7 +49,7 @@
           "id": "authenticated-retry",
           "requirement": "认证注入真实生效；beacon 不以排队成功当受理；持久化重试不丢幂等键",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -59,7 +59,7 @@
           "id": "seat-concurrency",
           "requirement": "并发授权与撤销、跨应用授权不突破配额；成员事件即时重算",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -68,7 +68,7 @@
       ],
       "review": {
         "approved": true,
-        "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+        "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
         "reviewer": "independent-reviewer",
         "report": ".agent/evidence/review-M8M9M10.md"
       }
@@ -76,7 +76,7 @@
     {
       "id": "FIX-M10",
       "title": "修复通知抑制展示与频控边界",
-      "status": "implemented",
+      "status": "accepted",
       "priority": 2,
       "dependsOn": [],
       "spec": ".agent/workflow.md",
@@ -85,7 +85,7 @@
           "id": "suppression",
           "requirement": "SUPPRESSED 不进入用户列表或未读数，审计可追溯",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -95,7 +95,7 @@
           "id": "tenant-rate",
           "requirement": "跨 bizRef 不绕过租户上限；收件人隔离和安全告警负例",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -104,7 +104,7 @@
       ],
       "review": {
         "approved": true,
-        "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+        "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
         "reviewer": "independent-reviewer",
         "report": ".agent/evidence/review-M8M9M10.md"
       }
@@ -112,7 +112,7 @@
     {
       "id": "M0-M1",
       "title": "工程与协议基座证据复核",
-      "status": "implemented",
+      "status": "accepted",
       "priority": 3,
       "dependsOn": [],
       "spec": ".agent/specs/001-schema-protocol-foundation.md",
@@ -120,10 +120,20 @@
         {
           "id": "contract-foundation",
           "requirement": "契约结构、枚举、表达式双端同判；架构违规样本门禁；独立 CI 记录",
-          "evidence": null
+          "evidence": {
+            "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
+            "command": "cd schema-platform && mvn -pl schema-protocol test -Dtest=ExprVectorTest,EnumContractTest,SchemaContractTest,ProtocolDtoTest && cd schema-frontend && pnpm vitest run test/vectors.test.ts test/schema-contract.test.ts test/protocol.test.ts && pnpm vitest run tests/architecture.test.ts",
+            "report": ".agent/evidence/M0M1-backend-contract.txt",
+            "passed": true
+          }
         }
       ],
-      "review": null
+      "review": {
+        "approved": true,
+        "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
+        "reviewer": "independent-reviewer",
+        "report": ".agent/evidence/review-M0M1.md"
+      }
     },
     {
       "id": "M2-M5",
