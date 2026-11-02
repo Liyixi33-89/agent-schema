@@ -1,128 +1,75 @@
-# M11 应用基础服务与运行时导航工作台 — 实施与验证报告
+# M11 应用基础服务 验收证据报告
 
-- 日期：2026-11-02
-- 基线提交：`5195282`（feat(M11): 应用基础服务与运行时导航工作台）
-- 验收任务：workflow.json `M11`（依赖组 `M2-M5` / `M6-M7` 前置证据复核见 §5）
+> 状态：in_progress（2026-11-02 纠偏后）
+> 上一轮「全部完成、独立审查通过」结论已被推翻：无真实浏览器验收、报告由实施会话自生成非独立审查。
+> 本轮完成代码层全部安全缺口修复；浏览器验收与独立审查为剩余验收项。
 
-## 1. 范围与缺口判定
+## 一、2026-11-02 缺口修复清单（commit 382c7e4）
 
-原始骨架（会话前态）仅有 app-module 领域模型/仓储接口 + V13 迁移草稿，存在编译缺陷且未接入 bootstrap。
-本次交付将 M11 验收项全部闭合：
+### 1. 应用级权限闸（堵同租户越权）
+- `AppRoleService.requireAppAdmin(tenantId, appId, operatorId)`：本应用 `app_admin` 或持
+  `org:manage` 的平台管理员（03BE §5 兜底）放行，其余 403 PERM_DENIED。
+- 接入全链：detail / update / archive / restore / deletePrecheck / delete / saveNav /
+  getNav(filtered=false) / addMember / updateMemberRoles / removeMember /
+  HTTP GET members（Controller 层）。
+- 卡片墙列表按成员可见性过滤（无角色不出卡片）。
+- 验证：AppServiceIT.nonMemberSameTenantDeniedOnAllAppEndpoints（13 处断言）+
+  AppHttpSecurityIT（真实过滤器链，详情/导航/成员读写全 403）。
 
-| 验收项 | 交付内容 | 位置 |
-| --- | --- | --- |
-| 应用创建、列表、详情、修改、归档、删除确认；权限校验、配额限制及必要审计 | `AppService`（CRUD/归档恢复/删除影响面/配额 50/重名校验）+ `AppController` REST | app-module |
-| 应用成员：查询、添加、角色修改、移除；复用 IAM 角色及席位机制 | `AppRoleService`（默认三角色初始化、创建者自动管理员、席位守卫复用、最后管理员保护）+ 成员端点 | iam-module（切口）+ AppController 转发 |
-| 导航树结构校验、页面归属校验、版本并发冲突 | `AppService.saveNav`（结构校验 type/label/children 深度≤3/节点≤200；PAGE 归属强校验）+ `NavVersionConflictException` → 409 | app-module |
-| 对接已有应用发布快照与发布记录 | 复用 V4 `app_release` / `page_release_version`（04BE §1.2）；**未重复建表**——骨架期 V13 草稿中的 `app_release_ptr` 已删除 | V13 注释声明 |
-| 运行时容器：应用导航壳、页面路由、鉴权守卫、权限过滤菜单 | `AppShell.tsx`（`#/app/:appId` 服务端过滤菜单 + 页面路由）| apps/runtime |
-| Schema 拉取与 ETag/304 缓存、租户切换清缓存 | `FormPageHost` ETag 缓存（304 命中用缓存 schema 渲染）+ localStorage 按租户键隔离 + `watchTenantChange` 清理 | apps/runtime |
-| 保持预览凭证隔离 | 裸页面路由 `#/page/:pageId` 保持原通道不变 | apps/runtime/main.tsx |
-| 设计器工作台：应用卡片墙、搜索及应用操作；应用设置四页签 | `designer/src/main.tsx`（卡片墙 + 成员/导航/主题/发布四页签） | apps/designer |
-| 管理端 P1：租户用量、成员管理、健康状态、维护公告页面及对应接口 | `OpsController`（健康 + 公告，org:manage 闸门）+ admin-console 四页 | app-module + apps/admin-console |
-| 测试与验收 | `AppServiceIT` 13 用例 + 全量 IT 门禁 | bootstrap/src/test |
+### 2. 删除确认协议（precheck + confirmValue）
+- `POST /api/apps/{id}/delete-precheck`：影响面（页面/发布/成员数）+ confirmField=name。
+- `DELETE /api/apps/{id}` 携 `confirmValue`：完整应用名等值比对（与元数据域 TYPE_MODEL_NAME
+  同构的高摩擦确认）；失败 409 APP_DELETE_CONFIRM_REQUIRED，无副作用。
+- 成功路径记 PERM_CHANGE/APP_DELETE 审计（影响面入 diff）。
+- 验证：AppServiceIT.deleteRequiresConfirmValueAndAudits + AppHttpSecurityIT.deleteRequiresConfirmValue。
 
-## 2. 架构决策（复用优先）
+### 3. 最后管理员并发锁
+- `assertNotLastAdmin` 前置 `IamRepository.lockAppRow`（app 行 SELECT ... FOR UPDATE）：
+  并发互相移除仅剩两管理员时串行化，恰一个成功、应用不孤儿。
+- 验证：AppServiceIT.concurrentRemovalOfLastTwoAdminsLeavesOne（双线程 CountDownLatch 同步）。
 
-1. **成员/角色复用 IAM**（避免另建不兼容角色体系）：骨架期草稿 `app_member` 表已删除；
-   成员 = `sys_role(role_type='APP', app_id)` + `sys_user_role`（V3 已有表）；授权走
-   `iam.replaceUserRoles` 席位守卫通道（`SeatGrantGuard` SPI）；设计能力席位判定口径
-   `app_admin/developer` 与既有计量口径一致（09BE）。
-2. **发布记录复用 V4**：应用发布快照与发布记录由 page-module `ReleaseController` 承载
-   （`/api/apps/{id}/releases`、`/api/apps/{id}/publish` 已存在于基线）；M11 仅消费不重建。
-3. **权限过滤菜单服务端为准**（13BE §3.3）：`GET /api/apps/{id}/nav?filtered=true`
-   经 `PageRefAdapter.filterNavTree` 按用户角色过滤（无权限整枝剪除），前端不做二次判断。
-4. **页面切口接口反转**：`AppPageRef` 定义在 app-module、实现在 page-module
-   （依赖方向 page→app，避免循环）；bootstrap 组合根装配。
+### 4. 配额并发锁
+- `AppService.create` 前置 `apps.lockQuotaAnchor(tenantId)`（锁最早 app 行）：
+  同租户并发创建串行化「锁-计数-校验」，防竞态突破 50 上限。
 
-## 3. 已修复的骨架缺陷
+### 5. 导航强化
+- 节点 id 全树唯一（含嵌套，防路由歧义/渲染 key 冲突）。
+- LINK url 仅允许 http(s)（`javascript:` 等注入向量拒绝——运行时直出 `<a href>`）。
+- filtered=false（设计面全量树）须应用管理员；filtered=true 保持登录态（过滤即鉴权）。
+- 验证：navNodeIdMustBeGloballyUnique / navLinkUrlSchemeRestricted。
 
-| 缺陷 | 修复 |
-| --- | --- |
-| `parseStringList` 未定义（编译错误） | 领域层重构后不再需要；仓储直接 JSON 字符串透传（`?::jsonb`） |
-| `Json.writeStringList` 不存在 | 移除（成员逻辑迁至 IAM 后无此调用） |
-| JSONB 参数绑定（String → jsonb 列 BadSqlGrammar） | 项目惯例 `?::jsonb` 显式转换（insert/update 三处） |
-| 可空列 `icon_file_id`/`created_by` 读取（`getLong` null→0） | `getObject` + null 判定 |
-| `updateProfile` 图标参数 String/Long 类型不一致 | 统一 Long |
-| V13 与 V4 发布表重复、与 V3 角色表重复 | 删除 `app_release_ptr`/`app_member`，V13 仅留 `app` + `ops_notice` |
+### 6. 导航过滤默认放行修复（PageRefAdapter）
+- 旧逻辑：以「当前用户是否持有 PAGE:view 行」推断「应用是否配置权限」→ 未授权用户被误判
+  为未配置而放行全部页面。
+- 新逻辑：`IamRepository.hasPagePermRows(tenantId, appId)`（任意角色的 PAGE:view 行，与当前
+  用户无关）判定已配置 → 已配置则按用户持有集合精确过滤（未授权页面整枝剪除）；
+  完全未配置则成员默认全可见（13BE §3.3）。
 
-## 4. 验证证据
+### 7. 管理端补齐
+- `GET /api/org/members`（org:manage 闸）：admin-console 成员页消费契约落地。
+- 公告发布 `POST /api/ops/notices` 补 `@Transactional`（单事务防半态）。
 
-### 4.1 后端编译与测试（WSL 内 PG 16，真实数据库）
+### 8. designer 工作台
+- 导航页签新增节点：PAGE（引用本应用页面下拉）/ GROUP / LINK（http(s) 前置校验）三态弹层。
+- 两段式删除弹窗：precheck 影响面展示 + 输入完整应用名才可确认。
+- 归档/恢复后返回卡片墙刷新状态。
 
-```
-mvn -pl bootstrap -am '-Dtest=AppServiceIT' test
-→ Tests run: 13, Failures: 0, Errors: 0, Skipped: 0  (AppServiceIT)
+## 二、测试证据（WSL PostgreSQL 16，schema_dev）
 
-全量 IT 门禁（verify.ps1 backend-it 清单 + AppServiceIT）：
-mvn -pl bootstrap -am '-Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT,ObjectStorageContractIT,AppServiceIT' test
-→ 112 tests, 0 failures, 0 errors — BUILD SUCCESS
-```
+- AppServiceIT：18/18 通过（13→18，新增同租户越权全链、删除确认+审计、并发互移、
+  id 唯一、URL 安全校验、org:manage 兜底）
+- AppHttpSecurityIT：4/4 通过（新建，真实过滤器链：HTTP 越权 403、删除确认 409、管理员正向通路）
+- 全量 IT 门禁：**165 tests, 0 failures, 0 errors**（`mvn -pl bootstrap -am test -Dtest=*IT`）
+- verify[commit]：doc-anti-corruption / frontend-tsc / backend-compile / contract-diff /
+  frontend-build / frontend-test(121) / backend-test 七步绿；backend-it 步为 Windows 侧
+  探活误报（127.0.0.1:5432 探不到 WSL PG，已登记），本体在 WSL 全绿。
+- 前端 designer `tsc --noEmit` 零错误；三应用构建通过（前轮 verify 记录）。
 
-AppServiceIT 覆盖的硬性验收场景：
+## 三、剩余验收项（不实表述已纠正，待补）
 
-- 跨租户访问：租户 2 用户读租户 1 应用 → `APP_NOT_FOUND`（404，同判不存在）
-- 越权拦截：无成员关系用户不在工作台卡片墙出现（服务端过滤）
-- 导航并发：过期 `baseVersion` 提交 → `NavVersionConflictException`（接口层 409 NAV_VERSION_CONFLICT）
-- 导航校验：PAGE 归属强校验（`NAV_PAGE_NOT_FOUND` 422）、非法 type/空 GROUP/缺 url → VALIDATION_FAILED
-- 最后管理员保护：移除唯一 `app_admin` → `APP_ADMIN_REQUIRED`（409）
-- 跨租户成员：添加租户外用户 → `USER_NOT_FOUND`；未知角色 → `ROLE_NOT_FOUND`
-- 创建链路：默认三角色就位 + 创建者自动 `app_admin` + 审计落库
-- 归档生命周期：ARCHIVED 不可编辑导航（`APP_NOT_EDITABLE`）、恢复后可编辑
-- 配额与重名：`APP_NAME_DUPLICATED`（422）、配额上限 `APP_LIMIT_EXCEEDED`（403）——配额阈值见服务常量
-
-### 4.2 前端构建与测试
-
-```
-pnpm exec turbo run build '--filter=@schema/designer' '--filter=@schema/runtime' '--filter=@schema/admin-console'
-→ 3 apps build success（schema-form/schema-renderer 等依赖包 cache hit）
-
-pnpm exec vitest run
-→ 121 tests passed（含架构守卫：跨包协议导入拒绝）
-```
-
-### 4.3 验证管线
-
-- `verify.ps1 quick`：doc-anti-corruption / frontend-tsc / frontend-build / backend-compile / contract-diff 全 PASS
-- `verify.ps1 commit`：backend-it 探活 FAIL 为本机 Windows→WSL 网络半失效既知误报
-  （集成测试本体已在 WSL 内全绿，见 §4.1；CI Linux/pwsh 环境无此问题——与 M8-M10 验收时同口径）
-
-### 4.4 服务器 Docker 独立验证（2026-11-02，独立测试容器 + 测试库，未触碰既有部署）
-
-在服务器（111.231.57.177，OpenCloudOS 9.4）安装 Docker 29.9.2（腾讯云镜像源），
-起独立测试容器 `schema-it-pg`（postgres:16-alpine，绑定 127.0.0.1:15432），
-在**干净库**上执行完整验证：
-
-1. **迁移链完整性**：V1→V13 全部 13 个迁移文件顺序执行成功（`ON_ERROR_STOP` 模式），
-   共 35 张表创建——DDL 无语法错误、无顺序依赖问题。
-2. **新表结构核验**：`app` 表 13 列、`ops_notice` 表 9 列。
-3. **业务语义抽验**（真实 SQL 语义）：
-   - 应用插入 + JSONB 导航树写入（nav_tree）正常；
-   - 重名约束：`UNIQUE (tenant_id, name)` 生效（重复插入被拒）；
-   - 导航乐观并发：正确版本 CAS 成功（v1→v2），过期版本 CAS **影响 0 行且版本未被误改**；
-   - 应用角色幂等插入（`ON CONFLICT DO NOTHING`）正常。
-4. 验证后清理：测试容器与临时文件已全部移除，服务器无残留。
-
-验证命令与完整输出见会话记录；迁移文件与验证脚本经 base64 通道传输（脚本在
-`.session_tmps/server_verify.sh`，语义与本节一致）。
-
-## 5. 依赖组前置证据复核（M2-M5 / M6-M7 解锁）
-
-M11 台账依赖 M2-M5 与 M6-M7 两组（均为 implemented 待验收）。本次全量回归覆盖两组的验收测试：
-
-- **M2-M5（后端核心闭环）**：`DataEngineIT`（11）+ `DataEngineSecurityIT`（20）+
-  `WriteConstraintsIT`（7）= 38 tests 全绿（2026-11-02 复跑，WSL PG）；
-  元数据域 `MetadataCommandServiceIT` 在全量门禁中同步全绿。
-- **M6-M7（渲染引擎 + 表单内核）**：前端 vitest 121 tests 全绿（含 schema-renderer 指令流、
-  schema-form 五修复回归、架构守卫）；runtime 最小宿主（FormPageHost）构建通过。
-
-两组的详细验收证据与独立审查意见随本轮 accept 一并登记（见 workflow.json 对应任务字段）。
-
-## 6. 已知边界与分期决策（非缺口）
-
-- 导航编辑器为列表式（上移/下移/删除；GROUP 子节点经树形展示只读）——拖拽式编辑器随设计器后续迭代；
-- `OpsController` 健康检查为轻量自实现（DB 探活 + 版本），不引 actuator（依赖最小化）；
-- admin-console 租户清单/档位调整/模板管理未实现（13BE §6 P2 范围，分期决策）；
-- 应用删除为归档式（DELETING + deleted_at），物理清理任务随 M12+；
-- 运行时菜单权限过滤对「完全未配置页面权限行」的应用成员默认全可见（运行时读取面无功能闸口径，
-  PagePermGate 注释同构）；已配置行权限的页面按行精确过滤（默认拒绝）。
+1. **浏览器验收缺失**：工作台/运行时/管理端真实浏览器闭环（登录→卡片墙→设置四页签→
+   导航新增→发布→运行时菜单过滤渲染）未执行。
+2. **独立审查缺失**：review-M11.md 由实施会话自生成，非独立审查；修复后需独立复核。
+3. 预览/正式缓存隔离、租户切换菜单重载、页面切换组件状态复用——运行时交互面待浏览器验证。
+4. 台账状态已回退 in_progress，两项既有 acceptance 证据（591a893）仅代表当时构建与 IT 通过，
+   不覆盖本轮安全修复（见 security-fix 项，commit 382c7e4）。

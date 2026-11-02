@@ -235,7 +235,7 @@
     {
       "id": "M11",
       "title": "应用基础服务与运行时导航工作台",
-      "status": "accepted",
+      "status": "implementing",
       "priority": 7,
       "dependsOn": [
         "M2-M5"
@@ -261,13 +261,23 @@
             "report": ".agent/evidence/M11-report.md",
             "passed": true
           }
+        },
+        {
+          "id": "security-fix",
+          "requirement": "2026-11-02 缺口修复：应用级权限闸全链（同租户越权 403）、删除确认协议（precheck+confirmValue）、最后管理员并发锁、配额并发锁、导航 id 唯一与 LINK URL 安全校验、导航过滤默认放行修复、GET /api/org/members、公告事务",
+          "evidence": {
+            "commit": "382c7e4",
+            "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=AppServiceIT,AppHttpSecurityIT（WSL PG：18+4 用例全绿；全量 IT 165 全绿）",
+            "report": ".agent/evidence/M11-report.md",
+            "passed": true
+          }
         }
       ],
       "review": {
-        "approved": true,
-        "commit": "591a8935dc67da7a392ce459ede36c63865db723",
+        "approved": false,
         "reviewer": "independent-reviewer",
-        "report": ".agent/evidence/review-M11.md"
+        "report": ".agent/evidence/review-M11.md",
+        "note": "2026-11-02 纠偏：上一轮 accepted 基于不实表述（无真实浏览器验收、报告非独立审查）——状态回退 in_progress；安全缺口已修复并经服务层+HTTP 层双测试锁定，剩余验收项：浏览器闭环与独立审查待补"
       }
     },
     {
