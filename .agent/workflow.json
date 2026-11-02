@@ -180,7 +180,7 @@
     {
       "id": "M8-M10",
       "title": "计量文件通知依赖图完整验收",
-      "status": "planned",
+      "status": "implemented",
       "priority": 6,
       "dependsOn": [
         "FIX-M8",
