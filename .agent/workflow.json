@@ -192,10 +192,20 @@
         {
           "id": "support-services",
           "requirement": "metering.raw、业务埋点、时区补算、MinIO/LocalFs 同套契约、通知业务事件接线",
-          "evidence": null
+          "evidence": {
+            "commit": "043d832830dcb6dc83456f5bb5dfd9abd749f2cf",
+            "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT,ObjectStorageContractIT -Dsurefire.failIfNoSpecifiedTests=false",
+            "report": ".agent/evidence/M8M10-it-report.md",
+            "passed": true
+          }
         }
       ],
-      "review": null
+      "review": {
+        "approved": true,
+        "commit": "043d832830dcb6dc83456f5bb5dfd9abd749f2cf",
+        "reviewer": "independent-reviewer",
+        "report": ".agent/evidence/review-M8M10.md"
+      }
     },
     {
       "id": "M11",
