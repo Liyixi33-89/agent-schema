@@ -144,8 +144,10 @@ class CookieSessionIT {
 
     @Test
     void loginIssuesSessionCookiesWithSpecAttributes() throws Exception {
-        // 无 csrf cookie 的登录走匿名放行（CsrfFilter 放行 + 业务正常）——验证认证边界不误伤
+        // 无 csrf cookie 的登录（同源浏览器直登场景）：Origin 校验通过后放行（第二轮收口——
+        // 登录保护强制前置，跨站/缺失 Origin 拒；CsrfHardeningIT 覆盖拒绝路径）
         MvcResult result = mvc.perform(post("/api/auth/login")
+                        .header("Origin", "http://localhost")
                         .contentType("application/json")
                         .content("{\"username\":\"cookie_user\",\"password\":\"InitPass123\"}"))
                 .andExpect(status().isOk())

@@ -363,8 +363,10 @@ class IamSecurityChainIT {
     @Test
     void rejectPathAuditsSurviveTransactionRollback() {
         // 未知账号登录 → 主事务抛异常回滚，SECURITY 审计必须仍存在（REQUIRES_NEW）
+        // （第二轮收口：登录请求须带同源 Origin 过 CsrfFilter——跨站/缺失即 403 不达业务层）
         try {
             mvc.perform(post("/api/auth/login").contentType("application/json")
+                    .header("Origin", "http://localhost")
                     .content("{\"username\":\"ghost_user\",\"password\":\"whatever1\"}"));
         } catch (Exception ignored) {
             // 状态断言不是本用例重点

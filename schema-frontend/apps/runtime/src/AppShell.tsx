@@ -54,9 +54,8 @@ export function AppShell({ client, appId, children, onPageSelect }: {
     let cancelled = false;
     (async () => {
       try {
-        const resp = await fetch(`${client.baseUrl()}/api/apps/${appId}/nav?filtered=true`, {
-          headers: client.authHeaders(),
-        });
+        // 导航壳与数据面同走统一通道（authFetch：401 静默刷新 + 403 csrf 重试——不裸 fetch）
+        const resp = await client.get(`/api/apps/${appId}/nav?filtered=true`);
         if (resp.status === 401) throw new Error('登录已过期，请重新登录');
         if (resp.status === 404) throw new Error('应用不存在或未发布');
         if (!resp.ok) throw new Error(`导航加载失败 (${resp.status})`);

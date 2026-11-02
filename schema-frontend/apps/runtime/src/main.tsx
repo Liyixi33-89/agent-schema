@@ -17,6 +17,15 @@ import { AppShell, watchTenantChange } from './AppShell';
 const client = new RequestClient({
   baseUrl: import.meta.env.VITE_API_BASE ?? '',
   getTenantId: () => localStorage.getItem('schema_tenant'),
+  // 401 静默刷新失败（REFRESH_REVOKED）：清本地页面缓存跳登录提示（运行时无登录页——提示后由
+  // 宿主/用户重新进入；缓存清除防下一会话读到跨会话 schema）
+  onSessionExpired: () => {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('schema_page_cache_')) localStorage.removeItem(key);
+    }
+    location.reload();
+  },
 });
 
 /** 计量埋点（09FE）：认证头与请求层同通道（Cookie + 双提交）——上报通道需登录态。 */

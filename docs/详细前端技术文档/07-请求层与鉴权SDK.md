@@ -94,6 +94,8 @@ PASSWORD_CHANGE_REQUIRED（403）：全局拦截重定向强制改密页（§5�
 CSRF 初始化：登录页加载即调 GET /api/auth/csrf 取匿名 csrf（登录请求带头等值校验，
      防登录 CSRF）；登录/刷新/改密响应滚动更新会话绑定的 csrf——SDK 读 document.cookie
      中 schema_csrf 注入头，不额外存储
+登录请求体契约：{username, password}（03BE §A.1 定版）——三应用登录输入框名 account
+     由 SDK login() 归一化为 username 发送（UI 命名不泄漏进协议层）
 刷新：access 有效期 2h，过期前 5min 静默刷新（单飞锁）；刷新请求自动携带 schema_rt
      （Path=/api/auth）→ 响应滚动签发新三件套（Set-Cookie）——SDK 无需读取/存储任何 token
 统一认证请求（2026-11-02 收口）：auth-sdk 提供 authFetch() 作为三应用（designer/admin-console/

@@ -4,6 +4,46 @@
 > 上一轮「全部完成、独立审查通过」结论已被推翻：无真实浏览器验收、报告由实施会话自生成非独立审查。
 > 本轮完成代码层全部安全缺口修复；浏览器验收与独立审查为剩余验收项。
 
+## 〇、认证链第二轮收口（2026-11-02 晚，登录 Cookie 通道真实缺口修复）
+
+上一轮「八项缺口已修复」复核后仍存在四处真实缺口，本轮全部闭合：
+
+### P0 修复（阻断级）
+1. **登录字段契约断裂**：designer/admin-console 提交 `account`，后端 `AuthController` 只读
+   `username`——登录实际不可用。修复：auth-sdk `login()` 归一化（account→username 发送，
+   协议字段定版 username，03BE §A.1）。
+2. **Cookie+Bearer 混合请求绕过 CSRF**：旧逻辑任意「Bearer 」前缀头即豁免双提交——
+   「受害 cookie + 伪造 Bearer 头」跨站请求可绕过。修复：Bearer 豁免仅在**无任何会话 cookie**
+   时生效；混合请求回落双提交判定。
+3. **refresh Cookie 未入会话判定**：`hasSession` 只判 schema_at——access 过期后带 rt 的请求
+   落入匿名放行。修复：会话凭证判定 = AT **或** RT（双提交独立于 access 执行，03BE §4.1 ④）。
+4. **登录保护非服务端强制**：无 csrf cookie 的登录请求直接匿名放行，绕过 Origin 校验。
+   修复：登录端点无 csrf cookie 时强制 Origin 校验（跨站登录 CSRF 服务端边界；同源直登放行，
+   登录失败计数兜底）。
+
+### P1 修复（健壮性）
+- 多标签 refreshed 广播消费：`silentRefresh` 前置消费他页成功信号直接返回，不再重复发刷新
+  （服务端 ±10s 容忍窗口兜底语义保留）。
+- runtime 入口注入 `onSessionExpired`（清页面缓存重载）；AppShell 导航请求由裸 fetch 改走
+  统一 `client.get()`（authFetch：静默刷新 + 403 csrf 重试全覆盖）。
+- 非法 Referer 按不匹配拒绝（try-catch），不再抛 500。
+
+### 测试证据（新鲜执行，2026-11-02 晚）
+- 新建 **CsrfHardeningIT 4 用例**（混合请求不豁免/纯 Bearer 仍豁免/RT+CSRF 双提交独立执行/
+  登录跨站拒同源放行/非法 Referer 403 非 500）——4/4 通过。
+- CookieSessionIT 9/9（旧「无 csrf 登录匿名放行」用例适配新语义补同源头）。
+- IamSecurityChainIT 13/13（审计用例补同源 Origin——新语义下无 Origin 请求不达业务层属预期）。
+- **全量 IT 门禁：176 tests, 0 failures, 0 errors, BUILD SUCCESS**（WSL PG 16，真实过滤器链）。
+- 前端 auth-sdk 新增专项单测 **12 用例**（登录归一化/双提交注入/401 单飞刷新重放/
+  刷新失败回调/403 自动重试/refreshed 广播消费）——12/12；前端全量 **133 passed (11 files)**。
+- 四包构建通过（auth-sdk/runtime/designer/admin-console，turbo 9/9）。
+
+### 已知边界（如实登记）
+- 并发刷新容忍窗口内重放会各自滚动出新会话（服务端实现语义），与 03BE §4.1 文档「返回同一
+  组新 cookie」表述存在口径差——实现侧各标签拿到可用三件套即达成「不误踢」目标；文档表述
+  待下一轮协议文档修订时校准（不影响安全边界）。
+- 登录失败计数（5 次锁 15 分钟）在 CsrfFilter 403 拦截时不消耗（未达业务层）——预期行为。
+
 ## 一、2026-11-02 缺口修复清单（commit 382c7e4）
 
 ### 1. 应用级权限闸（堵同租户越权）

@@ -43,10 +43,19 @@ export async function initCsrf(baseUrl = ''): Promise<void> {
   await fetch(`${baseUrl}/api/auth/csrf`, { credentials: 'same-origin' });
 }
 
-/** 登录（Set-Cookie 由后端签发；响应体不再含 refresh token）。 */
-export async function login(baseUrl: string, body: {
+/** 登录（Set-Cookie 由后端签发；响应体不再含 refresh token）。
+ *  请求体字段定版：{username, password}（03BE §A.1 契约——account 为 UI 层输入框名，非协议字段）；
+ *  兼容存量调用方传 account 的写法（归一化为 username 发送）。 */
+export interface LoginPayload {
   username?: string; account?: string; password: string; tenantId?: number | string;
-}): Promise<{ mustChangePassword: boolean }> {
+}
+
+export async function login(baseUrl: string, body: LoginPayload): Promise<{ mustChangePassword: boolean }> {
+  const payload: LoginPayload = { ...body };
+  if (payload.username == null && payload.account != null) {
+    payload.username = payload.account;
+  }
+  delete payload.account;
   const resp = await fetch(`${baseUrl}/api/auth/login`, {
     method: 'POST',
     credentials: 'same-origin',
@@ -54,7 +63,7 @@ export async function login(baseUrl: string, body: {
       'Content-Type': 'application/json',
       ...(csrfHeaderValue() ? { 'X-CSRF-Token': csrfHeaderValue()! } : {}),
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
   if (!resp.ok) {
     const raw = await resp.json().catch(() => ({}));
@@ -106,6 +115,8 @@ interface AuthChannelMessage {
 }
 
 let refreshInFlight: Promise<boolean> | null = null;
+/** 他页刷新成功信号（消费 refreshed 广播置位——本页排队刷新直接判定完成）。 */
+let refreshedElsewhere = false;
 
 /** 多标签广播通道（登出/刷新协调；构造失败降级为无广播——服务端 ±10s 容忍兜底）。 */
 let channel: BroadcastChannel | null = null;
@@ -122,6 +133,16 @@ export function watchAuthChannel(onEvent: (msg: AuthChannelMessage) => void): ()
   return () => channel.removeEventListener('message', handler);
 }
 
+// 内部消费：他页 refreshed 广抵达时置位信号——本页排队的静默刷新直接放弃
+//（cookie store 同源共享，他页 Set-Cookie 滚动的新三件套对本页即时生效）
+if (channel) {
+  channel.addEventListener('message', (e: MessageEvent) => {
+    if ((e.data as AuthChannelMessage)?.type === 'refreshed') {
+      refreshedElsewhere = true;
+    }
+  });
+}
+
 /**
  * 静默刷新（单飞锁）：并发调用共享同一 in-flight；成功广播 {type:'refreshed'}——
  * 其他标签页收到广播时若有本地排队请求，直接放弃等待重放原请求（服务端 ±10s 容忍兜底语义）；
@@ -129,7 +150,11 @@ export function watchAuthChannel(onEvent: (msg: AuthChannelMessage) => void): ()
  */
 export async function silentRefresh(baseUrl = ''): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
-  // 他页可能在本页发刷新前刚刷新成功——先探一次轻量信号（广播历史不回放，仅此缓解；服务端容忍窗口兜底）
+  // 他页刷新成功的广播先于本页发起——直接判定已完成（新 cookie 经 Set-Cookie 已共享至本页）
+  if (refreshedElsewhere) {
+    refreshedElsewhere = false;
+    return true;
+  }
   refreshInFlight = (async () => {
     try {
       const resp = await fetch(`${baseUrl}/api/auth/refresh`, {

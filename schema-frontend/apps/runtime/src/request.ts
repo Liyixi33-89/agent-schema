@@ -37,6 +37,11 @@ export class RequestClient {
     return this.headers();
   }
 
+  /** 统一 GET（正式通道走 authFetch：静默刷新 + 403 csrf 重试；导航壳等消费）。 */
+  async get(path: string): Promise<Response> {
+    return this.request(path, { method: 'GET' });
+  }
+
   /** 统一请求（正式通道走 authFetch：静默刷新 + 403 csrf 重试；预览通道保持隔离）。 */
   private async request(path: string, init: RequestInit): Promise<Response> {
     if (this.isPreviewChannel()) {
