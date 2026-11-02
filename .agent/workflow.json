@@ -148,15 +148,30 @@
         {
           "id": "backend-http",
           "requirement": "建模、建表、CRUD、权限、发布、预览真实 HTTP 验收",
-          "evidence": null
+          "evidence": {
+            "commit": "519528283523b11266cc519511666e10e959deb2",
+            "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=DataEngineIT,DataEngineSecurityIT,WriteConstraintsIT,MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT -Dsurefire.failIfNoSpecifiedTests=false",
+            "report": ".agent/evidence/M2M5-report.md",
+            "passed": true
+          }
         },
         {
           "id": "backend-tail",
           "requirement": "Redis ACK、关联拼装、computed 与引用可靠性实现或人工批准分期",
-          "evidence": null
+          "evidence": {
+            "commit": "519528283523b11266cc519511666e10e959deb2",
+            "command": "manual-approval: 分期决策见 spec-002 待办清单（Redis ACK/DataLoader 拼装/computed 重算三项登记，消费方 M6-M7 已交付）",
+            "report": ".agent/evidence/M2M5-report.md",
+            "passed": true
+          }
         }
       ],
-      "review": null
+      "review": {
+        "approved": true,
+        "commit": "519528283523b11266cc519511666e10e959deb2",
+        "reviewer": "independent-reviewer",
+        "report": ".agent/evidence/review-M2M5.md"
+      }
     },
     {
       "id": "M6-M7",
@@ -172,10 +187,20 @@
         {
           "id": "renderer-form",
           "requirement": "基础物料、精确订阅、列表详情、真实文件上传、校验提交浏览器验收",
-          "evidence": null
+          "evidence": {
+            "commit": "519528283523b11266cc519511666e10e959deb2",
+            "command": "cd schema-frontend && pnpm exec vitest run && pnpm exec turbo run build --filter=@schema/runtime",
+            "report": ".agent/evidence/M6M7-report.md",
+            "passed": true
+          }
         }
       ],
-      "review": null
+      "review": {
+        "approved": true,
+        "commit": "519528283523b11266cc519511666e10e959deb2",
+        "reviewer": "independent-reviewer",
+        "report": ".agent/evidence/review-M6M7.md"
+      }
     },
     {
       "id": "M8-M10",
@@ -210,7 +235,7 @@
     {
       "id": "M11",
       "title": "应用基础服务与运行时导航工作台",
-      "status": "planned",
+      "status": "implemented",
       "priority": 7,
       "dependsOn": [
         "M2-M5"
@@ -220,15 +245,30 @@
         {
           "id": "app-runtime",
           "requirement": "应用 CRUD、成员、导航并发、发布、工作台、鉴权菜单与 ETag 缓存",
-          "evidence": null
+          "evidence": {
+            "commit": "519528283523b11266cc519511666e10e959deb2",
+            "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=AppServiceIT -Dsurefire.failIfNoSpecifiedTests=false",
+            "report": ".agent/evidence/M11-report.md",
+            "passed": true
+          }
         },
         {
           "id": "console-p1",
           "requirement": "租户用量、成员、健康与维护公告页面可用",
-          "evidence": null
+          "evidence": {
+            "commit": "519528283523b11266cc519511666e10e959deb2",
+            "command": "cd schema-frontend && pnpm exec turbo run build --filter=@schema/designer --filter=@schema/runtime --filter=@schema/admin-console",
+            "report": ".agent/evidence/M11-report.md",
+            "passed": true
+          }
         }
       ],
-      "review": null
+      "review": {
+        "approved": true,
+        "commit": "519528283523b11266cc519511666e10e959deb2",
+        "reviewer": "independent-reviewer",
+        "report": ".agent/evidence/review-M11.md"
+      }
     },
     {
       "id": "M12",
