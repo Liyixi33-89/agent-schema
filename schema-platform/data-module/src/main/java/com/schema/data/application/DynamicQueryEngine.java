@@ -961,7 +961,11 @@ public class DynamicQueryEngine {
             if (fieldType.equals(f.fieldType())) {
                 Object v = cleaned.get(f.fieldKey());
                 if (v != null && !String.valueOf(v).isBlank()) {
-                    ids.add(normalizeId(v));
+                    Object normalized = normalizeId(v);
+                    // 非法 ID（非数值）不进入 bigint 查询，交由 validate 报格式错误
+                    if (normalized instanceof Number) {
+                        ids.add(normalized);
+                    }
                 }
             }
         }

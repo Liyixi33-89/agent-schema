@@ -238,10 +238,13 @@ class DataEngineSecurityIT {
         Long deptId = jdbc.queryForObject(
                 "INSERT INTO sys_dept (tenant_id, path, name) VALUES (1, '/300/', '销售部') RETURNING id",
                 Long.class);
+        Long otherDeptId = jdbc.queryForObject(
+                "INSERT INTO sys_dept (tenant_id, path, name) VALUES (1, '/300/399/', '其他部门') RETURNING id",
+                Long.class);
         long deptUserId = seedUserWithDept("it_dept_scope_" + System.nanoTime(), deptId);
         try {
             insertDeptRow(String.valueOf(deptId), 11);     // 本部门行（可见）
-            insertDeptRow("999999", 22);                    // 他部门行（不可见）
+            insertDeptRow(String.valueOf(otherDeptId), 22); // 他部门行（不可见）
 
             long roleId = seedRole(deptUserId);
             jdbc.update("INSERT INTO sys_role_data_scope (role_id, model_id, scope_type) "
@@ -275,7 +278,7 @@ class DataEngineSecurityIT {
                 cleanupRole(roleIdNoDept);
             }
         } finally {
-            jdbc.update("DELETE FROM sys_dept WHERE id=?", deptId);
+            jdbc.update("DELETE FROM sys_dept WHERE id IN (?, ?)", deptId, otherDeptId);
         }
     }
 
@@ -288,11 +291,14 @@ class DataEngineSecurityIT {
         Long childDept = jdbc.queryForObject(
                 "INSERT INTO sys_dept (tenant_id, parent_id, path, name) "
                         + "VALUES (1, ?, '/400/401/', '上海') RETURNING id", Long.class, parentDept);
+        Long outsideDept = jdbc.queryForObject(
+                "INSERT INTO sys_dept (tenant_id, path, name) VALUES (1, '/500/', '其他区域') RETURNING id",
+                Long.class);
         long treeUserId = seedUserWithDept("it_dept_tree_" + System.nanoTime(), parentDept);
         try {
             insertDeptRow(String.valueOf(parentDept), 11);        // 父部门行
             insertDeptRow(String.valueOf(childDept), 22);         // 子部门行——DEPT_TREE 应可见
-            insertDeptRow("999999", 33);                          // 树外行
+            insertDeptRow(String.valueOf(outsideDept), 33);       // 树外行（不可见）
 
             long roleId = seedRole(treeUserId);
             jdbc.update("INSERT INTO sys_role_data_scope (role_id, model_id, scope_type) "
@@ -307,7 +313,7 @@ class DataEngineSecurityIT {
                 cleanupRole(roleId);
             }
         } finally {
-            jdbc.update("DELETE FROM sys_dept WHERE id IN (?, ?)", parentDept, childDept);
+            jdbc.update("DELETE FROM sys_dept WHERE id IN (?, ?, ?)", parentDept, childDept, outsideDept);
         }
     }
 
