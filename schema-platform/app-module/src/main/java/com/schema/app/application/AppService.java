@@ -12,16 +12,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 应用生命周期服务（13BE §3/§A.1/§A.2 导航部分）。
  *
  * <p>应用成员管理在 IAM 侧（AppRoleService）——本服务聚焦应用本体：
- * CRUD、归档/恢复、删除确认、导航树（结构校验 + 页面归属校验 + 乐观并发）、
- * 工作台卡片墙（myRole 口径）。
+ * CRUD、归档/恢复、删除确认（precheck + confirmValue 高摩擦二次确认）、
+ * 导航树（结构校验 + 页面归属校验 + 乐观并发）、工作台卡片墙（myRole 口径）。
+ *
+ * <p>鉴权口径（03BE §5 + 13BE §3.1）：写操作与详情走 requireAppAdmin 闸
+ * （本应用 app_admin 或 org:manage 平台管理员兜底）；列表按成员可见性过滤（无角色不出卡片墙）。
  */
 @Service
 public class AppService {
@@ -55,6 +60,8 @@ public class AppService {
         if (name.length() > 64) {
             throw new IllegalArgumentException("应用名称超长（≤64）");
         }
+        // 配额并发控制：事务内锁锚点（串行化同租户并发创建，防竞态突破上限）
+        apps.lockQuotaAnchor(ctx.tenantId());
         if (apps.existsByName(ctx.tenantId(), name)) {
             throw new BizException("APP_NAME_DUPLICATED", "应用名称已存在: " + name);
         }
@@ -98,10 +105,11 @@ public class AppService {
         return Map.of("list", list);
     }
 
-    /** 应用详情（13BE §A.1 隐含：设置页数据源）。 */
+    /** 应用详情（13BE §A.1 隐含：设置页数据源）；须为应用管理员（防同租户越权枚举）。 */
     public Map<String, Object> detail(long appId) {
         TenantInfo ctx = TenantContext.get();
         App a = load(ctx.tenantId(), appId);
+        appRoles.requireAppAdmin(ctx.tenantId(), appId, ctx.operatorId());
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("id", a.id());
         resp.put("name", a.name());
@@ -114,11 +122,12 @@ public class AppService {
         return resp;
     }
 
-    /** 更新基本信息（13BE §A.1：改名即时生效）。 */
+    /** 更新基本信息（13BE §A.1：改名即时生效）；须为应用管理员。 */
     @Transactional
     public void update(long appId, String name, Long iconFileId, String description, String themeJson) {
         TenantInfo ctx = TenantContext.get();
         App a = load(ctx.tenantId(), appId);
+        appRoles.requireAppAdmin(ctx.tenantId(), appId, ctx.operatorId());
         if (a.status() != App.Status.ACTIVE && a.status() != App.Status.ARCHIVED) {
             throw new BizException("APP_NOT_EDITABLE", "应用状态不允许编辑");
         }
@@ -140,43 +149,76 @@ public class AppService {
                 themeJson != null ? themeJson : a.themeJson());
     }
 
-    /** 归档（13BE §A.1：全部资源只读，运行时访问保留）。 */
+    /** 归档（13BE §A.1：全部资源只读，运行时访问保留）；须为应用管理员。 */
     @Transactional
-    public void archive(long appId) {
+    public void archive(long appId, String ip, String ua) {
         TenantInfo ctx = TenantContext.get();
         App a = load(ctx.tenantId(), appId);
+        appRoles.requireAppAdmin(ctx.tenantId(), appId, ctx.operatorId());
         a.archive();
         apps.updateStatus(appId, ctx.tenantId(), App.Status.ARCHIVED.name(), null);
+        audit(ctx, appId, "APP_ARCHIVE", ip, ua);
     }
 
-    /** 恢复编辑（13BE §A.1）。 */
+    /** 恢复编辑（13BE §A.1）；须为应用管理员。 */
     @Transactional
-    public void restore(long appId) {
+    public void restore(long appId, String ip, String ua) {
         TenantInfo ctx = TenantContext.get();
         App a = load(ctx.tenantId(), appId);
+        appRoles.requireAppAdmin(ctx.tenantId(), appId, ctx.operatorId());
         if (a.status() != App.Status.ARCHIVED) {
             throw new BizException("APP_NOT_ARCHIVED", "应用未处于归档态");
         }
         apps.updateStatus(appId, ctx.tenantId(), App.Status.ACTIVE.name(), null);
+        audit(ctx, appId, "APP_RESTORE", ip, ua);
     }
 
-    /** 删除（P1 降级，13BE §3.1）：归档式删除——管理员二次确认 + 影响面清单，直接置 DELETING。 */
-    @Transactional
-    public Map<String, Object> delete(long appId) {
+    /**
+     * 删除预检查（13BE §3.1 P1 降级前置）：返回影响面清单 + 确认要求（输入完整应用名）。
+     * 前端展示清单后要求用户输入应用名，DELETE 请求携带 confirmValue 比对。
+     */
+    public Map<String, Object> deletePrecheck(long appId) {
         TenantInfo ctx = TenantContext.get();
         App a = load(ctx.tenantId(), appId);
+        appRoles.requireAppAdmin(ctx.tenantId(), appId, ctx.operatorId());
+        Map<String, Object> impact = pageRef.impactOf(appId, ctx.tenantId());
+        impact.put("appName", a.name());
+        impact.put("members", appRoles.listMembers(ctx.tenantId(), appId).size());
+        return Map.of("appId", appId, "impact", impact, "confirmField", "name");
+    }
+
+    /**
+     * 删除（P1 降级，13BE §3.1）：归档式删除——高摩擦确认（confirmValue=完整应用名等值比对，
+     * 与元数据域 TYPE_MODEL_NAME 同构）+ 影响面清单（precheck 展示）+ 直接置 DELETING + 审计。
+     */
+    @Transactional
+    public Map<String, Object> delete(long appId, String confirmValue, String ip, String ua) {
+        TenantInfo ctx = TenantContext.get();
+        App a = load(ctx.tenantId(), appId);
+        appRoles.requireAppAdmin(ctx.tenantId(), appId, ctx.operatorId());
+        if (confirmValue == null || !confirmValue.trim().equals(a.name())) {
+            throw new BizException("APP_DELETE_CONFIRM_REQUIRED",
+                    "删除确认失败：请输入完整应用名「" + a.name() + "」确认");
+        }
         a.markDeleting();
         apps.updateStatus(appId, ctx.tenantId(), App.Status.DELETING.name(), a.deletedAt());
         Map<String, Object> impact = pageRef.impactOf(appId, ctx.tenantId());
+        audit(ctx, appId, "APP_DELETE", Map.of("impact", impact), ip, ua);
         return Map.of("appId", appId, "impact", impact);
     }
 
     // ---------- §A.2 导航树 ----------
 
-    /** 导航树读取（13BE §3.3）：运行时消费 = 服务端按权限过滤；设计器消费 = 全量（含未授权节点）。 */
+    /**
+     * 导航树读取（13BE §3.3）：运行时消费 = 服务端按权限过滤（filtered=true，登录态即可——
+     * 过滤本身即鉴权，未授权节点整枝剪除）；设计器消费 = 全量（须为应用管理员）。
+     */
     public Map<String, Object> getNav(long appId, boolean filtered) {
         TenantInfo ctx = TenantContext.get();
         App a = load(ctx.tenantId(), appId);
+        if (!filtered) {
+            appRoles.requireAppAdmin(ctx.tenantId(), appId, ctx.operatorId());
+        }
         List<Object> tree = Json.readList(a.navTreeJson());
         if (tree == null) {
             tree = new ArrayList<>();
@@ -187,15 +229,16 @@ public class AppService {
         return Map.of("tree", tree, "version", a.navVersion());
     }
 
-    /** 导航树保存（13BE §3.3）：结构校验 + PAGE 归属校验 + 乐观并发（409 NAV_VERSION_CONFLICT）。 */
+    /** 导航树保存（13BE §3.3）：结构校验 + PAGE 归属校验 + 乐观并发（409 NAV_VERSION_CONFLICT）；须为应用管理员。 */
     @Transactional
     public Map<String, Object> saveNav(long appId, List<Object> tree, int baseVersion) {
         TenantInfo ctx = TenantContext.get();
         App a = load(ctx.tenantId(), appId);
+        appRoles.requireAppAdmin(ctx.tenantId(), appId, ctx.operatorId());
         if (a.status() != App.Status.ACTIVE) {
             throw new BizException("APP_NOT_EDITABLE", "仅 ACTIVE 应用可编辑导航");
         }
-        validateNavTree(tree, ctx.tenantId(), appId, 0, new int[]{0});
+        validateNavTree(tree, ctx.tenantId(), appId, 0, new int[]{0}, new HashSet<>());
         a.updateNavTree(Json.write(tree), baseVersion);   // 领域内版本比对（内存）
         int rows = apps.updateNavTree(appId, ctx.tenantId(), a.navTreeJson(), baseVersion, a.navVersion());
         if (rows == 0) {
@@ -205,6 +248,15 @@ public class AppService {
     }
 
     // ---------- 内部 ----------
+
+    private void audit(TenantInfo ctx, long appId, String action, String ip, String ua) {
+        audit(ctx, appId, action, Map.of(), ip, ua);
+    }
+
+    private void audit(TenantInfo ctx, long appId, String action, Map<String, Object> detail,
+            String ip, String ua) {
+        appRoles.auditAppEvent(ctx.tenantId(), ctx.operatorId(), appId, action, detail, ip, ua);
+    }
 
     private App load(long tenantId, long appId) {
         return apps.findByIdAndTenant(appId, tenantId)
@@ -223,9 +275,12 @@ public class AppService {
     /**
      * 导航树结构校验（13BE §3.3）：
      * 节点形态 {id, type: PAGE|GROUP|LINK, label, refId?, url?, children?}；
-     * PAGE 节点 refId 必须为本应用 ACTIVE 页面（强校验）。
+     * PAGE 节点 refId 必须为本应用 ACTIVE 页面（强校验）；
+     * 节点 id 全树唯一（防重复 key 渲染错乱与路由歧义）；
+     * LINK url 仅允许 http(s)（防 javascript: 等注入向量——运行时直出 <a href>）。
      */
-    private void validateNavTree(List<Object> tree, long tenantId, long appId, int depth, int[] counter) {
+    private void validateNavTree(List<Object> tree, long tenantId, long appId, int depth,
+            int[] counter, Set<String> seenIds) {
         if (depth > 3) {
             throw new IllegalArgumentException("导航树层级超过 3 层");
         }
@@ -238,6 +293,10 @@ public class AppService {
             }
             @SuppressWarnings("unchecked")
             Map<String, Object> node = (Map<String, Object>) raw;
+            String id = str(node.get("id"));
+            if (isBlank(id) || !seenIds.add(id)) {
+                throw new IllegalArgumentException("导航节点 id 必填且全树唯一: " + id);
+            }
             String type = str(node.get("type"));
             if (type == null || (!"PAGE".equals(type) && !"GROUP".equals(type) && !"LINK".equals(type))) {
                 throw new IllegalArgumentException("导航节点 type 必须为 PAGE/GROUP/LINK");
@@ -261,11 +320,16 @@ public class AppService {
                     if (children.isEmpty()) {
                         throw new IllegalArgumentException("GROUP 节点 children 不能为空");
                     }
-                    validateNavTree(children, tenantId, appId, depth + 1, counter);
+                    validateNavTree(children, tenantId, appId, depth + 1, counter, seenIds);
                 }
                 case "LINK" -> {
-                    if (isBlank(str(node.get("url")))) {
+                    String url = str(node.get("url"));
+                    if (isBlank(url)) {
                         throw new IllegalArgumentException("LINK 节点 url 必填");
+                    }
+                    String lower = url.trim().toLowerCase();
+                    if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+                        throw new IllegalArgumentException("LINK 节点 url 仅允许 http(s) 地址");
                     }
                 }
                 default -> {

@@ -60,20 +60,29 @@ public class AppController {
     }
 
     @PostMapping("/api/apps/{id}/archive")
-    public Map<String, Object> archive(@PathVariable long id) {
-        apps.archive(id);
+    public Map<String, Object> archive(@PathVariable long id, HttpServletRequest req) {
+        apps.archive(id, ip(req), ua(req));
         return Map.of();
     }
 
     @PostMapping("/api/apps/{id}/restore")
-    public Map<String, Object> restore(@PathVariable long id) {
-        apps.restore(id);
+    public Map<String, Object> restore(@PathVariable long id, HttpServletRequest req) {
+        apps.restore(id, ip(req), ua(req));
         return Map.of();
     }
 
+    /** 删除预检查（13BE §3.1 P1）：影响面清单 + 确认要求（输入完整应用名）。 */
+    @PostMapping("/api/apps/{id}/delete-precheck")
+    public Map<String, Object> deletePrecheck(@PathVariable long id) {
+        return apps.deletePrecheck(id);
+    }
+
+    /** 归档式删除（P1 降级）：confirmValue=完整应用名等值比对（高摩擦确认）。 */
     @DeleteMapping("/api/apps/{id}")
-    public Map<String, Object> delete(@PathVariable long id) {
-        return apps.delete(id);
+    public Map<String, Object> delete(@PathVariable long id, @RequestBody(required = false) Map<String, Object> body,
+            HttpServletRequest req) {
+        String confirmValue = body == null ? null : str(body.get("confirmValue"));
+        return apps.delete(id, confirmValue, ip(req), ua(req));
     }
 
     // ---------- §A.2 导航 ----------
@@ -97,6 +106,7 @@ public class AppController {
     @GetMapping("/api/apps/{id}/members")
     public Map<String, Object> members(@PathVariable long id) {
         TenantInfo ctx = TenantContext.get();
+        appRoles.requireAppAdmin(ctx.tenantId(), id, ctx.operatorId());
         return Map.of("list", appRoles.listMembers(ctx.tenantId(), id));
     }
 

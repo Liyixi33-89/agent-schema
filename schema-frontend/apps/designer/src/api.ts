@@ -76,8 +76,15 @@ export class ApiClient {
     return this.req('POST', `/api/apps/${appId}/restore`) as Promise<null>;
   }
 
-  deleteApp(appId: number): Promise<null> {
-    return this.req('DELETE', `/api/apps/${appId}`) as Promise<null>;
+  /** 删除预检查（13BE §3.1 P1）：影响面清单 + 确认要求（输入完整应用名）。 */
+  deletePrecheck(appId: number): Promise<{ appId: number; impact: Record<string, unknown>; confirmField: string }> {
+    return this.req('POST', `/api/apps/${appId}/delete-precheck`) as Promise<{
+      appId: number; impact: Record<string, unknown>; confirmField: string;
+    }>;
+  }
+
+  deleteApp(appId: number, confirmValue: string): Promise<null> {
+    return this.req('DELETE', `/api/apps/${appId}`, { confirmValue }) as Promise<null>;
   }
 
   // ---------- 成员（13BE §A.2） ----------

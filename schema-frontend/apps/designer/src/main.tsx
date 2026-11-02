@@ -177,7 +177,7 @@ function AppSettings({ app, onBack }: { app: AppCard; onBack: () => void }): Rea
           items={[
             { key: 'members', label: '成员', children: <MembersTab appId={app.id} /> },
             { key: 'nav', label: '导航', children: <NavTab appId={app.id} /> },
-            { key: 'theme', label: '主题', children: <ThemeTab app={app} /> },
+            { key: 'theme', label: '主题', children: <ThemeTab app={app} onBack={onBack} /> },
             { key: 'publish', label: '发布', children: <PublishTab app={app} /> },
           ]}
         />
@@ -299,6 +299,10 @@ function NavTab({ appId }: { appId: number }): React.ReactElement {
   const [version, setVersion] = React.useState(0);
   const [draft, setDraft] = React.useState<NavNode[]>([]);
   const [dirty, setDirty] = React.useState(false);
+  const [pages, setPages] = React.useState<{ id: number; name: string }[]>([]);
+  // 新增节点弹层（类型三选：PAGE 引用本应用页面 / LINK 外链 / GROUP 分组）
+  const [addOpen, setAddOpen] = React.useState(false);
+  const [addForm] = Form.useForm();
 
   const load = React.useCallback(async () => {
     try {
@@ -310,6 +314,9 @@ function NavTab({ appId }: { appId: number }): React.ReactElement {
     } catch (e) { handleError(e); setTree([]); }
   }, [appId]);
   React.useEffect(() => { void load(); }, [load]);
+  React.useEffect(() => {
+    void api.listPages(appId).then((r) => setPages(r.list)).catch(() => setPages([]));
+  }, [appId]);
 
   const rows = flattenNav(draft);
 
@@ -324,12 +331,18 @@ function NavTab({ appId }: { appId: number }): React.ReactElement {
     setDirty(true);
   };
 
+  /** 移除节点（含 GROUP 整枝）；顶层直接过滤，嵌套递归剪枝。 */
+  const removeNode = (nodes: NavNode[], id: string): NavNode[] =>
+    nodes.filter((n) => n.id !== id).map((n) => (
+      n.children?.length ? { ...n, children: removeNode(n.children, id) } : n
+    ));
+
+  const genId = (): string => `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
   return (
     <>
-      <Space style={{ marginBottom: 12 }}>
-        <Button
-          type="primary"
-          disabled={!dirty}
+      <Space style={{ marginBottom: 12 }} wrap>
+        <Button type="primary" disabled={!dirty}
           onClick={async () => {
             try {
               const r = await api.saveNav(appId, draft, version);
@@ -346,6 +359,7 @@ function NavTab({ appId }: { appId: number }): React.ReactElement {
           }}
         >保存导航</Button>
         <Button onClick={() => { setDraft(tree ?? []); setDirty(false); }}>放弃修改</Button>
+        <Button onClick={() => { addForm.resetFields(); setAddOpen(true); }}>新增节点</Button>
         <Typography.Text type="secondary">
           当前版本 v{version}{dirty ? ' · 有未保存修改' : ''}；PAGE 节点须引用本应用页面；保存冲突返回 409。
         </Typography.Text>
@@ -360,9 +374,9 @@ function NavTab({ appId }: { appId: number }): React.ReactElement {
               <Button key="down" size="small" disabled={idx === rows.length - 1} onClick={() => move(idx, 1)}>下移</Button>,
               <Popconfirm
                 key="del"
-                title="删除该节点？"
+                title="删除该节点？（GROUP 含子节点整枝删除）"
                 onConfirm={() => {
-                  setDraft(draft.filter((n) => n.id !== row.key));
+                  setDraft(removeNode(draft, row.key));
                   setDirty(true);
                 }}
               >
@@ -379,13 +393,72 @@ function NavTab({ appId }: { appId: number }): React.ReactElement {
           </List.Item>
         )}
       />
+      <Modal
+        title="新增导航节点（追加到顶层）"
+        open={addOpen}
+        onCancel={() => setAddOpen(false)}
+        onOk={async () => {
+          const v = await addForm.validateFields();
+          const node: NavNode = { id: genId(), type: v.type, label: v.label };
+          if (v.type === 'PAGE') node.refId = Number(v.refId);
+          if (v.type === 'LINK') node.url = v.url;
+          if (v.type === 'GROUP') node.children = [];
+          setDraft([...draft, node]);
+          setDirty(true);
+          setAddOpen(false);
+        }}
+      >
+        <Form form={addForm} layout="vertical" initialValues={{ type: 'PAGE' }}>
+          <Form.Item name="type" label="节点类型" rules={[{ required: true }]}>
+            <Select options={[
+              { value: 'PAGE', label: '页面（引用本应用 ACTIVE 页面）' },
+              { value: 'GROUP', label: '分组（子节点需后续填充）' },
+              { value: 'LINK', label: '外链（http/https）' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="label" label="显示名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input maxLength={64} />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(a, b) => a.type !== b.type}>
+            {({ getFieldValue }) => {
+              const t = getFieldValue('type');
+              if (t === 'PAGE') {
+                return (
+                  <Form.Item name="refId" label="引用页面" rules={[{ required: true, message: '请选择页面' }]}>
+                    <Select
+                      placeholder="选择本应用页面"
+                      options={pages.map((p) => ({ value: p.id, label: `${p.name} (#${p.id})` }))}
+                    />
+                  </Form.Item>
+                );
+              }
+              if (t === 'LINK') {
+                return (
+                  <Form.Item name="url" label="链接地址"
+                    rules={[{ required: true, message: '请输入链接' }, {
+                      pattern: /^https?:\/\//i, message: '仅允许 http(s) 地址',
+                    }]}>
+                    <Input placeholder="https://..." />
+                  </Form.Item>
+                );
+              }
+              return null;
+            }}
+          </Form.Item>
+        </Form>
+      </Modal>
     </>
   );
 }
 
-function ThemeTab({ app }: { app: AppCard }): React.ReactElement {
+function ThemeTab({ app, onBack }: { app: AppCard; onBack: () => void }): React.ReactElement {
   const [form] = Form.useForm();
   const [saving, setSaving] = React.useState(false);
+  // 两段式删除（13BE §3.1 P1）：precheck 影响面 → 输入完整应用名确认
+  const [delOpen, setDelOpen] = React.useState(false);
+  const [delImpact, setDelImpact] = React.useState<Record<string, unknown> | null>(null);
+  const [delConfirm, setDelConfirm] = React.useState('');
+  const [deleting, setDeleting] = React.useState(false);
   React.useEffect(() => {
     void api.appDetail(app.id).then((d) => {
       let theme: Record<string, unknown> = {};
@@ -397,7 +470,18 @@ function ThemeTab({ app }: { app: AppCard }): React.ReactElement {
       });
     }).catch((e) => handleError(e));
   }, [app.id, form]);
+
+  const openDelete = async (): Promise<void> => {
+    try {
+      const pre = await api.deletePrecheck(app.id);
+      setDelImpact(pre.impact);
+      setDelConfirm('');
+      setDelOpen(true);
+    } catch (e) { handleError(e); }
+  };
+
   return (
+    <>
     <Form form={form} layout="vertical" style={{ maxWidth: 480 }}
       onFinish={async (v: { name: string; description?: string; primaryColor?: string }) => {
         setSaving(true);
@@ -423,18 +507,54 @@ function ThemeTab({ app }: { app: AppCard }): React.ReactElement {
         <Button type="primary" htmlType="submit" loading={saving}>保存</Button>
         {app.status === 'ACTIVE' && (
           <Popconfirm title="归档后全部资源只读，运行时访问保留。确认归档？" onConfirm={async () => {
-            try { await api.archiveApp(app.id); message.success('已归档'); } catch (e) { handleError(e); }
+            try {
+              await api.archiveApp(app.id);
+              message.success('已归档');
+              onBack();   // 返回卡片墙重载状态（归档后默认列表不可见——includeArchived 开关控制）
+            } catch (e) { handleError(e); }
           }}>
             <Button danger>归档应用</Button>
           </Popconfirm>
         )}
         {app.status === 'ARCHIVED' && (
           <Button onClick={async () => {
-            try { await api.restoreApp(app.id); message.success('已恢复'); } catch (e) { handleError(e); }
+            try { await api.restoreApp(app.id); message.success('已恢复'); onBack(); } catch (e) { handleError(e); }
           }}>恢复编辑</Button>
+        )}
+        {app.status !== 'DELETING' && (
+          <Button danger type="dashed" onClick={() => { void openDelete(); }}>删除应用…</Button>
         )}
       </Space>
     </Form>
+    <Modal
+      title="删除应用（不可恢复进入 DELETING）"
+      open={delOpen}
+      onCancel={() => setDelOpen(false)}
+      okText="确认删除"
+      okButtonProps={{ danger: true, disabled: delConfirm.trim() !== app.name, loading: deleting }}
+      onOk={async () => {
+        setDeleting(true);
+        try {
+          await api.deleteApp(app.id, delConfirm.trim());
+          message.success('应用已进入 DELETING');
+          setDelOpen(false);
+          onBack();
+        } catch (e) { handleError(e); } finally { setDeleting(false); }
+      }}
+    >
+      <Typography.Paragraph type="danger">
+        删除影响面：{delImpact ? Object.entries(delImpact)
+          .filter(([k]) => k !== 'appName')
+          .map(([k, v]) => `${k}: ${String(v)}`).join('、') : '加载中…'}
+      </Typography.Paragraph>
+      <Typography.Paragraph>
+        {'请输入完整应用名 '}
+        <Typography.Text code>{app.name}</Typography.Text>
+        {' 确认删除：'}
+      </Typography.Paragraph>
+      <Input value={delConfirm} onChange={(e) => setDelConfirm(e.target.value)} placeholder={app.name} />
+    </Modal>
+    </>
   );
 }
 

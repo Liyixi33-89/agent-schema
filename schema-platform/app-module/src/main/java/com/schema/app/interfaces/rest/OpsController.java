@@ -73,8 +73,9 @@ public class OpsController {
                         + "WHERE tenant_id=? ORDER BY id DESC", ctx.tenantId()));
     }
 
-    /** 发布/更新公告（org:manage）：同租户至多一行生效——发布即激活并撤销旧行。 */
+    /** 发布/更新公告（org:manage）：同租户至多一行生效——发布即激活并撤销旧行；单事务防半态。 */
     @PostMapping("/api/ops/notices")
+    @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> upsertNotice(@RequestBody Map<String, Object> body) {
         TenantInfo ctx = TenantContext.get();
         requireOrgManage(ctx);
@@ -107,6 +108,28 @@ public class OpsController {
         jdbc.update("UPDATE ops_notice SET active=FALSE, updated_at=now() WHERE tenant_id=? AND active=TRUE",
                 ctx.tenantId());
         return Map.of();
+    }
+
+    // ---------- 租户成员清单（03BE §A.3：admin-console 成员管理消费） ----------
+
+    /** 组织成员列表（org:manage 闸门）：[{id, account, name, status, roles[]}]。 */
+    @GetMapping("/api/org/members")
+    public Map<String, Object> listOrgMembers() {
+        TenantInfo ctx = TenantContext.get();
+        requireOrgManage(ctx);
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (Map<String, Object> u : jdbc.queryForList(
+                "SELECT id, account, name, status FROM sys_user WHERE tenant_id=? ORDER BY id", ctx.tenantId())) {
+            Map<String, Object> item = new LinkedHashMap<>(u);
+            long uid = ((Number) u.get("id")).longValue();
+            List<String> roleCodes = new ArrayList<>();
+            for (Map<String, Object> r : iam.findRolesOfUser(ctx.tenantId(), uid)) {
+                roleCodes.add((String) r.get("code"));
+            }
+            item.put("roles", roleCodes);
+            list.add(item);
+        }
+        return Map.of("list", list);
     }
 
     // ---------- 内部 ----------

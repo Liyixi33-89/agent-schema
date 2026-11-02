@@ -15,8 +15,8 @@ import java.util.UUID;
 /**
  * 应用域统一错误体（10BE §A.2）：{code, message, traceId, details?}。
  * 包限定 com.schema.app——与 metadata/iam 域 advice 不竞争（同优先级排序不确定的坑，见 metadata advice 注释）。
- * HTTP 映射：NAV_VERSION_CONFLICT/APP_ADMIN_REQUIRED → 409；APP_NAME_DUPLICATED → 422；
- * APP_LIMIT_EXCEEDED → 403；APP_NOT_FOUND → 404。
+ * HTTP 映射：NAV_VERSION_CONFLICT/APP_ADMIN_REQUIRED/APP_DELETE_CONFIRM_REQUIRED → 409；
+ * APP_NAME_DUPLICATED → 422；APP_LIMIT_EXCEEDED/PERM_DENIED → 403；APP_NOT_FOUND → 404。
  */
 @RestControllerAdvice(basePackages = "com.schema.app")
 public class AppExceptionHandler {
@@ -27,9 +27,9 @@ public class AppExceptionHandler {
     public ResponseEntity<Map<String, Object>> biz(BizException e) {
         String traceId = UUID.randomUUID().toString();
         HttpStatus status = switch (e.code()) {
-            case "NAV_VERSION_CONFLICT", "APP_ADMIN_REQUIRED" -> HttpStatus.CONFLICT;
+            case "NAV_VERSION_CONFLICT", "APP_ADMIN_REQUIRED", "APP_DELETE_CONFIRM_REQUIRED" -> HttpStatus.CONFLICT;
             case "APP_NAME_DUPLICATED", "NAV_PAGE_NOT_FOUND" -> HttpStatus.UNPROCESSABLE_ENTITY;
-            case "APP_LIMIT_EXCEEDED" -> HttpStatus.FORBIDDEN;
+            case "APP_LIMIT_EXCEEDED", "PERM_DENIED" -> HttpStatus.FORBIDDEN;
             case "APP_NOT_FOUND" -> HttpStatus.NOT_FOUND;
             default -> HttpStatus.BAD_REQUEST;
         };

@@ -139,26 +139,80 @@ class AppServiceIT {
         assertEquals("APP_NOT_FOUND", e.code());
     }
 
+    // ---------- 同租户越权（应用级权限闸） ----------
+
+    @Test
+    void nonMemberSameTenantDeniedOnAllAppEndpoints() {
+        // 用户 2（本租户、无该应用任何角色）直连接口 → 全链 PERM_DENIED
+        TenantInfo outsider = new TenantInfo(1, appId, 2);
+        assertPermDenied(outsider, () -> apps.detail(appId));
+        assertPermDenied(outsider, () -> apps.update(appId, "越权改名", null, null, null));
+        assertPermDenied(outsider, () -> apps.archive(appId, "ip", "ua"));
+        assertPermDenied(outsider, () -> apps.restore(appId, "ip", "ua"));
+        assertPermDenied(outsider, () -> apps.deletePrecheck(appId));
+        assertPermDenied(outsider, () -> apps.delete(appId, "任意名", "ip", "ua"));
+        assertPermDenied(outsider, () -> apps.saveNav(appId, List.of(), 1));
+        assertPermDenied(outsider, () -> apps.getNav(appId, false));
+        assertPermDenied(outsider, () -> appRoles.addMember(1, appId, 2, List.of("user"), 2L, "ip", "ua"));
+        assertPermDenied(outsider, () -> appRoles.updateMemberRoles(1, appId, 1, List.of("user"), 2L, "ip", "ua"));
+        assertPermDenied(outsider, () -> appRoles.removeMember(1, appId, 1, 2L, "ip", "ua"));
+        // 成员列表读面鉴权在 HTTP 层（AppController.members 走 requireAppAdmin）——服务层保持纯查询供内部复用，
+        // HTTP 越权断言见 AppHttpSecurityIT
+        // 普通成员（仅 user 角色）也不可管理
+        with(t(), () -> appRoles.addMember(1, appId, 2, List.of("user"), 1L, "ip", "ua"));
+        assertPermDenied(outsider, () -> apps.archive(appId, "ip", "ua"));
+        assertPermDenied(outsider, () -> appRoles.removeMember(1, appId, 1, 2L, "ip", "ua"));
+    }
+
+    /** 断言 PERM_DENIED（统一辅助）。 */
+    private void assertPermDenied(TenantInfo t, Runnable action) {
+        BizException e = assertThrows(BizException.class, () -> TenantContext.with(t, () -> {
+            action.run();
+            return null;
+        }));
+        assertEquals("PERM_DENIED", e.code(), "预期应用级权限闸拦截");
+    }
+
     @Test
     void archiveAndRestoreLifecycle() {
-        with(t(), () -> apps.archive(appId));
+        with(t(), () -> apps.archive(appId, "ip", "ua"));
         assertEquals("ARCHIVED", TenantContext.with(t(), () ->
                 ((String) apps.detail(appId).get("status"))));
         // 归档态不可编辑导航
         BizException nav = assertThrows(BizException.class, () -> TenantContext.with(t(),
                 () -> apps.saveNav(appId, List.of(), 1)));
         assertEquals("APP_NOT_EDITABLE", nav.code());
-        with(t(), () -> apps.restore(appId));
+        with(t(), () -> apps.restore(appId, "ip", "ua"));
         assertEquals("ACTIVE", TenantContext.with(t(), () ->
                 ((String) apps.detail(appId).get("status"))));
     }
 
     @Test
-    void deleteMarksDeletingWithImpact() {
-        Map<String, Object> resp = TenantContext.with(t(), () -> apps.delete(appId));
+    void deleteRequiresConfirmValueAndAudits() {
+        // 无 confirmValue → 拒绝（高摩擦确认）
+        BizException e = assertThrows(BizException.class, () -> TenantContext.with(t(),
+                () -> apps.delete(appId, null, "ip", "ua")));
+        assertEquals("APP_DELETE_CONFIRM_REQUIRED", e.code());
+        // 错误应用名 → 拒绝
+        BizException e2 = assertThrows(BizException.class, () -> TenantContext.with(t(),
+                () -> apps.delete(appId, "错误名称", "ip", "ua")));
+        assertEquals("APP_DELETE_CONFIRM_REQUIRED", e2.code());
+        // precheck 返回影响面 + 确认要求
+        Map<String, Object> pre = TenantContext.with(t(), () -> apps.deletePrecheck(appId));
+        assertEquals("name", pre.get("confirmField"));
+        assertNotNull(((Map<?, ?>) pre.get("impact")).get("appName"));
+        // 正确应用名 → 删除成功 + 审计落库
+        String name = jdbc.queryForObject("SELECT name FROM app WHERE id=?", String.class, appId);
+        Map<String, Object> resp = TenantContext.with(t(), () -> apps.delete(appId, name, "ip", "ua"));
         assertNotNull(resp.get("impact"));
         assertEquals("DELETING", jdbc.queryForObject(
                 "SELECT status FROM app WHERE id=?", String.class, appId));
+        Integer audits = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_audit_log WHERE event_type='PERM_CHANGE' "
+                        + "AND resource_type='APP' AND resource_id=? "
+                        + "AND diff ->> 'action' = 'APP_DELETE'",
+                Integer.class, String.valueOf(appId));
+        assertTrue(audits != null && audits >= 1, "删除须记审计 APP_DELETE");
     }
 
     // ---------- 导航并发与校验 ----------
@@ -196,6 +250,32 @@ class AppServiceIT {
         assertNotNull(e1);
         assertNotNull(e2);
         assertNotNull(e3);
+    }
+
+    @Test
+    void navNodeIdMustBeGloballyUnique() {
+        // 重复 id → 拒绝（防路由歧义/渲染 key 冲突）
+        List<Object> dup = List.of(
+                Map.of("id", "dup", "type", "LINK", "label", "a", "url", "https://a.dev"),
+                Map.of("id", "dup", "type", "LINK", "label", "b", "url", "https://b.dev"));
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> TenantContext.with(t(),
+                () -> apps.saveNav(appId, dup, 1)));
+        assertTrue(e.getMessage().contains("唯一"));
+        // 嵌套重复同理
+        List<Object> nested = List.of(Map.of("id", "g", "type", "GROUP", "label", "g",
+                "children", List.of(Map.of("id", "g", "type", "LINK", "label", "x", "url", "https://x.dev"))));
+        assertThrows(IllegalArgumentException.class, () -> TenantContext.with(t(),
+                () -> apps.saveNav(appId, nested, 1)));
+    }
+
+    @Test
+    void navLinkUrlSchemeRestricted() {
+        // javascript: 注入向量 → 拒绝（运行时直出 <a href>）
+        List<Object> xss = List.of(Map.of("id", "m1", "type", "LINK", "label", "注入",
+                "url", "javascript:alert(1)"));
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> TenantContext.with(t(),
+                () -> apps.saveNav(appId, xss, 1)));
+        assertTrue(e.getMessage().contains("http"));
     }
 
     // ---------- 成员规则 ----------
@@ -238,6 +318,48 @@ class AppServiceIT {
         assertEquals("ROLE_NOT_FOUND", e.code());
     }
 
+    @Test
+    void concurrentRemovalOfLastTwoAdminsLeavesOne() throws Exception {
+        // 两个管理员并发互相移除 → 行锁串行化：恰一个成功、应用不孤儿
+        with(t(), () -> appRoles.addMember(1, appId, 2, List.of("app_admin"), 1L, "ip", "ua"));
+        int threads = 2;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(threads);
+            java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+            java.util.List<java.util.concurrent.Future<Boolean>> futures = new java.util.ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                final long target = i == 0 ? 2L : 1L;   // T1 移除用户2，T2 移除用户1
+                final long operator = i == 0 ? 1L : 2L;
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    go.await();
+                    try {
+                        TenantContext.with(new TenantInfo(1, appId, operator), () -> {
+                            appRoles.removeMember(1, appId, target, operator, "ip", "ua");
+                            return null;
+                        });
+                        return true;
+                    } catch (Exception e) {
+                        return false;
+                    }
+                }));
+            }
+            ready.await();
+            go.countDown();
+            int success = 0;
+            for (var f : futures) {
+                if (f.get(10, java.util.concurrent.TimeUnit.SECONDS)) success++;
+            }
+            assertEquals(1, success, "并发互相移除恰一个成功（另一个被最后管理员保护拦下）");
+            // 应用仍有管理员（非孤儿）
+            boolean hasAdmin = TenantContext.with(t(), () -> appRoles.hasAppAdmin(1, appId));
+            assertTrue(hasAdmin, "并发移除后应用仍须有管理员");
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     // ---------- 工作台可见性 ----------
 
     @Test
@@ -254,5 +376,36 @@ class AppServiceIT {
         List<?> itemsAfter = (List<?>) listAfter.get("list");
         boolean visibleAfter = itemsAfter.stream().anyMatch(i -> ((Number) ((Map<?, ?>) i).get("id")).longValue() == appId);
         assertTrue(visibleAfter, "成员应看到应用卡片");
+    }
+
+    @Test
+    void orgManageHolderIsBoundedFallbackAdmin() {
+        // org:manage 平台管理员兜底：可为非本应用管理员的应用做管理动作（13BE §3.1 兜底口径）
+        // 用户 2 先无角色 → PERM_DENIED（上一用例已覆盖），此处验证持 org:manage 后放行
+        Long permRoleId = ensureTenantRole("org_manager_it", "组织管理员IT");
+        jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) "
+                + "VALUES (?, 'ACTION', 0, 'org:manage') ON CONFLICT DO NOTHING", permRoleId);
+        jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (2, ?) ON CONFLICT DO NOTHING",
+                permRoleId);
+        TenantInfo orgManager = new TenantInfo(1, appId, 2);
+        // 兜底放行：详情可读
+        Map<String, Object> detail = TenantContext.with(orgManager, () -> apps.detail(appId));
+        assertEquals(appId, ((Number) detail.get("id")).longValue());
+        // 清理（防污染其他用例）
+        jdbc.update("DELETE FROM sys_user_role WHERE user_id=2 AND role_id=?", permRoleId);
+    }
+
+    /** 租户级（无 app_id）角色幂等种子。 */
+    private Long ensureTenantRole(String code, String name) {
+        List<Long> existing = jdbc.query(
+                "SELECT id FROM sys_role WHERE tenant_id=1 AND code=? AND app_id IS NULL LIMIT 1",
+                (rs, i) -> rs.getLong(1), code);
+        if (!existing.isEmpty()) {
+            return existing.get(0);
+        }
+        jdbc.update("INSERT INTO sys_role (tenant_id, code, name, role_type) VALUES (1, ?, ?, 'TENANT')",
+                code, name);
+        return jdbc.queryForObject(
+                "SELECT id FROM sys_role WHERE tenant_id=1 AND code=? AND app_id IS NULL", Long.class, code);
     }
 }

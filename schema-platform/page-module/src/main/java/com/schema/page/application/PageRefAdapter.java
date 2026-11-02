@@ -80,6 +80,10 @@ public class PageRefAdapter implements AppPageRef {
      * 权限口径（03BE §3.2 + PagePermGate 注释）：运行时读取面不设功能权限闸——
      * 应用成员默认可见全部发布页；已配置 PAGE:view 行权限的页面按行精确过滤
      * （未授权用户默认拒绝，与字段级默认拒绝同构）；org:manage/page:design 持有者可见全部。
+     *
+     * <p>⚠️ 「已配置」判定与用户权限解耦（与字段级 hasFieldPermRows 同构）：
+     * 以「本应用存在任意角色的 PAGE:view 行」为准——不得用「当前用户是否持有」推断，
+     * 否则未授权用户会被误判为「未配置」而错误放行全部页面（默认放行漏洞）。
      */
     private List<Long> visiblePageIds(long tenantId, long appId, Long userId) {
         if (userId == null || userId <= 0) {
@@ -109,11 +113,11 @@ public class PageRefAdapter implements AppPageRef {
         if (manageAll) {
             return all;
         }
-        // 本应用内已配置页面权限行的页面：按行精确过滤；完全未配置则成员默认全可见
-        boolean anyConfigured = all.stream().anyMatch(id -> explicit.contains(id) && id > 0);
-        if (!anyConfigured) {
-            return all;
+        // 本应用是否配置过 PAGE:view 权限行（任意角色——与当前用户无关，默认拒绝判定输入）
+        if (!iam.hasPagePermRows(tenantId, appId)) {
+            return all;   // 完全未配置：应用成员默认全可见（13BE §3.3 成员默认可见）
         }
+        // 已配置：按当前用户持有的行精确过滤（未授权页面整枝剪除）
         return all.stream().filter(explicit::contains).toList();
     }
 }

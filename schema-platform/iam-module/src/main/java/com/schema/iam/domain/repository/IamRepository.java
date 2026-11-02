@@ -46,6 +46,12 @@ public interface IamRepository {
      */
     boolean hasFieldPermRows(long tenantId, long modelId);
 
+    /**
+     * 应用级页面权限配置存在性（导航过滤默认拒绝判定输入，13BE §3.3）：
+     * 任意角色的 PAGE:view 行即算已配置——与当前用户无关（默认放行/拒绝的分界判定）。
+     */
+    boolean hasPagePermRows(long tenantId, long appId);
+
     // ---------- 授权（A.3 成员授权） ----------
 
     /** 覆盖式授权：先清该用户在 app 的旧关联再写入新角色集（事务内）。 */
@@ -71,6 +77,13 @@ public interface IamRepository {
 
     /** 用户在应用的角色 code 集（工作台 myRole 口径）。 */
     List<String> findRoleCodesOfUserInApp(long tenantId, long userId, long appId);
+
+    /**
+     * app 行锁（SELECT ... FOR UPDATE）：成员管理中「最后管理员判定 → 角色写入」的并发串行化锚点
+     * （13BE §3.2——两个并发移除仅剩的管理员时防止双双放行造成孤儿应用）。
+     * app 行缺失不报错（跨租户/不存在由调用方业务校验拦截）。
+     */
+    void lockAppRow(long tenantId, long appId);
 
     // ---------- 刷新令牌（03BE §4：滚动签发 + 黑名单吊销） ----------
 

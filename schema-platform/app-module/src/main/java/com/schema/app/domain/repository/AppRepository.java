@@ -35,5 +35,11 @@ public interface AppRepository {
     /** 应用配额检查（13BE §3.4：默认 50）。 */
     long countByTenant(long tenantId);
 
+    /**
+     * 配额并发控制锚点（13BE §7 同构席位并发控制）：SELECT ... FOR UPDATE 锁租户既有 app 行。
+     * 事务内「锁-计数-校验」串行化同租户并发创建，防止竞态突破配额上限。
+     */
+    void lockQuotaAnchor(long tenantId);
+
     boolean existsByName(long tenantId, String name);
 }

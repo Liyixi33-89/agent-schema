@@ -158,6 +158,18 @@ public class JdbcIamRepository implements IamRepository {
     }
 
     @Override
+    public boolean hasPagePermRows(long tenantId, long appId) {
+        // 应用级存在性：任意角色对应用内任意页面的 PAGE:view 行均算已配置（与当前用户无关）
+        Integer n = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM sys_role_permission p
+                JOIN sys_role r ON r.id = p.role_id
+                JOIN page_schema ps ON ps.id = p.resource_id
+                WHERE p.resource_type='PAGE' AND p.action='view' AND r.tenant_id=? AND ps.app_id=?
+                """, Integer.class, tenantId, appId);
+        return n != null && n > 0;
+    }
+
+    @Override
     public void replaceUserRoles(long tenantId, long userId, long appId, List<Long> roleIds) {
         jdbc.update("""
                 DELETE FROM sys_user_role WHERE user_id=? AND role_id IN (
@@ -243,6 +255,12 @@ public class JdbcIamRepository implements IamRepository {
             codes.add((String) r.get("code"));
         }
         return codes;
+    }
+
+    @Override
+    public void lockAppRow(long tenantId, long appId) {
+        // 行锁锚点：结果集丢弃，仅为 FOR UPDATE 排他（事务提交/回滚后释放）
+        jdbc.queryForList("SELECT id FROM app WHERE tenant_id=? AND id=? FOR UPDATE", tenantId, appId);
     }
 
     @Override

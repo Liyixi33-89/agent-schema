@@ -135,6 +135,16 @@ public class JdbcAppRepository implements AppRepository {
     }
 
     @Override
+    public void lockQuotaAnchor(long tenantId) {
+        // 锁最早一行作为租户配额锚点（租户无 app 时无行可锁——首应用创建本就无竞态对象，
+        // 并发插入由 UNIQUE(tenant_id, name) 收口为重名冲突）
+        jdbc.queryForList("""
+                SELECT id FROM app WHERE tenant_id=? AND status <> 'DELETING'
+                ORDER BY id LIMIT 1 FOR UPDATE
+                """, tenantId);
+    }
+
+    @Override
     public boolean existsByName(long tenantId, String name) {
         Long c = jdbc.queryForObject(
                 "SELECT count(*) FROM app WHERE tenant_id=? AND name=? AND status <> 'DELETING'",
