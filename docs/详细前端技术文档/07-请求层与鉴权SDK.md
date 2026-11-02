@@ -96,6 +96,11 @@ CSRF 初始化：登录页加载即调 GET /api/auth/csrf 取匿名 csrf（登�
      中 schema_csrf 注入头，不额外存储
 刷新：access 有效期 2h，过期前 5min 静默刷新（单飞锁）；刷新请求自动携带 schema_rt
      （Path=/api/auth）→ 响应滚动签发新三件套（Set-Cookie）——SDK 无需读取/存储任何 token
+统一认证请求（2026-11-02 收口）：auth-sdk 提供 authFetch() 作为三应用（designer/admin-console/
+     runtime 正式通道）唯一请求入口——自动注入双提交头；401 先静默刷新一次再重放原请求
+     （刷新失败触发 onSessionExpired 回调清本地态跳登录）；403 CSRF_TOKEN_REJECTED 自动拉新
+     csrf 重试一次（多标签并发刷新致旧 csrf 滚动场景）；预览 Bearer 通道不经过 authFetch
+     （credentials:'omit' 隔离不变）
 多标签并发刷新协调（2026-11-02 补）：BroadcastChannel('auth') 扩展 {type:'refreshed'}
      广播——A 标签刷新成功后广播，B 标签收到即放弃本地排队刷新直接重放原请求；
      新 schema_csrf 一并经广播同步（防 B 标签持旧值被误拒 403）；BC 不可用降级为
