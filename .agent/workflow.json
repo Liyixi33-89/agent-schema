@@ -12,15 +12,30 @@
         {
           "id": "http-multipart",
           "requirement": "真实 HTTP 多块上传并 complete；校验会话、块号、过期、PUT/GET 方法绑定",
-          "evidence": null
+          "evidence": {
+            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
+            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+            "passed": true
+          }
         },
         {
           "id": "content-integrity",
           "requirement": "魔数、SHA-256、ETag 不匹配负例全部拒绝；测试只清自建记录",
-          "evidence": null
+          "evidence": {
+            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
+            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+            "passed": true
+          }
         }
       ],
-      "review": null
+      "review": {
+        "approved": true,
+        "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+        "reviewer": "independent-reviewer",
+        "report": ".agent/evidence/review-M8M9M10.md"
+      }
     },
     {
       "id": "FIX-M8",
@@ -33,15 +48,30 @@
         {
           "id": "authenticated-retry",
           "requirement": "认证注入真实生效；beacon 不以排队成功当受理；持久化重试不丢幂等键",
-          "evidence": null
+          "evidence": {
+            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
+            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+            "passed": true
+          }
         },
         {
           "id": "seat-concurrency",
           "requirement": "并发授权与撤销、跨应用授权不突破配额；成员事件即时重算",
-          "evidence": null
+          "evidence": {
+            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
+            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+            "passed": true
+          }
         }
       ],
-      "review": null
+      "review": {
+        "approved": true,
+        "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+        "reviewer": "independent-reviewer",
+        "report": ".agent/evidence/review-M8M9M10.md"
+      }
     },
     {
       "id": "FIX-M10",
@@ -55,9 +85,9 @@
           "id": "suppression",
           "requirement": "SUPPRESSED 不进入用户列表或未读数，审计可追溯",
           "evidence": {
-            "commit": "f9d9297",
-            "command": "wsl bash run_full.sh（mvn test + mvn -pl bootstrap -am test -Dtest=8个IT）",
-            "report": ".agent/evidence/FIX-M10/backend-it-report.txt",
+            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
+            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
           }
         },
@@ -65,14 +95,19 @@
           "id": "tenant-rate",
           "requirement": "跨 bizRef 不绕过租户上限；收件人隔离和安全告警负例",
           "evidence": {
-            "commit": "f9d9297",
-            "command": "wsl bash run_full.sh（NotificationIT 12 用例含 3 新增）",
-            "report": ".agent/evidence/FIX-M10/backend-it-report.txt",
+            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
+            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
           }
         }
       ],
-      "review": null
+      "review": {
+        "approved": true,
+        "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+        "reviewer": "independent-reviewer",
+        "report": ".agent/evidence/review-M8M9M10.md"
+      }
     },
     {
       "id": "M0-M1",
