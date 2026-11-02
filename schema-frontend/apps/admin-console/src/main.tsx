@@ -11,28 +11,25 @@ import {
   Table, Tabs, Tag, Typography,
 } from 'antd';
 import {
-  authHeaders, broadcastLogout, initCsrf, login as sdkLogin, logout as sdkLogout, watchAuthChannel,
+  authFetch, broadcastLogout, initCsrf, login as sdkLogin, logout as sdkLogout, watchAuthChannel,
 } from '@schema/auth-sdk';
 
 interface SessionState { account: string }
 
 const BASE = import.meta.env.VITE_API_BASE ?? '';
 
+/** 401 静默刷新失败回调（清本地态回登录页）。 */
+let onSessionExpired: (() => void) | null = null;
+
 async function req(method: string, path: string, body?: unknown): Promise<unknown> {
-  const doFetch = (): Promise<Response> => fetch(`${BASE}${path}`, {
+  const resp = await authFetch({
+    path,
+    baseUrl: BASE,
     method,
-    credentials: 'same-origin',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    headers: { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
+    onSessionExpired: () => onSessionExpired?.(),
   });
-  let resp = await doFetch();
-  if (resp.status === 403) {
-    const raw = await resp.clone().json().catch(() => ({}));
-    if ((raw as { code?: string }).code === 'CSRF_TOKEN_REJECTED') {
-      await initCsrf(BASE);
-      resp = await doFetch();
-    }
-  }
   if (resp.status === 401) throw new Error('登录已过期，请重新登录');
   if (!resp.ok) {
     const raw = await resp.json().catch(() => ({}));
@@ -283,6 +280,14 @@ function App(): React.ReactElement {
       setSession(null);
     }
   }), []);
+  // 401 静默刷新失败 → 回登录页（authFetch 回调注入）
+  React.useEffect(() => {
+    onSessionExpired = () => {
+      sessionStorage.removeItem('schema_session');
+      setSession(null);
+    };
+    return () => { onSessionExpired = null; };
+  }, []);
 
   if (!session) {
     return (

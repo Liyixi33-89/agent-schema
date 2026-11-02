@@ -11,7 +11,7 @@
  * 401/403/404/409 → 全局错误；网络异常 → 全局错误。
  */
 import { ServerError } from '@schema/schema-form';
-import { authHeaders } from '@schema/auth-sdk';
+import { authFetch, authHeaders } from '@schema/auth-sdk';
 import type { FilterNode } from '@schema/schema-protocol';
 
 export interface RequestConfig {
@@ -20,6 +20,8 @@ export interface RequestConfig {
   getToken?: () => string | null;
   /** 租户头（JWT claim 绑定口径）。 */
   getTenantId?: () => string | null;
+  /** 401 静默刷新失败回调（正式通道——宿主注入跳登录态占位）。 */
+  onSessionExpired?: () => void;
 }
 
 export class RequestClient {
@@ -33,6 +35,24 @@ export class RequestClient {
   /** 认证头（导航壳等裸 fetch 消费——与数据面同通道）。 */
   authHeaders(): Record<string, string> {
     return this.headers();
+  }
+
+  /** 统一请求（正式通道走 authFetch：静默刷新 + 403 csrf 重试；预览通道保持隔离）。 */
+  private async request(path: string, init: RequestInit): Promise<Response> {
+    if (this.isPreviewChannel()) {
+      return fetch(`${this.config.baseUrl}${path}`, {
+        ...init,
+        headers: { ...init.headers, ...this.headers() },
+        credentials: 'omit',   // 预览通道：不带任何平台 cookie
+      });
+    }
+    return authFetch({
+      path,
+      baseUrl: this.config.baseUrl,
+      ...init,
+      headers: { ...init.headers, ...(this.headers() as Record<string, string>) },
+      onSessionExpired: () => this.config.onSessionExpired?.(),
+    });
   }
 
   /** 是否预览通道（内存 Bearer——credentials:'omit' 与 Cookie 通道强制隔离）。 */
@@ -53,18 +73,11 @@ export class RequestClient {
     return authHeaders({ 'Content-Type': 'application/json' });
   }
 
-  private fetchInit(): RequestInit {
-    return this.isPreviewChannel()
-      ? { credentials: 'omit' as RequestCredentials }   // 预览通道：不带任何平台 cookie
-      : { credentials: 'same-origin' as RequestCredentials };
-  }
-
   /** 发布页面 Schema 加载（ETag 缓存）。 */
   async loadPage(pageId: string | number, etag?: string | null): Promise<{ schema: unknown; etag: string | null }> {
-    const h = this.headers();
-    if (etag) h['If-None-Match'] = `"${etag}"`;
-    const resp = await fetch(`${this.config.baseUrl}/api/runtime/pages/${pageId}`,
-      { headers: h, ...this.fetchInit() });
+    const headers: Record<string, string> = { ...this.headers() };
+    if (etag) headers['If-None-Match'] = `"${etag}"`;
+    const resp = await this.request(`/api/runtime/pages/${pageId}`, { headers });
     if (resp.status === 304) return { schema: null, etag: etag ?? null };
     if (resp.status === 404) throw new ServerError('NOT_FOUND', '页面不存在或未发布');
     if (!resp.ok) throw new ServerError('LOAD_FAILED', `页面加载失败 (${resp.status})`);
@@ -73,10 +86,7 @@ export class RequestClient {
 
   /** 模型字段元数据（表单构建输入——权限过滤后的可见集，与数据面同源）。 */
   async loadFields(modelId: string | number): Promise<unknown> {
-    const resp = await fetch(`${this.config.baseUrl}/api/data/${modelId}/fields`, {
-      headers: this.headers(),
-      ...this.fetchInit(),
-    });
+    const resp = await this.request(`/api/data/${modelId}/fields`, { headers: this.headers() });
     if (resp.status === 404) throw new ServerError('NOT_FOUND', '模型不存在或无权访问');
     if (!resp.ok) throw new ServerError('LOAD_FAILED', `字段元数据加载失败 (${resp.status})`);
     return resp.json();
@@ -95,10 +105,7 @@ export class RequestClient {
 
   /** 记录详情。 */
   async detail(modelId: string | number, recordId: string | number): Promise<unknown> {
-    const resp = await fetch(`${this.config.baseUrl}/api/data/${modelId}/${recordId}`, {
-      headers: this.headers(),
-      ...this.fetchInit(),
-    });
+    const resp = await this.request(`/api/data/${modelId}/${recordId}`, { headers: this.headers() });
     if (resp.status === 404) throw new ServerError('NOT_FOUND', '记录不存在');
     if (!resp.ok) throw new ServerError('LOAD_FAILED', `详情加载失败 (${resp.status})`);
     return resp.json();
@@ -112,9 +119,8 @@ export class RequestClient {
   /** 更新。 */
   async update(modelId: string | number, recordId: string | number,
     data: Record<string, unknown>): Promise<unknown> {
-    const resp = await fetch(`${this.config.baseUrl}/api/data/${modelId}/${recordId}`, {
+    const resp = await this.request(`/api/data/${modelId}/${recordId}`, {
       method: 'PUT', headers: this.headers(), body: JSON.stringify(data),
-      ...this.fetchInit(),
     });
     return this.unwrap(resp);
   }
@@ -123,21 +129,18 @@ export class RequestClient {
   async uniqueCheck(modelId: string | number, fieldKey: string, value: unknown,
     excludeId?: string | number): Promise<boolean> {
     const body = excludeId != null ? { fieldKey, value, excludeId } : { fieldKey, value };
-    const resp = await this.postRaw(`/api/data/${modelId}/unique-check`, body);
+    const resp = await this.request(`/api/data/${modelId}/unique-check`, {
+      method: 'POST', headers: this.headers(), body: JSON.stringify(body),
+    });
     const payload = (await resp.json()) as { unique?: boolean };
     return payload.unique !== false;
   }
 
   private async post(path: string, body: unknown): Promise<unknown> {
-    const resp = await this.postRaw(path, body);
-    return this.unwrap(resp);
-  }
-
-  private postRaw(path: string, body: unknown): Promise<Response> {
-    return fetch(`${this.config.baseUrl}${path}`, {
+    const resp = await this.request(path, {
       method: 'POST', headers: this.headers(), body: JSON.stringify(body),
-      ...this.fetchInit(),
     });
+    return this.unwrap(resp);
   }
 
   /** 响应解包 + 服务端错误映射（03FE §7 字段级回填）。 */

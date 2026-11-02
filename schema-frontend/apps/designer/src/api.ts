@@ -1,10 +1,13 @@
 /**
  * designer 请求层（M11 工作台；v0.4 Cookie 通道）：登录 + 应用/成员/导航/发布 API。
- * 认证走 HttpOnly Cookie（schema_at 自动携带）；状态变更请求注入 X-CSRF-Token 双提交头。
+ * 认证走 HttpOnly Cookie（schema_at 自动携带）；统一走 authFetch（静默刷新 + 403 csrf 重试）。
  */
-import { authHeaders, initCsrf, login as sdkLogin } from '@schema/auth-sdk';
+import { authFetch, initCsrf, login as sdkLogin } from '@schema/auth-sdk';
 
 export class ApiClient {
+  /** 401 刷新失败回调（main.tsx 注入——清本地态回登录页）。 */
+  static onSessionExpired: (() => void) | null = null;
+
   constructor(private readonly baseUrl: string = import.meta.env.VITE_API_BASE ?? '') {}
 
   /** 匿名 csrf 初始化（登录页加载即调——登录 CSRF 防护）。 */
@@ -17,21 +20,14 @@ export class ApiClient {
   }
 
   private async req(method: string, path: string, body?: unknown): Promise<unknown> {
-    const doFetch = (): Promise<Response> => fetch(`${this.baseUrl}${path}`, {
+    const resp = await authFetch({
+      path,
+      baseUrl: this.baseUrl,
       method,
-      credentials: 'same-origin',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
+      onSessionExpired: () => ApiClient.onSessionExpired?.(),
     });
-    let resp = await doFetch();
-    // csrf 403 自动重试一次（07FE §5：多标签并发刷新后旧 csrf 被滚动——拉新值重试仅一次）
-    if (resp.status === 403) {
-      const raw = await resp.clone().json().catch(() => ({}));
-      if ((raw as { code?: string }).code === 'CSRF_TOKEN_REJECTED') {
-        await fetch(`${this.baseUrl}/api/auth/csrf`, { credentials: 'same-origin' });
-        resp = await doFetch();
-      }
-    }
     if (resp.status === 401) {
       throw new ApiError('UNAUTHORIZED', '登录已过期，请重新登录');
     }

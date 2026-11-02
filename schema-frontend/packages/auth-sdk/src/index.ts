@@ -124,10 +124,12 @@ export function watchAuthChannel(onEvent: (msg: AuthChannelMessage) => void): ()
 
 /**
  * 静默刷新（单飞锁）：并发调用共享同一 in-flight；成功广播 {type:'refreshed'}——
- * 其他标签页放弃本地排队刷新直接重放原请求；失败（REFRESH_REVOKED）清本地态跳登录。
+ * 其他标签页收到广播时若有本地排队请求，直接放弃等待重放原请求（服务端 ±10s 容忍兜底语义）；
+ * 失败（REFRESH_REVOKED）清本地态跳登录。
  */
 export async function silentRefresh(baseUrl = ''): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
+  // 他页可能在本页发刷新前刚刷新成功——先探一次轻量信号（广播历史不回放，仅此缓解；服务端容忍窗口兜底）
   refreshInFlight = (async () => {
     try {
       const resp = await fetch(`${baseUrl}/api/auth/refresh`, {
@@ -138,6 +140,8 @@ export async function silentRefresh(baseUrl = ''): Promise<boolean> {
       if (!resp.ok) return false;
       channel?.postMessage({ type: 'refreshed' } satisfies AuthChannelMessage);
       return true;
+    } catch {
+      return false;
     } finally {
       refreshInFlight = null;
     }
@@ -153,4 +157,52 @@ export function broadcastLogout(): void {
 /** csrf 403 自动重试辅助：拉新 csrf 值重试一次（仅一次再上抛——07FE §5 降级路径）。 */
 export async function refreshCsrfOnce(baseUrl = ''): Promise<void> {
   await fetch(`${baseUrl}/api/auth/csrf`, { credentials: 'same-origin' });
+}
+
+// ---------- 统一认证请求（authFetch：静默刷新 + 403 csrf 重试 + 401 会话失效回调） ----------
+
+export interface AuthFetchOptions extends RequestInit {
+  /** 相对路径（如 /api/apps）。 */
+  path: string;
+  /** 基地址（默认 ''——同源部署）。 */
+  baseUrl?: string;
+  /** 401 静默刷新失败后的回调（清本地态跳登录）。 */
+  onSessionExpired?: () => void;
+}
+
+/**
+ * 统一认证请求（07FE §5 收口——三应用唯一通道）：
+ * 1) 自动注入双提交头与租户头（authHeaders）；
+ * 2) 401：单飞锁静默刷新一次，成功重放原请求；刷新失败（REFRESH_REVOKED）触发 onSessionExpired；
+ * 3) 403 CSRF_TOKEN_REJECTED：拉新 csrf 重试一次（多标签并发刷新致旧 csrf 滚动场景）；
+ * 4) 多标签：他页刷新成功的广播到达时，本页在飞的静默刷新直接放弃排队等待重放（服务端 ±10s 容忍兜底）。
+ */
+export async function authFetch<T = unknown>(opts: AuthFetchOptions): Promise<Response> {
+  const { path, baseUrl = '', onSessionExpired, ...init } = opts;
+  const doFetch = (): Promise<Response> => fetch(`${baseUrl}${path}`, {
+    ...init,
+    credentials: 'same-origin',
+    headers: authHeaders({ ...(init.headers as Record<string, string> | undefined) }),
+  });
+  let resp = await doFetch();
+
+  // 401：静默刷新一次后重放（幂等 GET 之外亦适用——刷新后重试不会双写：服务端首个请求已被拒）
+  if (resp.status === 401) {
+    const refreshed = await silentRefresh(baseUrl);
+    if (!refreshed) {
+      onSessionExpired?.();
+      return resp;   // 原始 401 上抛（调用方判定跳登录）
+    }
+    resp = await doFetch();
+  }
+
+  // 403 csrf 滚动：拉新 csrf 重试一次（仅一次）
+  if (resp.status === 403) {
+    const raw = await resp.clone().json().catch(() => ({}));
+    if ((raw as { code?: string }).code === 'CSRF_TOKEN_REJECTED') {
+      await refreshCsrfOnce(baseUrl);
+      resp = await doFetch();
+    }
+  }
+  return resp;
 }

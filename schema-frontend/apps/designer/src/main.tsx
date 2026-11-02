@@ -25,20 +25,25 @@ function useSession(): [Session | null, () => void] {
     sessionStorage.getItem('schema_session') === '1'
       ? { account: localStorage.getItem('schema_account') ?? '' } : null,
   );
+  const expire = React.useCallback(() => {
+    sessionStorage.removeItem('schema_session');
+    setSession(null);
+  }, []);
   const logout = React.useCallback(() => {
     void sdkLogout().finally(() => {
       broadcastLogout();
-      sessionStorage.removeItem('schema_session');
-      setSession(null);
+      expire();
     });
-  }, []);
+  }, [expire]);
   // 多标签协调：他端登出即时感知（不等下一次请求 401）
   React.useEffect(() => watchAuthChannel((msg) => {
-    if (msg.type === 'logout') {
-      sessionStorage.removeItem('schema_session');
-      setSession(null);
-    }
-  }), []);
+    if (msg.type === 'logout') expire();
+  }), [expire]);
+  // 401 静默刷新失败 → 回登录页（ApiClient 回调注入）
+  React.useEffect(() => {
+    ApiClient.onSessionExpired = expire;
+    return () => { ApiClient.onSessionExpired = null; };
+  }, [expire]);
   return [session, logout];
 }
 
