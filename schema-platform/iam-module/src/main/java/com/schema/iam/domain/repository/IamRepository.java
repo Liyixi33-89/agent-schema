@@ -58,6 +58,20 @@ public interface IamRepository {
     /** 角色 code（席位触限校验输入——设计能力角色判定 app_admin/developer）。 */
     String findRoleCode(long roleId);
 
+    // ---------- 应用角色初始化（13BE §3.1：应用创建时初始化三个默认角色） ----------
+
+    /** 幂等插入应用级角色（ON CONFLICT DO NOTHING）；返回角色 id。 */
+    long ensureAppRole(long tenantId, long appId, String code, String name);
+
+    /** 用户在某应用的角色 id 集合（成员列表/最后管理员保护判定输入）。 */
+    List<Long> findRoleIdsOfUserInApp(long tenantId, long userId, long appId);
+
+    /** 应用全部成员（user_id → 角色行；成员列表接口输入）。 */
+    List<Map<String, Object>> findMembersOfApp(long tenantId, long appId);
+
+    /** 用户在应用的角色 code 集（工作台 myRole 口径）。 */
+    List<String> findRoleCodesOfUserInApp(long tenantId, long userId, long appId);
+
     // ---------- 刷新令牌（03BE §4：滚动签发 + 黑名单吊销） ----------
 
     void insertRefreshToken(long tenantId, long userId, String tokenHash, java.time.OffsetDateTime expiresAt);

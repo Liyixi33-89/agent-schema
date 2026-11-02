@@ -1,8 +1,9 @@
 /**
- * M11 运行时容器最小入口（2026-10-30）：
- * 路由：#/page/:pageId 与 #/page/:pageId/:recordId（编辑态）。
- * 装载：发布 PageSchema + 字段元数据 → FormPageHost 装配。
- * 错误态/加载态展示；认证头从 localStorage 注入（预览 token 同通道）。
+ * M11 运行时容器入口：
+ * - #/app/:appId                → 应用导航壳（过滤菜单 + 页面路由）
+ * - #/app/:appId/page/:pageId   → 壳内页面（导航壳选中态）
+ * - #/page/:pageId[/:recordId]  → 裸页面（预览凭证通道，保持隔离）
+ * 装载：发布 PageSchema + 字段元数据 → FormPageHost 装配；Schema ETag 缓存（localStorage，按租户失效）。
  */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -10,6 +11,7 @@ import { ConfigProvider, Typography } from 'antd';
 import { RequestClient } from './request';
 import { UsageTracker } from '@schema/usage-tracker';
 import FormPageHost from './FormPageHost';
+import { AppShell, watchTenantChange } from './AppShell';
 
 const client = new RequestClient({
   baseUrl: import.meta.env.VITE_API_BASE ?? '',
@@ -32,12 +34,43 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') tracker.onVisibilityHidden();
 });
 
-interface RouteInfo { pageId: string; recordId?: string }
+interface RouteInfo {
+  kind: 'app' | 'page';
+  appId?: string;
+  pageId?: string;
+  recordId?: string;
+}
 
 function parseHash(): RouteInfo | null {
+  const appMatch = location.hash.match(/^#\/app\/(\d+)(?:\/page\/(\d+))?/);
+  if (appMatch) {
+    return appMatch[2]
+      ? { kind: 'app', appId: appMatch[1], pageId: appMatch[2] }
+      : { kind: 'app', appId: appMatch[1] };
+  }
   const m = location.hash.match(/^#\/page\/(\d+)(?:\/(\d+))?/);
   if (!m) return null;
-  return { pageId: m[1], recordId: m[2] };
+  return { kind: 'page', pageId: m[1], recordId: m[2] };
+}
+
+/** Schema ETag 缓存读取（页面加载 304 命中——localStorage 按租户键隔离）。 */
+function cachedEntry(pageId: string): { etag: string | null; schema: unknown } {
+  const tenant = localStorage.getItem('schema_tenant') ?? 'default';
+  const raw = localStorage.getItem(`schema_page_cache_${tenant}_${pageId}`);
+  if (!raw) return { etag: null, schema: null };
+  try {
+    const parsed = JSON.parse(raw) as { etag: string; schema: unknown };
+    return { etag: parsed.etag, schema: parsed.schema };
+  } catch {
+    return { etag: null, schema: null };
+  }
+}
+
+function cacheEntry(pageId: string, etag: string | null, schema: unknown): void {
+  const tenant = localStorage.getItem('schema_tenant') ?? 'default';
+  const key = `schema_page_cache_${tenant}_${pageId}`;
+  if (etag && schema != null) localStorage.setItem(key, JSON.stringify({ etag, schema }));
+  else localStorage.removeItem(key);
 }
 
 function App(): React.ReactElement {
@@ -45,24 +78,55 @@ function App(): React.ReactElement {
   React.useEffect(() => {
     const onHash = (): void => setRoute(parseHash());
     window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    // 租户切换清缓存 + 强制重载路由态
+    const stop = watchTenantChange(() => {
+      setRoute(parseHash());
+    });
+    return () => {
+      window.removeEventListener('hashchange', onHash);
+      stop();
+    };
   }, []);
+
+  const pageHost = (pageId: string, recordId?: string): React.ReactElement => {
+    const cached = cachedEntry(pageId);
+    return (
+      <FormPageHost
+        client={client}
+        pageId={pageId}
+        recordId={recordId}
+        etag={cached.etag}
+        cachedSchema={cached.schema}
+        onEtag={(etag, schema) => {
+          // 304 命中 schema=null：缓存仍有效不覆写；200 全新内容则持久化
+          if (schema != null) cacheEntry(pageId, etag, schema);
+        }}
+        onSubmitted={() => { window.location.reload(); }}
+      />
+    );
+  };
 
   if (!route) {
     return (
       <Typography.Paragraph style={{ padding: 24 }}>
-        运行时容器就绪。访问 {'#/page/:pageId'} 打开发布页面；编辑态 {'#/page/:pageId/:recordId'}。
+        运行时容器就绪。访问 {'#/app/:appId'} 打开应用导航壳；{'#/page/:pageId'} 直接打开发布页面（预览通道）。
       </Typography.Paragraph>
     );
   }
-  return (
-    <FormPageHost
-      client={client}
-      pageId={route.pageId}
-      recordId={route.recordId}
-      onSubmitted={() => { window.location.reload(); }}
-    />
-  );
+  if (route.kind === 'app' && route.appId) {
+    return (
+      <AppShell
+        client={client}
+        appId={route.appId}
+        onPageSelect={(pageId) => { location.hash = `#/app/${route.appId}/page/${pageId}`; }}
+      >
+        {route.pageId
+          ? pageHost(route.pageId)
+          : <Typography.Paragraph type="secondary">从左侧菜单选择页面</Typography.Paragraph>}
+      </AppShell>
+    );
+  }
+  return pageHost(route.pageId!, route.recordId);
 }
 
 createRoot(document.getElementById('root')!).render(

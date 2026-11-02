@@ -49,9 +49,15 @@ export interface FormPageHostProps {
   recordId?: string | number;
   /** 提交成功行为回调（REFRESH/REDIRECT 由宿主路由层执行）。 */
   onSubmitted?: () => void;
+  /** 缓存 ETag（304 命中输入——宿主缓存层注入）。 */
+  etag?: string | null;
+  /** 缓存 Schema（304 命中时的渲染真源——宿主缓存层注入）。 */
+  cachedSchema?: unknown;
+  /** 新 ETag + Schema 回写（宿主缓存层持久化；304 命中时 schema 为 null 不覆写缓存）。 */
+  onEtag?: (etag: string | null, schema: unknown) => void;
 }
 
-export function FormPageHost({ client, pageId, recordId, onSubmitted }: FormPageHostProps): React.ReactElement {
+export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cachedSchema, onEtag }: FormPageHostProps): React.ReactElement {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
 
   // 页面 Schema + 字段元数据装载
@@ -60,10 +66,14 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted }: FormPage
     (async () => {
       try {
         ensureMaterials();
-        const { schema } = await client.loadPage(pageId);
+        const { schema, etag: newEtag } = await client.loadPage(pageId, etag);
+        // 304 命中：schema 为 null——渲染真源取宿主缓存（同 ETag 同内容，协议保证）
+        const effective = schema ?? cachedSchema;
+        onEtag?.(newEtag, schema);
         // 协议接线（2026-10-30）：migrate 版本门禁 + validatePageSchema 结构校验——
         // 此前裸强转，坏 schema 直入渲染管线（不可预期的运行时崩溃）
-        const migrated = migrate(schema as unknown as PageSchema);
+        if (effective == null) throw new ServerError('LOAD_FAILED', '缓存缺失，请刷新页面');
+        const migrated = migrate(effective as unknown as PageSchema);
         const page = validatePageSchema(migrated);
         if (!page?.modelId) throw new ServerError('PAGE_INVALID', '页面未绑定数据模型');
         const fieldsRaw = await client.loadFields(page.modelId);
@@ -76,7 +86,7 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted }: FormPage
       }
     })();
     return () => { cancelled = true; };
-  }, [client, pageId]);
+  }, [client, pageId, etag, cachedSchema]);
 
   if (state.phase === 'loading') return <Spin tip="页面加载中..." />;
   if (state.phase === 'error') {

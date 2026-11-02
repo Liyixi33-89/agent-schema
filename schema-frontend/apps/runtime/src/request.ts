@@ -20,6 +20,16 @@ export interface RequestConfig {
 export class RequestClient {
   constructor(private readonly config: RequestConfig) {}
 
+  /** 基地址（导航壳等裸 fetch 消费）。 */
+  baseUrl(): string {
+    return this.config.baseUrl;
+  }
+
+  /** 认证头（导航壳等裸 fetch 消费——与数据面同通道）。 */
+  authHeaders(): Record<string, string> {
+    return this.headers();
+  }
+
   private headers(): Record<string, string> {
     const h: Record<string, string> = { 'Content-Type': 'application/json' };
     const token = this.config.getToken?.();

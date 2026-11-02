@@ -6,7 +6,7 @@
     <dependency><groupId>com.schema</groupId><artifactId>schema-protocol</artifactId><version>${project.version}</version></dependency>
     <!-- 上下文映射（0BE §上下文映射）：预览凭证消费 IAM 的 JwtCodec/仓储接口（防腐面）；
          引用登记适配器消费 metadata 应用服务（进程内 /internal/references 同构） -->
-    <dependency><groupId>com.schema</groupId><artifactId>iam-module</artifactId><version>${project.version}</version></dependency>
+    <dependency><groupId>com.schema</groupId><artifactId>iam-module</artifactId><version>${project.version}</version></dependency><dependency><groupId>com.schema</groupId><artifactId>app-module</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>com.schema</groupId><artifactId>metadata-module</artifactId><version>${project.version}</version></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jdbc</artifactId></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>

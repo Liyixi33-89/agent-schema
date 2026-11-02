@@ -196,6 +196,55 @@ public class JdbcIamRepository implements IamRepository {
         return ids.stream().findFirst();
     }
 
+    // ---------- 应用角色初始化与成员查询（13BE §3.1/§3.2） ----------
+
+    @Override
+    public long ensureAppRole(long tenantId, long appId, String code, String name) {
+        jdbc.update("""
+                INSERT INTO sys_role (tenant_id, app_id, code, name, role_type)
+                VALUES (?, ?, ?, ?, 'APP') ON CONFLICT DO NOTHING
+                """, tenantId, appId, code, name);
+        return jdbc.queryForObject(
+                "SELECT id FROM sys_role WHERE tenant_id=? AND app_id=? AND code=?",
+                Long.class, tenantId, appId, code);
+    }
+
+    @Override
+    public List<Long> findRoleIdsOfUserInApp(long tenantId, long userId, long appId) {
+        List<Long> result = new ArrayList<>();
+        for (Map<String, Object> r : jdbc.queryForList("""
+                SELECT r.id FROM sys_role r JOIN sys_user_role ur ON ur.role_id = r.id
+                WHERE r.tenant_id=? AND r.app_id=? AND ur.user_id=?
+                """, tenantId, appId, userId)) {
+            result.add(((Number) r.get("id")).longValue());
+        }
+        return result;
+    }
+
+    @Override
+    public List<Map<String, Object>> findMembersOfApp(long tenantId, long appId) {
+        return jdbc.queryForList("""
+                SELECT ur.user_id, u.name, u.account, r.id AS role_id, r.code AS role_code, r.name AS role_name
+                FROM sys_user_role ur
+                JOIN sys_role r ON r.id = ur.role_id
+                JOIN sys_user u ON u.id = ur.user_id
+                WHERE r.tenant_id=? AND r.app_id=?
+                ORDER BY ur.user_id, r.id
+                """, tenantId, appId);
+    }
+
+    @Override
+    public List<String> findRoleCodesOfUserInApp(long tenantId, long userId, long appId) {
+        List<String> codes = new ArrayList<>();
+        for (Map<String, Object> r : jdbc.queryForList("""
+                SELECT r.code FROM sys_role r JOIN sys_user_role ur ON ur.role_id = r.id
+                WHERE r.tenant_id=? AND r.app_id=? AND ur.user_id=?
+                """, tenantId, appId, userId)) {
+            codes.add((String) r.get("code"));
+        }
+        return codes;
+    }
+
     @Override
     public void insertRefreshToken(long tenantId, long userId, String tokenHash, OffsetDateTime expiresAt) {
         jdbc.update("""
