@@ -87,6 +87,25 @@ pnpm exec vitest run
 - `verify.ps1 commit`：backend-it 探活 FAIL 为本机 Windows→WSL 网络半失效既知误报
   （集成测试本体已在 WSL 内全绿，见 §4.1；CI Linux/pwsh 环境无此问题——与 M8-M10 验收时同口径）
 
+### 4.4 服务器 Docker 独立验证（2026-11-02，独立测试容器 + 测试库，未触碰既有部署）
+
+在服务器（111.231.57.177，OpenCloudOS 9.4）安装 Docker 29.9.2（腾讯云镜像源），
+起独立测试容器 `schema-it-pg`（postgres:16-alpine，绑定 127.0.0.1:15432），
+在**干净库**上执行完整验证：
+
+1. **迁移链完整性**：V1→V13 全部 13 个迁移文件顺序执行成功（`ON_ERROR_STOP` 模式），
+   共 35 张表创建——DDL 无语法错误、无顺序依赖问题。
+2. **新表结构核验**：`app` 表 13 列、`ops_notice` 表 9 列。
+3. **业务语义抽验**（真实 SQL 语义）：
+   - 应用插入 + JSONB 导航树写入（nav_tree）正常；
+   - 重名约束：`UNIQUE (tenant_id, name)` 生效（重复插入被拒）；
+   - 导航乐观并发：正确版本 CAS 成功（v1→v2），过期版本 CAS **影响 0 行且版本未被误改**；
+   - 应用角色幂等插入（`ON CONFLICT DO NOTHING`）正常。
+4. 验证后清理：测试容器与临时文件已全部移除，服务器无残留。
+
+验证命令与完整输出见会话记录；迁移文件与验证脚本经 base64 通道传输（脚本在
+`.session_tmps/server_verify.sh`，语义与本节一致）。
+
 ## 5. 依赖组前置证据复核（M2-M5 / M6-M7 解锁）
 
 M11 台账依赖 M2-M5 与 M6-M7 两组（均为 implemented 待验收）。本次全量回归覆盖两组的验收测试：
