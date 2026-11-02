@@ -2,16 +2,21 @@
  * 请求层（M11 最小宿主，02FE §7 DataSourceBinding 消费）：
  * 统一 ID/过滤树/响应包裹/错误结构——表单与列表数据面的唯一通道。
  *
+ * v0.4 双通道（03BE §4.1 通道强制隔离）：
+ * - 正式通道：HttpOnly Cookie（schema_at 自动携带，credentials:'same-origin'）+ X-CSRF-Token 双提交；
+ * - 预览通道：内存 Bearer（credentials:'omit'——禁止回落正式会话，失效即占位页）。
+ *
  * 错误映射（03FE §7 服务端校验对齐）：
  * 422 VALIDATION_FAILED → ServerError（字段级错误归位）；
  * 401/403/404/409 → 全局错误；网络异常 → 全局错误。
  */
 import { ServerError } from '@schema/schema-form';
+import { authHeaders } from '@schema/auth-sdk';
 import type { FilterNode } from '@schema/schema-protocol';
 
 export interface RequestConfig {
   baseUrl: string;
-  /** 认证 token 获取（宿主注入——从 localStorage/预览会话取）。 */
+  /** 预览 Bearer token 获取（预览页场景注入——内存持有；正式场景不传走 Cookie 通道）。 */
   getToken?: () => string | null;
   /** 租户头（JWT claim 绑定口径）。 */
   getTenantId?: () => string | null;
@@ -30,20 +35,36 @@ export class RequestClient {
     return this.headers();
   }
 
+  /** 是否预览通道（内存 Bearer——credentials:'omit' 与 Cookie 通道强制隔离）。 */
+  private isPreviewChannel(): boolean {
+    return this.config.getToken != null;
+  }
+
   private headers(): Record<string, string> {
-    const h: Record<string, string> = { 'Content-Type': 'application/json' };
-    const token = this.config.getToken?.();
-    if (token) h['Authorization'] = `Bearer ${token}`;
-    const tenant = this.config.getTenantId?.();
-    if (tenant) h['X-Tenant-Id'] = tenant;
-    return h;
+    if (this.isPreviewChannel()) {
+      const h: Record<string, string> = { 'Content-Type': 'application/json' };
+      const token = this.config.getToken?.();
+      if (token) h['Authorization'] = `Bearer ${token}`;
+      const tenant = this.config.getTenantId?.();
+      if (tenant) h['X-Tenant-Id'] = tenant;
+      return h;
+    }
+    // 正式 Cookie 通道：csrf 双提交 + 租户头（schema_at 由浏览器自动携带）
+    return authHeaders({ 'Content-Type': 'application/json' });
+  }
+
+  private fetchInit(): RequestInit {
+    return this.isPreviewChannel()
+      ? { credentials: 'omit' as RequestCredentials }   // 预览通道：不带任何平台 cookie
+      : { credentials: 'same-origin' as RequestCredentials };
   }
 
   /** 发布页面 Schema 加载（ETag 缓存）。 */
   async loadPage(pageId: string | number, etag?: string | null): Promise<{ schema: unknown; etag: string | null }> {
     const h = this.headers();
     if (etag) h['If-None-Match'] = `"${etag}"`;
-    const resp = await fetch(`${this.config.baseUrl}/api/runtime/pages/${pageId}`, { headers: h });
+    const resp = await fetch(`${this.config.baseUrl}/api/runtime/pages/${pageId}`,
+      { headers: h, ...this.fetchInit() });
     if (resp.status === 304) return { schema: null, etag: etag ?? null };
     if (resp.status === 404) throw new ServerError('NOT_FOUND', '页面不存在或未发布');
     if (!resp.ok) throw new ServerError('LOAD_FAILED', `页面加载失败 (${resp.status})`);
@@ -54,6 +75,7 @@ export class RequestClient {
   async loadFields(modelId: string | number): Promise<unknown> {
     const resp = await fetch(`${this.config.baseUrl}/api/data/${modelId}/fields`, {
       headers: this.headers(),
+      ...this.fetchInit(),
     });
     if (resp.status === 404) throw new ServerError('NOT_FOUND', '模型不存在或无权访问');
     if (!resp.ok) throw new ServerError('LOAD_FAILED', `字段元数据加载失败 (${resp.status})`);
@@ -75,6 +97,7 @@ export class RequestClient {
   async detail(modelId: string | number, recordId: string | number): Promise<unknown> {
     const resp = await fetch(`${this.config.baseUrl}/api/data/${modelId}/${recordId}`, {
       headers: this.headers(),
+      ...this.fetchInit(),
     });
     if (resp.status === 404) throw new ServerError('NOT_FOUND', '记录不存在');
     if (!resp.ok) throw new ServerError('LOAD_FAILED', `详情加载失败 (${resp.status})`);
@@ -91,6 +114,7 @@ export class RequestClient {
     data: Record<string, unknown>): Promise<unknown> {
     const resp = await fetch(`${this.config.baseUrl}/api/data/${modelId}/${recordId}`, {
       method: 'PUT', headers: this.headers(), body: JSON.stringify(data),
+      ...this.fetchInit(),
     });
     return this.unwrap(resp);
   }
@@ -112,6 +136,7 @@ export class RequestClient {
   private postRaw(path: string, body: unknown): Promise<Response> {
     return fetch(`${this.config.baseUrl}${path}`, {
       method: 'POST', headers: this.headers(), body: JSON.stringify(body),
+      ...this.fetchInit(),
     });
   }
 

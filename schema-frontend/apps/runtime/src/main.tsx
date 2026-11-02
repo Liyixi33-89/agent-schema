@@ -13,22 +13,15 @@ import { UsageTracker } from '@schema/usage-tracker';
 import FormPageHost from './FormPageHost';
 import { AppShell, watchTenantChange } from './AppShell';
 
+// v0.4 Cookie 通道：正式访问不带 getToken（schema_at 自动携带）；预览页场景由宿主另行注入 Bearer
 const client = new RequestClient({
   baseUrl: import.meta.env.VITE_API_BASE ?? '',
-  getToken: () => localStorage.getItem('schema_token'),
   getTenantId: () => localStorage.getItem('schema_tenant'),
 });
 
-/** 计量埋点（09FE）：认证头与请求层同通道（schema_token）——上报通道需登录态。 */
+/** 计量埋点（09FE）：认证头与请求层同通道（Cookie + 双提交）——上报通道需登录态。 */
 const tracker = new UsageTracker({
-  authHeader: () => {
-    const token = localStorage.getItem('schema_token');
-    const tenant = localStorage.getItem('schema_tenant');
-    const h: Record<string, string> = {};
-    if (token) h.Authorization = `Bearer ${token}`;
-    if (tenant) h['X-Tenant-Id'] = tenant;
-    return h;
-  },
+  authHeader: () => client.authHeaders(),
 });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') tracker.onVisibilityHidden();

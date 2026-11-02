@@ -2,7 +2,7 @@
  * M11 设计器工作台（13BE §A.1/§A.2）：
  * - 应用卡片墙（按 myRole 过滤可见性——服务端过滤为准，前端不做权限二次判断）
  * - 应用设置四页签：成员 / 导航 / 主题 / 发布
- * - 登录态：localStorage schema_token（与 runtime 同通道）
+ * - 登录态：v0.4 HttpOnly Cookie 三件套（前端零凭证存储——本地仅存展示用账号名）
  */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -10,6 +10,7 @@ import {
   Button, Card, Col, ConfigProvider, Empty, Form, Input, Layout, List, message, Modal, Popconfirm,
   Row, Select, Space, Spin, Tabs, Tag, Typography,
 } from 'antd';
+import { broadcastLogout, logout as sdkLogout, watchAuthChannel } from '@schema/auth-sdk';
 import { ApiClient, ApiError, type AppCard, type MemberRow, type NavNode, type ReleaseRow } from './api';
 
 const api = new ApiClient();
@@ -19,15 +20,25 @@ interface Session {
 }
 
 function useSession(): [Session | null, () => void] {
+  // Cookie 通道：本地不存凭证——首屏以会话标记过渡（真实登录态由服务端 401 判定兜底）
   const [session, setSession] = React.useState<Session | null>(() =>
-    localStorage.getItem('schema_token') ? { account: localStorage.getItem('schema_account') ?? '' } : null,
+    sessionStorage.getItem('schema_session') === '1'
+      ? { account: localStorage.getItem('schema_account') ?? '' } : null,
   );
   const logout = React.useCallback(() => {
-    localStorage.removeItem('schema_token');
-    localStorage.removeItem('schema_refresh');
-    localStorage.removeItem('schema_account');
-    setSession(null);
+    void sdkLogout().finally(() => {
+      broadcastLogout();
+      sessionStorage.removeItem('schema_session');
+      setSession(null);
+    });
   }, []);
+  // 多标签协调：他端登出即时感知（不等下一次请求 401）
+  React.useEffect(() => watchAuthChannel((msg) => {
+    if (msg.type === 'logout') {
+      sessionStorage.removeItem('schema_session');
+      setSession(null);
+    }
+  }), []);
   return [session, logout];
 }
 
@@ -36,14 +47,14 @@ function useSession(): [Session | null, () => void] {
 function LoginPanel({ onLogin }: { onLogin: (account: string) => void }): React.ReactElement {
   const [form] = Form.useForm();
   const [loading, setLoading] = React.useState(false);
+  React.useEffect(() => { void api.initCsrf(); }, []);   // 匿名 csrf（登录 CSRF 防护）
   return (
     <Card title="Schema 设计器 · 登录" style={{ maxWidth: 380, margin: '80px auto' }}>
       <Form form={form} onFinish={async (v: { account: string; password: string }) => {
         setLoading(true);
         try {
-          const r = await api.login(v.account, v.password);
-          localStorage.setItem('schema_token', r.accessToken);
-          if (r.refreshToken) localStorage.setItem('schema_refresh', r.refreshToken);
+          await api.login(v.account, v.password);
+          sessionStorage.setItem('schema_session', '1');
           localStorage.setItem('schema_account', v.account);
           localStorage.setItem('schema_tenant', localStorage.getItem('schema_tenant') ?? '1');
           onLogin(v.account);

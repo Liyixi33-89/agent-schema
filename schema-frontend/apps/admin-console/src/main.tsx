@@ -2,6 +2,7 @@
  * M11 管理端 P1（console-p1 验收）：租户用量 / 成员管理 / 健康状态 / 维护公告。
  * 数据源：/api/metering/usage/summary（09BE）、/api/org/members（03BE）、
  * /api/ops/health 与 /api/ops/notices（13BE §6 分期最小集）。
+ * v0.4：HttpOnly Cookie 通道（schema_at 自动携带 + X-CSRF-Token 双提交）。
  */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -9,26 +10,29 @@ import {
   Alert, Button, Card, ConfigProvider, Form, Input, Layout, List, message, Space, Statistic,
   Table, Tabs, Tag, Typography,
 } from 'antd';
+import {
+  authHeaders, broadcastLogout, initCsrf, login as sdkLogin, logout as sdkLogout, watchAuthChannel,
+} from '@schema/auth-sdk';
 
 interface SessionState { account: string }
-
-function headers(): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = localStorage.getItem('schema_token');
-  const tenant = localStorage.getItem('schema_tenant');
-  if (token) h['Authorization'] = `Bearer ${token}`;
-  if (tenant) h['X-Tenant-Id'] = tenant;
-  return h;
-}
 
 const BASE = import.meta.env.VITE_API_BASE ?? '';
 
 async function req(method: string, path: string, body?: unknown): Promise<unknown> {
-  const resp = await fetch(`${BASE}${path}`, {
+  const doFetch = (): Promise<Response> => fetch(`${BASE}${path}`, {
     method,
-    headers: headers(),
+    credentials: 'same-origin',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  let resp = await doFetch();
+  if (resp.status === 403) {
+    const raw = await resp.clone().json().catch(() => ({}));
+    if ((raw as { code?: string }).code === 'CSRF_TOKEN_REJECTED') {
+      await initCsrf(BASE);
+      resp = await doFetch();
+    }
+  }
   if (resp.status === 401) throw new Error('登录已过期，请重新登录');
   if (!resp.ok) {
     const raw = await resp.json().catch(() => ({}));
@@ -46,22 +50,13 @@ function errOf(e: unknown): string {
 
 function LoginPanel({ onLogin }: { onLogin: (account: string) => void }): React.ReactElement {
   const [form] = Form.useForm();
+  React.useEffect(() => { void initCsrf(BASE); }, []);   // 匿名 csrf（登录 CSRF 防护）
   return (
     <Card title="Schema 管理端 · 登录" style={{ maxWidth: 380, margin: '80px auto' }}>
       <Form form={form} onFinish={async (v: { account: string; password: string }) => {
         try {
-          const resp = await fetch(`${BASE}/api/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(v),
-          });
-          if (!resp.ok) {
-            const raw = await resp.json().catch(() => ({}));
-            throw new Error((raw as { message?: string }).message ?? '登录失败');
-          }
-          const body = (await resp.json()) as { accessToken: string; refreshToken?: string };
-          localStorage.setItem('schema_token', body.accessToken);
-          if (body.refreshToken) localStorage.setItem('schema_refresh', body.refreshToken);
+          await sdkLogin(BASE, v);
+          sessionStorage.setItem('schema_session', '1');
           localStorage.setItem('schema_account', v.account);
           localStorage.setItem('schema_tenant', localStorage.getItem('schema_tenant') ?? '1');
           onLogin(v.account);
@@ -277,11 +272,17 @@ function NoticesTab(): React.ReactElement {
 
 function App(): React.ReactElement {
   const [session, setSession] = React.useState<SessionState | null>(() =>
-    localStorage.getItem('schema_token')
+    sessionStorage.getItem('schema_session') === '1'
       ? { account: localStorage.getItem('schema_account') ?? '' }
       : null,
   );
   React.useEffect(() => { document.title = 'Schema 管理端'; }, []);
+  React.useEffect(() => watchAuthChannel((msg) => {
+    if (msg.type === 'logout') {
+      sessionStorage.removeItem('schema_session');
+      setSession(null);
+    }
+  }), []);
 
   if (!session) {
     return (
@@ -298,9 +299,11 @@ function App(): React.ReactElement {
           <Space>
             <Typography.Text style={{ color: '#ccc' }}>{session.account}</Typography.Text>
             <Button size="small" onClick={() => {
-              localStorage.removeItem('schema_token');
-              localStorage.removeItem('schema_refresh');
-              setSession(null);
+              void sdkLogout(BASE).finally(() => {
+                broadcastLogout();
+                sessionStorage.removeItem('schema_session');
+                setSession(null);
+              });
             }}>退出</Button>
           </Space>
         </Layout.Header>
