@@ -58,16 +58,19 @@ TC-E2E-01 的步骤 5-7（预览→发布→运行）抽出为 15 分钟冒烟�
 | 用例 | 场景 | 断言 |
 |---|---|---|
 | TC-SESS-01 强制改密拦截 | 初始密码首登 | 受保护接口全拒（403 + PASSWORD_CHANGE_REQUIRED），仅放行名单内接口（改密/登出）可访问 |
-| TC-SESS-02 改密后旧会话失效 | 改密成功 | 旧 access（cookie 或 Bearer）立即 401（服务端失效，非仅前端丢弃）；新会话三件套 Set-Cookie 签发可用（03BE §4.1/A.3.1） |
+| TC-SESS-02 改密后旧会话失效 | 改密成功 | 旧 access（cookie 或 Bearer）立即 401（服务端 `pwdVersion` 校验失效，非仅前端丢弃——03BE §4.1 强失效语义）；新会话三件套 Set-Cookie 签发可用（03BE §4.1/A.3.1） |
 | TC-SESS-03 多标签登出同步 | 标签页 A 登出 | 标签页 B 通过 BroadcastChannel 收到事件并清理——**降级路径**：不支持 BroadcastChannel 时轮询/me 或 storage 事件兜底，不允许依赖标签页隔离的 sessionStorage 单打独斗 |
 | TC-SESS-04 预览凭证单次有效 | grant 5min 窗口 | 同一 grant 二次交换被拒；过期 grant 被拒（04BE §A.7） |
 | TC-SESS-05 预览凭证吊销闭环 | 吊销 grant | 在途 previewSessionId 的下一次请求 401 即时失效；WebSocket/长轮询通道同步断开 |
 | TC-SESS-06 凭证跨租户不可用 | T-B 用户拿 T-A 的预览 grant | 404 + 审计（绑定约束：grant 与租户/用户/应用三元组绑定） |
 | TC-SESS-07 注销冷静期与恢复工单 | 租户注销 → 冷静期内撤销 | 撤销后数据完整可用；冷静期结束执行清除 → 数据物理删除/匿名化 + 注销证明生成；恢复工单状态机全迁移路径覆盖（13BE §A.4.1：申请→确认→回灌中→成功/失败，每个状态有合法入口出口） |
-| TC-SESS-08 Cookie 会话属性（v0.4） | 登录响应 Set-Cookie 断言 | `schema_at`/`schema_rt` 含 `HttpOnly; Secure`；`schema_rt` 另含 `SameSite=Strict; Path=/api/auth`（Path 收窄生效）；`schema_csrf` 非 HttpOnly（双提交可读）；响应体**不含**任何 token 字段（前端零凭证存储不变量） |
+| TC-SESS-08 Cookie 会话属性（v0.4） | 登录响应 Set-Cookie 断言 | `schema_at`/`schema_rt` 含 `HttpOnly; Secure`；`schema_rt` 另含 `SameSite=Strict; Path=/api/auth`（Path 收窄生效）；`schema_csrf` 非 HttpOnly 且 `Path=/`；三枚均**不设 Domain**（host-only）；响应体**不含**任何 token 字段（前端零凭证存储不变量） |
 | TC-SESS-09 CSRF 双提交（v0.4 四道防线第一道） | 状态变更请求 ①缺 `X-CSRF-Token` 头 ②头值与 `schema_csrf` cookie 不等 ③跨站站 点仅带 cookie 不带头 | 三情形均 403 `CSRF_TOKEN_REJECTED` 不执行业务；GET/HEAD 不校验双提交（幂等不受影响）；合法双提交放行 |
-| TC-SESS-10 refresh Path 隔离（v0.4） | 业务端点请求携带 `schema_rt` | `Path=/api/auth` 收窄生效——`/api/data/**` 等业务请求**不携带** refresh cookie（断言请求头无 schema_rt）；XSS 注入的任意 fetch 同样无法触达 refresh 面 |
-| TC-SESS-11 预览态与正式会话并存（v0.4） | 同浏览器：已登录设计器 + 打开预览链接 | 预览请求走 Bearer 不带 `schema_at`；设计器请求走 Cookie 不带预览 Bearer；互不污染互不失效（预览吊销不影响设计器会话，反之亦然） |
+| TC-SESS-09a 登录 CSRF 保护（v0.4） | 未调 `GET /api/auth/csrf` 直接登录（无匿名 csrf cookie） | 登录请求 403 `CSRF_TOKEN_REJECTED`；正常流程（先取 csrf 再登录）放行；登录成功后匿名 csrf 被会话绑定 csrf 替换（旧匿名值再请求 403） |
+| TC-SESS-10 refresh Path 隔离（v0.4） | 业务端点请求携带 `schema_rt` | `Path=/api/auth` 收窄生效——`/api/data/**` 等业务请求**不携带** refresh cookie（断言请求头无 schema_rt）。⚠️ 边界同步：向 `/api/auth/refresh` 发起的请求（含 XSS 注入的）浏览器仍会携带 cookie——refresh 面防线靠一次性消费+黑名单+双提交，断言覆盖「旧 refresh 短窗口外重放 401 入黑名单审计」 |
+| TC-SESS-11 预览态与正式会话并存（v0.4） | 同浏览器：已登录设计器 + 打开预览链接 | 预览请求 `credentials:'omit'` 不带 `schema_at`/`schema_csrf` 且走 Bearer；设计器请求走 Cookie 不带预览 Bearer；预览 401 不触发正式会话刷新不回落（直接占位页）；Cookie 访问预览端点 401 `PREVIEW_CREDENTIAL_REJECTED`（通道强制隔离）；互不污染互不失效 |
+| TC-SESS-12 多标签并发刷新（v0.4） | 标签页 A/B 同时触发静默刷新 | BroadcastChannel 可用：A 刷新成功广播 {type:'refreshed'}，B 放弃排队刷新直接重放原请求成功；BC 不可用：两端独立刷新均成功（服务端 ±10s 重放容忍），无端被踢出登录；新 csrf 经广播同步，B 不因旧值被 403 |
+| TC-SESS-13 强失效语义（v0.4） | 改密成功后旧 access 使用 | 旧 access（cookie 或 Bearer）下一请求即 401（`pwdVersion` claim 与服务端版本不一致——服务端会话状态校验，非等 2h 自然过期）；另一设备旧 refresh 刷新 401 `REFRESH_REVOKED` 踢出 |
 
 ## 3. L2 Worker 隔离测试（G7 门禁，一票否决）
 
@@ -78,7 +81,7 @@ TC-E2E-01 的步骤 5-7（预览→发布→运行）抽出为 15 分钟冒烟�
 | TC-L2-01 环境隔离能力面 | 脚本访问 window/document | undefined（环境断言）；**不做全局对象不可达断言**（WorkerGlobalScope 必然存在——08FE 定版） |
 | TC-L2-02 token 不进 Worker | 消息桥全量断言 | Worker 消息流中无凭证字段；`api.call` 由主线程代理，响应不含 token 回传 |
 | TC-L2-03 死循环硬中断 | `while(true){}` | 10s 后 worker.terminate() 生效、主线程恢复、页面其余功能完好（核心验收项——AbortSignal 做不到） |
-| TC-L2-04 网络出口三层兜底 | Worker 内发起白名单外 fetch | ①红线扫描编译期拦截；②Worker 脚本响应头 CSP `connect-src 'none'` 浏览器阻断（**断言浏览器报 CSP violation 而非请求成功**）；③网关鉴权拒（Worker fetch 不带平台 cookie——v0.4 会话 cookie 为 SameSite=Lax 跨站与 Worker 内源外请求不携带；无凭证 401）——三层各自独立可测 |
+| TC-L2-04 网络出口三层兜底 | Worker 内发起白名单外 fetch | ①红线扫描编译期拦截；②Worker 脚本响应头 CSP `connect-src 'none'` 浏览器阻断（**断言浏览器报 CSP violation 而非请求成功**）——此层为**主防线**；③网关鉴权拒（Worker fetch 无 `X-CSRF-Token` 头——双提交校验 403 兜底；⚠️ 不得断言「Worker fetch 不带 cookie」——同源请求浏览器可能自动携带，HttpOnly/SameSite 不区分主线程与 Worker，网络隔离唯一可靠层是 CSP）——三层各自独立可测 |
 | TC-L2-05 钩子超时 | onBeforeSubmit 超时 | 超时后钩子链放行/阻断按钩子类型定版语义执行 + 上报 |
 | TC-L2-06 测试台保真 | 脚本测试台执行结果与运行时一致 | 同一脚本双环境执行结果 deepEqual（08FE §6） |
 | TC-L2-07 feature flag 开关 | G7 未过时 | 平台侧一键关闭 L2 功能，含 L2 的页面降级渲染（visibleWhen 等基础表达式不受影响——L1/L2 分层断言） |

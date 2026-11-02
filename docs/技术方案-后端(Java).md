@@ -17,9 +17,10 @@
 > - flow-service 明确整体 Phase 2（P1 无审批执行；应用删除审批流同步降级，见文档 13 §3.1）
 >
 > v0.4 变更（登录态凭证通道定版，2026-11-02）：
-> - 正式登录态从 Bearer Header 迁移为 **HttpOnly Cookie 会话**：`schema_at`(access 2h, HttpOnly+SameSite=Lax+Secure) + `schema_rt`(refresh 7d, HttpOnly+SameSite=Strict+Path=/api/auth) + `schema_csrf`(可读, 双提交源)——凭证对 JS 不可达，XSS 窃取面归零；实现真源 03BE §4/§4.1
-> - CSRF 防线从「三道兜底」升级为**四道强制**：新增第一道 **CSRF 双提交**（状态变更请求 `X-CSRF-Token` 头与 `schema_csrf` cookie 等值校验，缺失/不等即 403 `CSRF_TOKEN_REJECTED`）；原三道（Origin/Referer、CORS 凭证白名单、GET 无副作用）保留为纵深
-> - 兼容通道：过渡期保留 `Authorization: Bearer` 解析（服务端双通道识别）；预览/嵌入短时凭证保持 Bearer 不迁（04BE §A.7 口径不变）
+> - 正式登录态从 Bearer Header 迁移为 **HttpOnly Cookie 会话**：`schema_at`(access 2h, HttpOnly+SameSite=Lax+Secure+Path=/) + `schema_rt`(refresh 7d, HttpOnly+SameSite=Strict+Path=/api/auth) + `schema_csrf`(可读, 双提交源, Path=/)——凭证对 JS 不可达，消除「token 被窃取离线重放」风险面（⚠️ 非「XSS 面归零」——XSS 仍可借当前会话伪造请求，防线转移至 CSP+双提交）；实现真源 03BE §4/§4.1
+> - CSRF 防线从「三道兜底」升级为**四道强制**：新增第一道 **CSRF 双提交**（状态变更请求 `X-CSRF-Token` 头与 `schema_csrf` cookie 等值校验，缺失/不等即 403 `CSRF_TOKEN_REJECTED`）；原三道（Origin/Referer、CORS 凭证白名单、GET 无副作用）保留为纵深；新增 `GET /api/auth/csrf` 匿名初始化端点（登录 CSRF 防护——登录前无会话 csrf 可用）
+> - 兼容通道：过渡期保留 `Authorization: Bearer` 解析（服务端双通道识别）；预览/嵌入短时凭证保持 Bearer 不迁且**通道强制隔离**（预览请求 `credentials:'omit'`，禁止回落正式会话——04BE §A.7 / 03BE §4.1）
+> - 生命周期收口（安全边界修正与补齐，2026-11-02 二次收口）：①refresh「一次性消费」放宽为 ±10s 重放容忍窗口（多标签并发刷新不误踢）；②改密强失效经 `pwdVersion` claim 服务端校验（旧 access 下一请求即 401，非等 2h）；③三枚 cookie 均 host-only 不设 Domain（UI 与 API 同源部署定版，TLS 上线为前置约束）；④Path 收窄定位修正——只限制跨路径携带，不阻止同源脚本触达 refresh 端点（refresh 面真实防线 = 一次性消费+黑名单+双提交）
 
 ## 1. 技术选型总览
 

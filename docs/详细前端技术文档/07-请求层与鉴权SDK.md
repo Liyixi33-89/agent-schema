@@ -77,10 +77,13 @@ PASSWORD_CHANGE_REQUIRED（403）：全局拦截重定向强制改密页（§5�
 
 ```
 凭证存储（正式登录态）：HttpOnly Cookie 三件套——前端零凭证存储：
-  schema_at    access 2h：HttpOnly + Secure + SameSite=Lax（JS 不可读——XSS 无可窃取面）
+  schema_at    access 2h：HttpOnly + Secure + SameSite=Lax + Path=/
+               （JS 不可读——XSS 无法窃取凭证本体离线重放）
   schema_rt    refresh 7d：HttpOnly + Secure + SameSite=Strict + Path=/api/auth
-               （Path 收窄：刷新端点独占携带，业务请求与 XSS 注入的 fetch 均不触达）
-  schema_csrf  CSRF 双提交源：可读（非 HttpOnly）+ Secure + SameSite=Lax
+               （Path 收窄：业务请求不携带，缩小暴露面。⚠️ 边界：Path 不阻止同源脚本
+                向 /api/auth/refresh 发请求——XSS 场景该请求仍携带 cookie；refresh 面
+                真实防线 = 一次性消费 + 黑名单 + 双提交，Path 只是纵深一层）
+  schema_csrf  CSRF 双提交源：可读（非 HttpOnly）+ Secure + SameSite=Lax + Path=/
                （随机数，登录/刷新/改密响应滚动更新；请求头 X-CSRF-Token 与之等值校验）
   Set-Cookie 均由后端签发（03BE §4.1）；登出 = 后端清 cookie + refresh 黑名单写入
   ⚠️ 权衡说明（相对旧方案的取舍）：HttpOnly 使 XSS 无法窃取凭证本体，但 XSS 仍可借当前会话
@@ -88,10 +91,21 @@ PASSWORD_CHANGE_REQUIRED（403）：全局拦截重定向强制改密页（§5�
      不再依赖「token 不在 storage」这一单点。sessionStorage 镜像与内存 token 全部废除
   过渡兼容：request-sdk 保留 Bearer 注入分支（后端双通道识别），存量集成与 SDK 老版本
      调用方在迁移窗口内不破坏；新代码一律走 Cookie 通道
+CSRF 初始化：登录页加载即调 GET /api/auth/csrf 取匿名 csrf（登录请求带头等值校验，
+     防登录 CSRF）；登录/刷新/改密响应滚动更新会话绑定的 csrf——SDK 读 document.cookie
+     中 schema_csrf 注入头，不额外存储
 刷新：access 有效期 2h，过期前 5min 静默刷新（单飞锁）；刷新请求自动携带 schema_rt
      （Path=/api/auth）→ 响应滚动签发新三件套（Set-Cookie）——SDK 无需读取/存储任何 token
+多标签并发刷新协调（2026-11-02 补）：BroadcastChannel('auth') 扩展 {type:'refreshed'}
+     广播——A 标签刷新成功后广播，B 标签收到即放弃本地排队刷新直接重放原请求；
+     新 schema_csrf 一并经广播同步（防 B 标签持旧值被误拒 403）；BC 不可用降级为
+     每标签页独立刷新（服务端 ±10s 重放容忍窗口兜底，不依赖跨标签协调）；
+     降级路径下旧 csrf 请求 403 时 SDK 自动拉取新 csrf 重试一次（仅一次再上抛）
 一次性 code（嵌入场景）：宿主传 code → POST 换预览态 Bearer 凭证（内存持有）→ 预览会话
      与正式 Cookie 会话并存互不污染（同一浏览器打开预览不影响已登录的设计器会话）
+通道隔离强制（2026-11-02 补）：预览/嵌入请求一律 credentials:'omit'（不带任何平台
+     cookie）；预览 Bearer 401 失效后只展示占位页，禁止回落正式会话或触发正式刷新——
+     request-sdk 的 Cookie 通道与预览 Bearer 通道为两个独立实例，不共享封装
 权限快照：{ userId, roles, perms: Set<string>, dept } → hasPerm(perm) O(1)（凭证不可读不影响——
      快照来自 GET /api/me 响应体，非 token 解析）
 失效：登出/401 刷新失败/切换租户 → 清快照 + 跳登录（cookie 由后端响应清除；前端额外
@@ -114,13 +128,15 @@ PASSWORD_CHANGE_REQUIRED（403）：全局拦截重定向强制改密页（§5�
 ## 6. 单元测试硬性要求
 
 - [ ] 401 单飞：并发 3 个 401 请求只触发一次刷新且全部重放成功（Cookie 通道：刷新请求零 body，schema_rt 自动携带）
-- [ ] CSRF 双提交：状态变更请求均注入 `X-CSRF-Token`（与 schema_csrf 等值）；登录/刷新/改密后新 csrf 值即时生效（旧值请求 403）
+- [ ] CSRF 双提交：状态变更请求均注入 `X-CSRF-Token`（与 schema_csrf 等值）；登录前匿名 csrf 获取并注入（登录 CSRF 防护）；登录/刷新/改密后新 csrf 值即时生效（旧值请求 403 → 自动拉新值重试一次）
 - [ ] 凭证不可达断言：`document.cookie` 不含 schema_at/schema_rt（HttpOnly 生效）；SDK 任何代码路径不读取/存储 access/refresh 本体
 - [ ] 租户头/trace 头：拦截器对所有请求生效（含动态 URL）
 - [ ] size clamp：超 200 自动截断；响应 total 透传正确
 - [ ] 错误归一化：各 bizCode 映射正确异常类；409 携带 serverVersion
 - [ ] 权限缓存：hasPerm 命中/未命中；登出后失效
 - [ ] 多标签页登出广播生效（BroadcastChannel：A 标签页登出 → B 标签页清凭证跳登录；BC 不可用降级心跳戳轮询生效）
+- [ ] 多标签并发刷新协调：A 标签刷新成功广播 {type:'refreshed'} → B 标签放弃排队刷新直接重放；BC 不可用时两端独立刷新均成功（服务端 ±10s 重放容忍兜底，无端被误踢）
+- [ ] 通道隔离：预览请求 `credentials:'omit'` 不带 schema_at/schema_csrf；预览 401 不触发正式会话刷新不回落（直接占位页）；Cookie 通道与预览通道为独立实例
 - [ ] **PASSWORD_CHANGE_REQUIRED**：未改密账号访问任意接口被重定向强制改密页（非 toast 非重试）；改密成功后 Set-Cookie 新会话生效、权限快照重拉、不跳登录页；其他标签页旧凭证触发 401 REFRESH_REVOKED 同步失效
 - [ ] 预览态隔离：同一浏览器正式 Cookie 会话 + 预览 Bearer 态并存，互不污染（预览请求不带 schema_at；正式请求不带预览 Bearer）
 
@@ -134,6 +150,7 @@ PASSWORD_CHANGE_REQUIRED（403）：全局拦截重定向强制改密页（§5�
 |---|---|---|---|
 | 1 | `GET /api/open/v1/docs.json` | 类型生成：`openapi-typescript` → `api-types.gen.ts`（CI 自动，禁手写 DTO） | 06 §A.2 |
 | 2 | `POST /api/auth/login` / `refresh` / `logout` / `exchange` | auth-sdk 登录态生命周期（§5：Set-Cookie 会话签发/滚动刷新/清除；静默刷新、单飞、黑名单失效跳登录）；`refresh` 请求零 body（schema_rt cookie 自动携带） | 03 §A.1 |
+| 2a | `GET /api/auth/csrf` | 登录页加载匿名 csrf 签发（登录 CSRF 防护）；403 自动重拉场景复用（§5 CSRF 初始化） | 03 §A.1 |
 | 3 | `GET /api/me` | 权限快照（hasPerm O(1)） | 03 §A.2 |
 | 4 | `POST /api/metering/events` | 埋点独立通道（§2 Layer 4：不经业务拦截器，HMAC 轻签名，202 批量回执） | 09 §A.1 |
 | 5 | 全部业务接口（通用约定消费方） | `X-Tenant-Id`/`X-Trace-Id` 注入、`{list,total,page,size}` 分页、错误体 `{code, message, traceId}` 归一化、409 版本字段、string ID | 10 §A.1/A.2 |

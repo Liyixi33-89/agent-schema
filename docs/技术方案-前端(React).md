@@ -13,6 +13,7 @@
 > - 正式登录态从「Bearer Header + 内存/sessionStorage 镜像」迁移为 **HttpOnly Cookie 会话**（`schema_at`/`schema_rt`/`schema_csrf` 三件套 + **CSRF 双提交强制**）——凭证本体对 JS 不可达，消除「sessionStorage 快照被窃取离线重放」的 XSS 持久化风险面；实现真源 07FE §5、后端 03BE §4/§4.1
 > - CSRF 防线相应升级为**四道**：双提交（`X-CSRF-Token` 与 `schema_csrf` cookie 等值）+ Origin/Referer 校验 + CORS 凭证白名单 + SameSite/Path 收窄（refresh 仅 `/api/auth`）——Cookie 自动携带使 CSRF 面回归，双提交从「P2 评估」转为**强制**
 > - 预览/嵌入短时凭证**保留内存 Bearer 通道不迁 Cookie**：预览态须与正式会话隔离并存（同浏览器互不污染）；跨站 iframe 第三方 Cookie 默认禁用不可依赖（06FE §5、04BE §A.7 口径不变）
+> - 二次收口补充（2026-11-02）：①登录页加载先调 `GET /api/auth/csrf` 取匿名 csrf（登录 CSRF 防护）；②多标签并发刷新经 BroadcastChannel `{type:'refreshed'}` 协调 + 服务端 ±10s 重放容忍兜底；③预览请求一律 `credentials:'omit'` 且失效禁止回落正式会话（通道强制隔离，两通道独立 SDK 实例）；④csrf 403 自动拉新值重试一次；⑤Path 收窄定位修正——不阻止同源脚本触达 refresh 端点（见 03BE §4.1 安全边界定版）
 
 ## 1. 技术选型总览
 
