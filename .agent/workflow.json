@@ -180,7 +180,7 @@
     {
       "id": "M8-M10",
       "title": "计量文件通知依赖图完整验收",
-      "status": "implemented",
+      "status": "accepted",
       "priority": 6,
       "dependsOn": [
         "FIX-M8",
@@ -193,7 +193,7 @@
           "id": "support-services",
           "requirement": "metering.raw、业务埋点、时区补算、MinIO/LocalFs 同套契约、通知业务事件接线",
           "evidence": {
-            "commit": "043d832830dcb6dc83456f5bb5dfd9abd749f2cf",
+            "commit": "d436ba4cac4784e426836708f2e0938b9bd6b428",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT,ObjectStorageContractIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/M8M10-it-report.md",
             "passed": true
@@ -202,7 +202,7 @@
       ],
       "review": {
         "approved": true,
-        "commit": "043d832830dcb6dc83456f5bb5dfd9abd749f2cf",
+        "commit": "d436ba4cac4784e426836708f2e0938b9bd6b428",
         "reviewer": "independent-reviewer",
         "report": ".agent/evidence/review-M8M10.md"
       }
