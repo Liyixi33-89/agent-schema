@@ -18,7 +18,7 @@
 前置：测试租户 T-A 存在，操作者为 tenant-admin
 步骤：
  1. 管理员创建成员（一次性初始密码）→ 成员首登被 PASSWORD_CHANGE_REQUIRED 拦截
-    → 强制改密 → 响应内联签发新 token 对 → 用新 token 访问受保护接口成功（03BE §A.3.1）
+    → 强制改密 → 响应以 Set-Cookie 签发新会话三件套（v0.4）→ 后续请求走新会话访问受保护接口成功（03BE §A.3.1）
  2. 成员（开发者角色）建模型「订单」：12 种字段类型全覆盖 + 索引提升 1 个字段（PRD 01）
  3. 生成 CRUD 页面（PRD 02）→ 拖拽修改布局 → 保存草稿（乐观锁 version+1）
  4. 插入 3 条种子数据 → 表单按 Schema 校验拦截 1 条非法提交（前端校验 + 后端二次校验双断言）
@@ -58,12 +58,16 @@ TC-E2E-01 的步骤 5-7（预览→发布→运行）抽出为 15 分钟冒烟�
 | 用例 | 场景 | 断言 |
 |---|---|---|
 | TC-SESS-01 强制改密拦截 | 初始密码首登 | 受保护接口全拒（403 + PASSWORD_CHANGE_REQUIRED），仅放行名单内接口（改密/登出）可访问 |
-| TC-SESS-02 改密后旧 token 失效 | 改密成功 | 旧 access token 立即 401（服务端失效，非仅前端丢弃）；新 token 内联签发可用 |
+| TC-SESS-02 改密后旧会话失效 | 改密成功 | 旧 access（cookie 或 Bearer）立即 401（服务端失效，非仅前端丢弃）；新会话三件套 Set-Cookie 签发可用（03BE §4.1/A.3.1） |
 | TC-SESS-03 多标签登出同步 | 标签页 A 登出 | 标签页 B 通过 BroadcastChannel 收到事件并清理——**降级路径**：不支持 BroadcastChannel 时轮询/me 或 storage 事件兜底，不允许依赖标签页隔离的 sessionStorage 单打独斗 |
 | TC-SESS-04 预览凭证单次有效 | grant 5min 窗口 | 同一 grant 二次交换被拒；过期 grant 被拒（04BE §A.7） |
 | TC-SESS-05 预览凭证吊销闭环 | 吊销 grant | 在途 previewSessionId 的下一次请求 401 即时失效；WebSocket/长轮询通道同步断开 |
 | TC-SESS-06 凭证跨租户不可用 | T-B 用户拿 T-A 的预览 grant | 404 + 审计（绑定约束：grant 与租户/用户/应用三元组绑定） |
 | TC-SESS-07 注销冷静期与恢复工单 | 租户注销 → 冷静期内撤销 | 撤销后数据完整可用；冷静期结束执行清除 → 数据物理删除/匿名化 + 注销证明生成；恢复工单状态机全迁移路径覆盖（13BE §A.4.1：申请→确认→回灌中→成功/失败，每个状态有合法入口出口） |
+| TC-SESS-08 Cookie 会话属性（v0.4） | 登录响应 Set-Cookie 断言 | `schema_at`/`schema_rt` 含 `HttpOnly; Secure`；`schema_rt` 另含 `SameSite=Strict; Path=/api/auth`（Path 收窄生效）；`schema_csrf` 非 HttpOnly（双提交可读）；响应体**不含**任何 token 字段（前端零凭证存储不变量） |
+| TC-SESS-09 CSRF 双提交（v0.4 四道防线第一道） | 状态变更请求 ①缺 `X-CSRF-Token` 头 ②头值与 `schema_csrf` cookie 不等 ③跨站站 点仅带 cookie 不带头 | 三情形均 403 `CSRF_TOKEN_REJECTED` 不执行业务；GET/HEAD 不校验双提交（幂等不受影响）；合法双提交放行 |
+| TC-SESS-10 refresh Path 隔离（v0.4） | 业务端点请求携带 `schema_rt` | `Path=/api/auth` 收窄生效——`/api/data/**` 等业务请求**不携带** refresh cookie（断言请求头无 schema_rt）；XSS 注入的任意 fetch 同样无法触达 refresh 面 |
+| TC-SESS-11 预览态与正式会话并存（v0.4） | 同浏览器：已登录设计器 + 打开预览链接 | 预览请求走 Bearer 不带 `schema_at`；设计器请求走 Cookie 不带预览 Bearer；互不污染互不失效（预览吊销不影响设计器会话，反之亦然） |
 
 ## 3. L2 Worker 隔离测试（G7 门禁，一票否决）
 
@@ -74,7 +78,7 @@ TC-E2E-01 的步骤 5-7（预览→发布→运行）抽出为 15 分钟冒烟�
 | TC-L2-01 环境隔离能力面 | 脚本访问 window/document | undefined（环境断言）；**不做全局对象不可达断言**（WorkerGlobalScope 必然存在——08FE 定版） |
 | TC-L2-02 token 不进 Worker | 消息桥全量断言 | Worker 消息流中无凭证字段；`api.call` 由主线程代理，响应不含 token 回传 |
 | TC-L2-03 死循环硬中断 | `while(true){}` | 10s 后 worker.terminate() 生效、主线程恢复、页面其余功能完好（核心验收项——AbortSignal 做不到） |
-| TC-L2-04 网络出口三层兜底 | Worker 内发起白名单外 fetch | ①红线扫描编译期拦截；②Worker 脚本响应头 CSP `connect-src 'none'` 浏览器阻断（**断言浏览器报 CSP violation 而非请求成功**）；③网关鉴权拒（无凭证 401）——三层各自独立可测 |
+| TC-L2-04 网络出口三层兜底 | Worker 内发起白名单外 fetch | ①红线扫描编译期拦截；②Worker 脚本响应头 CSP `connect-src 'none'` 浏览器阻断（**断言浏览器报 CSP violation 而非请求成功**）；③网关鉴权拒（Worker fetch 不带平台 cookie——v0.4 会话 cookie 为 SameSite=Lax 跨站与 Worker 内源外请求不携带；无凭证 401）——三层各自独立可测 |
 | TC-L2-05 钩子超时 | onBeforeSubmit 超时 | 超时后钩子链放行/阻断按钩子类型定版语义执行 + 上报 |
 | TC-L2-06 测试台保真 | 脚本测试台执行结果与运行时一致 | 同一脚本双环境执行结果 deepEqual（08FE §6） |
 | TC-L2-07 feature flag 开关 | G7 未过时 | 平台侧一键关闭 L2 功能，含 L2 的页面降级渲染（visibleWhen 等基础表达式不受影响——L1/L2 分层断言） |
@@ -98,7 +102,7 @@ TC-E2E-01 的步骤 5-7（预览→发布→运行）抽出为 15 分钟冒烟�
 | A3 | CSP 阻断 | 设计器/运行时/产物域三态策略下注入违规模块加载 | 浏览器阻断 + Report-Only 期上报清零误报（G2 前置） |
 | A4 | 伪造租户全拒 | TC-ISO-01/02 全矩阵 + JWT 篡改（改 claim 重签） | 签名校验拒绝；claim 与头不一致返回 403 TENANT_MISMATCH + 审计 |
 | A5 | 死循环可终止 | TC-L2-03 + L3 沙箱同类（P3，本期仅登记） | 硬中断生效 |
-| A6 | 未授权嵌入被拒 | 外域 iframe 嵌入运行时页面 | CSP frame-ancestors 拒绝；网关 Origin 校验拒（CSRF 三道兜底之一） |
+| A6 | 未授权嵌入被拒 | 外域 iframe 嵌入运行时页面 | CSP frame-ancestors 拒绝；网关 Origin 校验拒（CSRF 四道防线之二）；跨站嵌入不带会话 Cookie（SameSite=Lax/Strict 收窄——嵌入场景本就走一次性 code 通道非 Cookie） |
 
 **执行记录要求**：每类用例执行留证据物（EV-M15-ATTACK-*），G2 验收引用——渗透测试摘要由安全负责人出具。
 

@@ -162,7 +162,7 @@ apps/admin-console/
 
 | 共享能力 | 归属 | admin-console 消费方式 |
 |---|---|---|
-| 登录态/权限 | auth-sdk | 同款（token 2h 刷新、快照失效广播） |
+| 登录态/权限 | auth-sdk | 同款（Cookie 会话 2h 刷新、快照失效广播——v0.4 通道） |
 | 请求层 | request-sdk | 同款 hooks；平台域接口不注入 X-Tenant-Id（后端平台通道） |
 | 布局壳/表格/表单组件 | shared-ui | 直接复用（文档 16FE 组件清单） |
 | 图表 | ChartKit | 复用（趋势图/漏斗/饱和度榜） |

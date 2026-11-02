@@ -15,6 +15,11 @@
 > - §12 分期：P1 补**成员建号/密码重置（无邮件通道）**、**预览凭证签发/交换**、**席位三口径判定**；P2 补**租户注销清理管线**、**服务保障基建（备份恢复/SLA 统计，支撑 L-Pilot 门禁）**
 > - §14 新增：**服务保障落地**（SLA 统计/备份恢复/注销清理的实现归属，操作真源为《详细PRD 11》）
 > - flow-service 明确整体 Phase 2（P1 无审批执行；应用删除审批流同步降级，见文档 13 §3.1）
+>
+> v0.4 变更（登录态凭证通道定版，2026-11-02）：
+> - 正式登录态从 Bearer Header 迁移为 **HttpOnly Cookie 会话**：`schema_at`(access 2h, HttpOnly+SameSite=Lax+Secure) + `schema_rt`(refresh 7d, HttpOnly+SameSite=Strict+Path=/api/auth) + `schema_csrf`(可读, 双提交源)——凭证对 JS 不可达，XSS 窃取面归零；实现真源 03BE §4/§4.1
+> - CSRF 防线从「三道兜底」升级为**四道强制**：新增第一道 **CSRF 双提交**（状态变更请求 `X-CSRF-Token` 头与 `schema_csrf` cookie 等值校验，缺失/不等即 403 `CSRF_TOKEN_REJECTED`）；原三道（Origin/Referer、CORS 凭证白名单、GET 无副作用）保留为纵深
+> - 兼容通道：过渡期保留 `Authorization: Bearer` 解析（服务端双通道识别）；预览/嵌入短时凭证保持 Bearer 不迁（04BE §A.7 口径不变）
 
 ## 1. 技术选型总览
 
@@ -232,6 +237,7 @@ public class TenantInterceptor implements Interceptor {
 
 - 网关层根据 域名/Header/JWT claim 解析租户 ID，透传到下游所有服务（通过 RPC 上下文/Header 传递，避免显式参数污染每个接口签名）。
 - **强制性测试要求**：每个涉及数据查询的 Service 必须有"跨租户越权访问"的单元测试用例（故意传错租户上下文验证会被拦截），作为上线前 checklist 硬性要求。
+- **认证通道（v0.4 定版）**：正式登录态为 HttpOnly Cookie 会话（`schema_at`/`schema_rt`/`schema_csrf` 三件套），网关/过滤器链双通道识别 Cookie 与遗留 Bearer Header（过渡兼容）；租户 ID 解析以 access cookie 内 JWT claim 为准（03BE §4 会话绑定不变）。预览/嵌入短时凭证保持 Bearer（04BE §A.7）。
 
 ---
 

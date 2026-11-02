@@ -8,6 +8,11 @@
 > - §3.10 L2 执行隔离模型修正：废弃「ESM scope + freeze(ctx)」伪隔离，改 **Worker 执行 + 受控消息桥（op 白名单）+ terminate() 硬中断**；token 永不进 Worker；网络出口靠红线扫描 + CSP 双层下发（宿主页面 CSP + Worker 脚本响应头独立 CSP）+ 网关鉴权三层兜底（Worker 不天然禁用 fetch）——实现真源 08FE §3-5
 > - §3.11 席位口径对齐三口径定版（授权/活跃/账单）；前端仅活跃漏斗参考
 > - §6 分期：P1 补成员建号/首次登录强制改密（PASSWORD_CHANGE_REQUIRED）、预览凭证签发/交换（PRD 06 §2.4 修正）、流程设计器画布只读（flow-service 整体 Phase 2）、服务保障前端触点（租户级健康页/状态页/SLA 看板，支撑 L-Pilot 门禁 G4）；L2 隔离验收（G7）未通过前功能整体关闭（feature flag）
+>
+> v0.4 变更（登录态凭证通道定版，2026-11-02）：
+> - 正式登录态从「Bearer Header + 内存/sessionStorage 镜像」迁移为 **HttpOnly Cookie 会话**（`schema_at`/`schema_rt`/`schema_csrf` 三件套 + **CSRF 双提交强制**）——凭证本体对 JS 不可达，消除「sessionStorage 快照被窃取离线重放」的 XSS 持久化风险面；实现真源 07FE §5、后端 03BE §4/§4.1
+> - CSRF 防线相应升级为**四道**：双提交（`X-CSRF-Token` 与 `schema_csrf` cookie 等值）+ Origin/Referer 校验 + CORS 凭证白名单 + SameSite/Path 收窄（refresh 仅 `/api/auth`）——Cookie 自动携带使 CSRF 面回归，双提交从「P2 评估」转为**强制**
+> - 预览/嵌入短时凭证**保留内存 Bearer 通道不迁 Cookie**：预览态须与正式会话隔离并存（同浏览器互不污染）；跨站 iframe 第三方 Cookie 默认禁用不可依赖（06FE §5、04BE §A.7 口径不变）
 
 ## 1. 技术选型总览
 
@@ -298,6 +303,7 @@ type UsageEvent =
 | L2 脚本失控拖垮页面 | Worker 隔离 + 钩子超时 `terminate()` 真硬中断 + 异常兜底 + 静态白名单扫描（构建期拒绝 fetch/document）+ 执行日志面板 |
 | 已删除字段的渲染兼容（PRD §3.1.1） | 元数据带 `fieldStatus`；渲染层统一在 `resolveProps` 前过滤 DELETED 字段；表达式中引用已删字段显式报错而非静默 undefined |
 | 短时凭证安全（预览/嵌入，PRD 06 §2.4） | 预览链接只含 grantId 不含 token（5min 单次可吊销，04BE §A.7）；嵌入宿主传一次性 code 换 token；URL 栏永不出现长期凭证 |
+| 登录态凭证通道（v0.4 定版） | 正式会话走 **HttpOnly Cookie**（07FE §5：前端零凭证存储，XSS 无可窃取面）；预览/嵌入走内存 Bearer 短时凭证（与正式会话并存隔离）；CSRF 双提交由 request-sdk 统一注入，业务代码无感 |
 
 ---
 
