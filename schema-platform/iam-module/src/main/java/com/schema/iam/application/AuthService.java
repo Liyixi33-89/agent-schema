@@ -35,13 +35,16 @@ public class AuthService {
     private final IamRepository iam;
     private final JwtCodec jwt;
     private final org.springframework.beans.factory.ObjectProvider<SeatGrantGuard> seatGuard;
+    private final org.springframework.context.ApplicationEventPublisher events;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
     public AuthService(IamRepository iam, JwtCodec jwt,
-            @Autowired(required = false) org.springframework.beans.factory.ObjectProvider<SeatGrantGuard> seatGuard) {
+            @Autowired(required = false) org.springframework.beans.factory.ObjectProvider<SeatGrantGuard> seatGuard,
+            org.springframework.context.ApplicationEventPublisher events) {
         this.iam = iam;
         this.jwt = jwt;
         this.seatGuard = seatGuard;
+        this.events = events;
     }
 
     // ---------- 登录（§A.1） ----------
@@ -74,6 +77,9 @@ public class AuthService {
         user.loginSucceeded(OffsetDateTime.now());
         iam.updateUser(user);
         issueSession(tenantId, user.id());
+
+        // 登录成功埋点（09BE §4 seat.active 服务端终审：登录即活跃触发——metering 监听落 usage_event）
+        events.publishEvent(new com.schema.platform.common.event.LoginSucceededEvent(tenantId, user.id()));
 
         iam.insertAudit("LOGIN", tenantId, user.id(), "USER", user.account(), null, ip, ua);
         return sessionResponse(user, jwt.issueAccess(user.id(), tenantId));

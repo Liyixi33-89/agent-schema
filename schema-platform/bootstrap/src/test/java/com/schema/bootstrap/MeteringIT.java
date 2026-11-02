@@ -431,4 +431,57 @@ class MeteringIT {
         assertEquals(0L, snap);
         jdbc.update("DELETE FROM seat_license_daily WHERE tenant_id = " + CONC_TENANT);
     }
+
+    // ===== M8-M10 依赖组完整验收（2026-11-02）：登录埋点接线 =====
+
+    /**
+     * M8.2 后端埋点采集端——登录事件 → metering.raw（09BE §4 seat.active 服务端终审扩展）。
+     * 登录成功即活跃触发：AuthService.login 发布 LoginSucceededEvent →
+     * LoginMeteringListener 落 usage_event(metric=seat.active, source=SERVER, surface=login)。
+     */
+    @Test
+    void 登录埋点_登录成功记seat_active服务端终审() {
+        long loginTenant = 885;
+        String account = "it_login_meter_" + System.nanoTime();
+        Long uid;
+        try {
+            // 直接用 bcrypt 造用户（绕过 createMember 的 org:manage 权限闸门——登录埋点只需真实登录链路）
+            String bcrypt = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder()
+                    .encode("InitPass123");
+            jdbc.update("INSERT INTO sys_user (tenant_id, account, name, password_hash, status) "
+                    + "VALUES (?, ?, 'LoginMeter', ?, 'ACTIVE')", loginTenant, account, bcrypt);
+            uid = jdbc.queryForObject("SELECT id FROM sys_user WHERE account = ?", Long.class, account);
+
+            // 登录成功 → 事件发布 → 监听器落 seat.active
+            TenantContext.with(new TenantInfo(loginTenant, 1, uid), () ->
+                    auth.login(loginTenant, account, "InitPass123", "test", "test"));
+
+            // 服务端终审口径：source=SERVER、surface=login、当日记一条
+            Long n = jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM usage_event
+                    WHERE tenant_id = ? AND user_id = ? AND metric = 'seat.active'
+                      AND source = 'SERVER' AND occurred_at::date = CURRENT_DATE
+                    """, Long.class, loginTenant, uid);
+            assertEquals(1L, n, "登录成功应触发一条服务端终审 seat.active");
+            Map<String, Object> row = jdbc.queryForMap("""
+                    SELECT attrs FROM usage_event
+                    WHERE tenant_id = ? AND user_id = ? AND metric = 'seat.active'
+                      AND source = 'SERVER' ORDER BY occurred_at DESC LIMIT 1
+                    """, loginTenant, uid);
+            assertTrue(String.valueOf(row.get("attrs")).contains("login"),
+                    "登录埋点 attrs 应含 surface=login");
+            // 活跃口径可见：滚动 30 天去重计入该用户
+            assertTrue(metering.summary(loginTenant, LocalDate.now())
+                    .get("activeSeats") instanceof Number);
+        } finally {
+            jdbc.update("DELETE FROM usage_event WHERE tenant_id = " + loginTenant);
+            jdbc.update("DELETE FROM usage_daily WHERE tenant_id = " + loginTenant);
+            jdbc.update("DELETE FROM sys_user_role WHERE user_id IN "
+                    + "(SELECT id FROM sys_user WHERE tenant_id = " + loginTenant + ")");
+            jdbc.update("DELETE FROM sys_role WHERE tenant_id = " + loginTenant);
+            jdbc.update("DELETE FROM sys_refresh_token WHERE tenant_id = " + loginTenant);
+            jdbc.update("DELETE FROM sys_audit_log WHERE tenant_id = " + loginTenant);
+            jdbc.update("DELETE FROM sys_user WHERE tenant_id = " + loginTenant);
+        }
+    }
 }
