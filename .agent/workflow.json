@@ -3,17 +3,17 @@
   "tasks": [
     {
       "id": "FIX-M9",
-      "title": "修复真实文件上传与凭证安全链路",
-      "status": "implemented",
+      "title": "\u4fee\u590d\u771f\u5b9e\u6587\u4ef6\u4e0a\u4f20\u4e0e\u51ed\u8bc1\u5b89\u5168\u94fe\u8def",
+      "status": "accepted",
       "priority": 0,
       "dependsOn": [],
       "spec": ".agent/workflow.md",
       "acceptance": [
         {
           "id": "http-multipart",
-          "requirement": "真实 HTTP 多块上传并 complete；校验会话、块号、过期、PUT/GET 方法绑定",
+          "requirement": "\u771f\u5b9e HTTP \u591a\u5757\u4e0a\u4f20\u5e76 complete\uff1b\u6821\u9a8c\u4f1a\u8bdd\u3001\u5757\u53f7\u3001\u8fc7\u671f\u3001PUT/GET \u65b9\u6cd5\u7ed1\u5b9a",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77c56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -21,9 +21,9 @@
         },
         {
           "id": "content-integrity",
-          "requirement": "魔数、SHA-256、ETag 不匹配负例全部拒绝；测试只清自建记录",
+          "requirement": "\u9b54\u6570\u3001SHA-256\u3001ETag \u4e0d\u5339\u914d\u8d1f\u4f8b\u5168\u90e8\u62d2\u7edd\uff1b\u6d4b\u8bd5\u53ea\u6e05\u81ea\u5efa\u8bb0\u5f55",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77c56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -32,24 +32,24 @@
       ],
       "review": {
         "approved": true,
-        "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+        "commit": "f9eb82b34b516f351c8469dcbe77c56c8bb32dac",
         "reviewer": "independent-reviewer",
         "report": ".agent/evidence/review-M8M9M10.md"
       }
     },
     {
       "id": "FIX-M8",
-      "title": "修复计量认证、可靠队列与席位并发",
-      "status": "implemented",
+      "title": "\u4fee\u590d\u8ba1\u91cf\u8ba4\u8bc1\u3001\u53ef\u9760\u961f\u5217\u4e0e\u5e2d\u4f4d\u5e76\u53d1",
+      "status": "accepted",
       "priority": 1,
       "dependsOn": [],
       "spec": ".agent/workflow.md",
       "acceptance": [
         {
           "id": "authenticated-retry",
-          "requirement": "认证注入真实生效；beacon 不以排队成功当受理；持久化重试不丢幂等键",
+          "requirement": "\u8ba4\u8bc1\u6ce8\u5165\u771f\u5b9e\u751f\u6548\uff1bbeacon \u4e0d\u4ee5\u6392\u961f\u6210\u529f\u5f53\u53d7\u7406\uff1b\u6301\u4e45\u5316\u91cd\u8bd5\u4e0d\u4e22\u5e42\u7b49\u952e",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77c56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -57,9 +57,9 @@
         },
         {
           "id": "seat-concurrency",
-          "requirement": "并发授权与撤销、跨应用授权不突破配额；成员事件即时重算",
+          "requirement": "\u5e76\u53d1\u6388\u6743\u4e0e\u64a4\u9500\u3001\u8de8\u5e94\u7528\u6388\u6743\u4e0d\u7a81\u7834\u914d\u989d\uff1b\u6210\u5458\u4e8b\u4ef6\u5373\u65f6\u91cd\u7b97",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77c56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -68,24 +68,24 @@
       ],
       "review": {
         "approved": true,
-        "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+        "commit": "f9eb82b34b516f351c8469dcbe77c56c8bb32dac",
         "reviewer": "independent-reviewer",
         "report": ".agent/evidence/review-M8M9M10.md"
       }
     },
     {
       "id": "FIX-M10",
-      "title": "修复通知抑制展示与频控边界",
-      "status": "implemented",
+      "title": "\u4fee\u590d\u901a\u77e5\u6291\u5236\u5c55\u793a\u4e0e\u9891\u63a7\u8fb9\u754c",
+      "status": "accepted",
       "priority": 2,
       "dependsOn": [],
       "spec": ".agent/workflow.md",
       "acceptance": [
         {
           "id": "suppression",
-          "requirement": "SUPPRESSED 不进入用户列表或未读数，审计可追溯",
+          "requirement": "SUPPRESSED \u4e0d\u8fdb\u5165\u7528\u6237\u5217\u8868\u6216\u672a\u8bfb\u6570\uff0c\u5ba1\u8ba1\u53ef\u8ffd\u6eaf",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77c56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -93,9 +93,9 @@
         },
         {
           "id": "tenant-rate",
-          "requirement": "跨 bizRef 不绕过租户上限；收件人隔离和安全告警负例",
+          "requirement": "\u8de8 bizRef \u4e0d\u7ed5\u8fc7\u79df\u6237\u4e0a\u9650\uff1b\u6536\u4ef6\u4eba\u9694\u79bb\u548c\u5b89\u5168\u544a\u8b66\u8d1f\u4f8b",
           "evidence": {
-            "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+            "commit": "f9eb82b34b516f351c8469dcbe77c56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
             "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
             "passed": true
@@ -104,14 +104,14 @@
       ],
       "review": {
         "approved": true,
-        "commit": "856987fbbc30fc08edceb45f5c3fd47fd5c20998",
+        "commit": "f9eb82b34b516f351c8469dcbe77c56c8bb32dac",
         "reviewer": "independent-reviewer",
         "report": ".agent/evidence/review-M8M9M10.md"
       }
     },
     {
       "id": "M0-M1",
-      "title": "工程与协议基座证据复核",
+      "title": "\u5de5\u7a0b\u4e0e\u534f\u8bae\u57fa\u5ea7\u8bc1\u636e\u590d\u6838",
       "status": "implemented",
       "priority": 3,
       "dependsOn": [],
@@ -119,7 +119,7 @@
       "acceptance": [
         {
           "id": "contract-foundation",
-          "requirement": "契约结构、枚举、表达式双端同判；架构违规样本门禁；独立 CI 记录",
+          "requirement": "\u5951\u7ea6\u7ed3\u6784\u3001\u679a\u4e3e\u3001\u8868\u8fbe\u5f0f\u53cc\u7aef\u540c\u5224\uff1b\u67b6\u6784\u8fdd\u89c4\u6837\u672c\u95e8\u7981\uff1b\u72ec\u7acb CI \u8bb0\u5f55",
           "evidence": null
         }
       ],
@@ -127,7 +127,7 @@
     },
     {
       "id": "M2-M5",
-      "title": "后端核心闭环验收与尾项收口",
+      "title": "\u540e\u7aef\u6838\u5fc3\u95ed\u73af\u9a8c\u6536\u4e0e\u5c3e\u9879\u6536\u53e3",
       "status": "implemented",
       "priority": 4,
       "dependsOn": [
@@ -137,12 +137,12 @@
       "acceptance": [
         {
           "id": "backend-http",
-          "requirement": "建模、建表、CRUD、权限、发布、预览真实 HTTP 验收",
+          "requirement": "\u5efa\u6a21\u3001\u5efa\u8868\u3001CRUD\u3001\u6743\u9650\u3001\u53d1\u5e03\u3001\u9884\u89c8\u771f\u5b9e HTTP \u9a8c\u6536",
           "evidence": null
         },
         {
           "id": "backend-tail",
-          "requirement": "Redis ACK、关联拼装、computed 与引用可靠性实现或人工批准分期",
+          "requirement": "Redis ACK\u3001\u5173\u8054\u62fc\u88c5\u3001computed \u4e0e\u5f15\u7528\u53ef\u9760\u6027\u5b9e\u73b0\u6216\u4eba\u5de5\u6279\u51c6\u5206\u671f",
           "evidence": null
         }
       ],
@@ -150,7 +150,7 @@
     },
     {
       "id": "M6-M7",
-      "title": "渲染表单真实业务闭环",
+      "title": "\u6e32\u67d3\u8868\u5355\u771f\u5b9e\u4e1a\u52a1\u95ed\u73af",
       "status": "implemented",
       "priority": 5,
       "dependsOn": [
@@ -161,7 +161,7 @@
       "acceptance": [
         {
           "id": "renderer-form",
-          "requirement": "基础物料、精确订阅、列表详情、真实文件上传、校验提交浏览器验收",
+          "requirement": "\u57fa\u7840\u7269\u6599\u3001\u7cbe\u786e\u8ba2\u9605\u3001\u5217\u8868\u8be6\u60c5\u3001\u771f\u5b9e\u6587\u4ef6\u4e0a\u4f20\u3001\u6821\u9a8c\u63d0\u4ea4\u6d4f\u89c8\u5668\u9a8c\u6536",
           "evidence": null
         }
       ],
@@ -169,7 +169,7 @@
     },
     {
       "id": "M8-M10",
-      "title": "计量文件通知依赖图完整验收",
+      "title": "\u8ba1\u91cf\u6587\u4ef6\u901a\u77e5\u4f9d\u8d56\u56fe\u5b8c\u6574\u9a8c\u6536",
       "status": "planned",
       "priority": 6,
       "dependsOn": [
@@ -181,7 +181,7 @@
       "acceptance": [
         {
           "id": "support-services",
-          "requirement": "metering.raw、业务埋点、时区补算、MinIO/LocalFs 同套契约、通知业务事件接线",
+          "requirement": "metering.raw\u3001\u4e1a\u52a1\u57cb\u70b9\u3001\u65f6\u533a\u8865\u7b97\u3001MinIO/LocalFs \u540c\u5957\u5951\u7ea6\u3001\u901a\u77e5\u4e1a\u52a1\u4e8b\u4ef6\u63a5\u7ebf",
           "evidence": null
         }
       ],
@@ -189,7 +189,7 @@
     },
     {
       "id": "M11",
-      "title": "应用基础服务与运行时导航工作台",
+      "title": "\u5e94\u7528\u57fa\u7840\u670d\u52a1\u4e0e\u8fd0\u884c\u65f6\u5bfc\u822a\u5de5\u4f5c\u53f0",
       "status": "planned",
       "priority": 7,
       "dependsOn": [
@@ -199,12 +199,12 @@
       "acceptance": [
         {
           "id": "app-runtime",
-          "requirement": "应用 CRUD、成员、导航并发、发布、工作台、鉴权菜单与 ETag 缓存",
+          "requirement": "\u5e94\u7528 CRUD\u3001\u6210\u5458\u3001\u5bfc\u822a\u5e76\u53d1\u3001\u53d1\u5e03\u3001\u5de5\u4f5c\u53f0\u3001\u9274\u6743\u83dc\u5355\u4e0e ETag \u7f13\u5b58",
           "evidence": null
         },
         {
           "id": "console-p1",
-          "requirement": "租户用量、成员、健康与维护公告页面可用",
+          "requirement": "\u79df\u6237\u7528\u91cf\u3001\u6210\u5458\u3001\u5065\u5eb7\u4e0e\u7ef4\u62a4\u516c\u544a\u9875\u9762\u53ef\u7528",
           "evidence": null
         }
       ],
@@ -212,7 +212,7 @@
     },
     {
       "id": "M12",
-      "title": "ER 建模器与影响面交互",
+      "title": "ER \u5efa\u6a21\u5668\u4e0e\u5f71\u54cd\u9762\u4ea4\u4e92",
       "status": "planned",
       "priority": 8,
       "dependsOn": [
@@ -223,7 +223,7 @@
       "acceptance": [
         {
           "id": "model-designer",
-          "requirement": "画布建模、两段式保存、影响面确认、版本回滚浏览器闭环",
+          "requirement": "\u753b\u5e03\u5efa\u6a21\u3001\u4e24\u6bb5\u5f0f\u4fdd\u5b58\u3001\u5f71\u54cd\u9762\u786e\u8ba4\u3001\u7248\u672c\u56de\u6eda\u6d4f\u89c8\u5668\u95ed\u73af",
           "evidence": null
         }
       ],
@@ -231,7 +231,7 @@
     },
     {
       "id": "M13",
-      "title": "页面设计器与预览",
+      "title": "\u9875\u9762\u8bbe\u8ba1\u5668\u4e0e\u9884\u89c8",
       "status": "planned",
       "priority": 9,
       "dependsOn": [
@@ -242,7 +242,7 @@
       "acceptance": [
         {
           "id": "page-designer",
-          "requirement": "拖拽、propsSchema 属性面板、字段绑定、发布预览真实交互",
+          "requirement": "\u62d6\u62fd\u3001propsSchema \u5c5e\u6027\u9762\u677f\u3001\u5b57\u6bb5\u7ed1\u5b9a\u3001\u53d1\u5e03\u9884\u89c8\u771f\u5b9e\u4ea4\u4e92",
           "evidence": null
         }
       ],
@@ -250,7 +250,7 @@
     },
     {
       "id": "M14",
-      "title": "L2 Worker 隔离与最小编译链路",
+      "title": "L2 Worker \u9694\u79bb\u4e0e\u6700\u5c0f\u7f16\u8bd1\u94fe\u8def",
       "status": "planned",
       "priority": 10,
       "dependsOn": [
@@ -260,7 +260,7 @@
       "acceptance": [
         {
           "id": "script-isolation",
-          "requirement": "受控消息桥、token 隔离、死循环 terminate 后页面可交互、扫描编译 hash 回写",
+          "requirement": "\u53d7\u63a7\u6d88\u606f\u6865\u3001token \u9694\u79bb\u3001\u6b7b\u5faa\u73af terminate \u540e\u9875\u9762\u53ef\u4ea4\u4e92\u3001\u626b\u63cf\u7f16\u8bd1 hash \u56de\u5199",
           "evidence": null
         }
       ],
@@ -268,7 +268,7 @@
     },
     {
       "id": "M15",
-      "title": "报销登记 MVP 端到端验收",
+      "title": "\u62a5\u9500\u767b\u8bb0 MVP \u7aef\u5230\u7aef\u9a8c\u6536",
       "status": "planned",
       "priority": 11,
       "dependsOn": [
@@ -282,12 +282,12 @@
       "acceptance": [
         {
           "id": "mvp-demo",
-          "requirement": "建模、页面、权限、发布、表单列表与埋点完整浏览器闭环",
+          "requirement": "\u5efa\u6a21\u3001\u9875\u9762\u3001\u6743\u9650\u3001\u53d1\u5e03\u3001\u8868\u5355\u5217\u8868\u4e0e\u57cb\u70b9\u5b8c\u6574\u6d4f\u89c8\u5668\u95ed\u73af",
           "evidence": null
         },
         {
           "id": "security",
-          "requirement": "依赖图 M15 全部安全攻防项有正负例证据",
+          "requirement": "\u4f9d\u8d56\u56fe M15 \u5168\u90e8\u5b89\u5168\u653b\u9632\u9879\u6709\u6b63\u8d1f\u4f8b\u8bc1\u636e",
           "evidence": null
         }
       ],
@@ -295,7 +295,7 @@
     },
     {
       "id": "M16",
-      "title": "试点可靠性与上线门禁",
+      "title": "\u8bd5\u70b9\u53ef\u9760\u6027\u4e0e\u4e0a\u7ebf\u95e8\u7981",
       "status": "planned",
       "priority": 12,
       "dependsOn": [
@@ -305,7 +305,7 @@
       "acceptance": [
         {
           "id": "pilot",
-          "requirement": "备份恢复 RTO/RPO、250 并发、告警演练、健康页、G1-G7 与人工上线评审",
+          "requirement": "\u5907\u4efd\u6062\u590d RTO/RPO\u3001250 \u5e76\u53d1\u3001\u544a\u8b66\u6f14\u7ec3\u3001\u5065\u5eb7\u9875\u3001G1-G7 \u4e0e\u4eba\u5de5\u4e0a\u7ebf\u8bc4\u5ba1",
           "evidence": null
         }
       ],
