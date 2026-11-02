@@ -375,11 +375,9 @@ public class AuthService {
 
     private Map<String, Object> sessionResponse(UserAccount user) {
         Map<String, Object> resp = new LinkedHashMap<>();
-        // v0.4：token 不再入体（前端零凭证存储）——三件套经 Set-Cookie 签发；
-        // 过渡期保留 accessToken 字段（旧前端/Bearer 集成迁移窗口，03BE §4.1 双通道识别）。
-        // ThreadLocal 由控制器 withSessionCookies 消费（服务层测试也可直接取——不在此清）
-        SessionIssue session = CURRENT_SESSION.get();
-        resp.put("accessToken", session != null ? session.accessToken() : null);
+        // v0.4 定版收口（03BE §4.1）：正式会话响应体**零凭证**——三件套一律经 Set-Cookie 签发；
+        // 旧 accessToken 字段已移除（Bearer 集成走过渡期 refresh body 或直接迁 Cookie，不再放宽）。
+        // ThreadLocal 由控制器 withSessionCookies 消费（服务层测试也可直接取——不在此清）。
         resp.put("mustChangePassword", user.mustChangePassword());
         return resp;
     }

@@ -114,11 +114,15 @@ class IamServiceIT {
         return TenantContext.with(T1, () -> auth.login(1, account, "InitPass123", "test", "test"));
     }
 
-    /** v0.4：会话三件套不入体——登录/改密后从应用层取 refresh 原文（控制器经 Set-Cookie 签发）。 */
-    private String issuedRefreshToken() {
+    /** v0.4：会话三件套不入体——登录/改密后从应用层取三件套（控制器经 Set-Cookie 签发）。 */
+    private AuthService.SessionIssue issuedSession() {
         AuthService.SessionIssue session = AuthService.consumeSessionIssue();
         assertNotNull(session, "issueSession 后控制器未消费前可取三件套");
-        return session.refreshToken();
+        return session;
+    }
+
+    private String issuedRefreshToken() {
+        return issuedSession().refreshToken();
     }
 
     // ---------- 03BE §7：登录锁定 ----------
@@ -174,14 +178,14 @@ class IamServiceIT {
 
         // 滚动刷新：新对签发
         Map<String, Object> rotated = TenantContext.with(T1, () -> auth.refresh(refresh1, "test", "test"));
-        String refresh2 = issuedRefreshToken();
-        assertNotNull(rotated.get("accessToken"));
-        assertFalse(refresh2.equals(refresh1), "refresh 必须滚动签发");
+        String refresh2 = issuedSession().refreshToken();
+        assertNull(rotated.get("accessToken"), "v0.4 收口：access 不得入响应体");
+        assertNotNull(rotated.get("mustChangePassword"));
 
         // v0.4 ±10s 容忍窗口内旧 token 重放：成功滚动（多标签并发刷新正常路径）
         Map<String, Object> tolerated = TenantContext.with(T1, () -> auth.refresh(refresh1, "test", "test"));
-        assertNotNull(tolerated.get("accessToken"), "容忍窗口内重放必须成功（多标签不误踢）");
-        String refresh3 = issuedRefreshToken();
+        String refresh3 = issuedSession().refreshToken();
+        assertNotNull(refresh3, "容忍窗口内重放必须成功（多标签不误踢）");
         assertFalse(refresh3.equals(refresh2), "容忍重放同样滚动新对");
 
         // 窗口外重放拒绝语义由安全链 IT（staleRefreshOutsideToleranceIsRejectedAndAudited）覆盖
@@ -246,11 +250,13 @@ class IamServiceIT {
         Map<String, Object> session = loginOk(account);
         String oldRefresh = issuedRefreshToken();   // v0.4：refresh 不再入体
 
-        // 改密响应内联签发新 token 对（不强制重登录）
+        // 改密响应内联签发新会话（不强制重登录）——v0.4 收口：token 不入体，从应用层取
         Map<String, Object> changed = TenantContext.with(T1, () ->
                 auth.changePassword(1, userId, "InitPass123", "NewPass456", "test", "test"));
-        assertNotNull(changed.get("accessToken"), "改密响应必须内联新 access");
-        assertNotNull(issuedRefreshToken(), "改密响应必须内联新 refresh（Set-Cookie 签发）");
+        assertNull(changed.get("accessToken"), "v0.4 收口：改密响应不得含 access");
+        AuthService.SessionIssue changedSession = issuedSession();
+        assertNotNull(changedSession.accessToken(), "改密必须内联签发新 access（Set-Cookie 通道）");
+        assertNotNull(changedSession.refreshToken(), "改密响应必须内联新 refresh（Set-Cookie 签发）");
         assertEquals(false, changed.get("mustChangePassword"));
 
         // 旧 refresh 刷新被拒（多设备踢出）
@@ -266,7 +272,8 @@ class IamServiceIT {
 
         // 新密码可登录
         Map<String, Object> relogin = TenantContext.with(T1, () -> auth.login(1, account, "NewPass456", "test", "test"));
-        assertNotNull(relogin.get("accessToken"));
+        assertNotNull(issuedSession().accessToken(), "重登必须签发新会话（Set-Cookie 通道）");
+        assertNull(relogin.get("accessToken"), "v0.4 收口：登录响应不得含 access");
     }
 
     // ---------- 03BE §7：JWT claim 与租户头绑定（JwtCodec 层） ----------

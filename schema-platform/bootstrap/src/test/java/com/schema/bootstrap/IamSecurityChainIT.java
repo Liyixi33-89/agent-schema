@@ -1,6 +1,7 @@
 package com.schema.bootstrap;
 
 import com.schema.iam.infrastructure.security.JwtCodec;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -10,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
@@ -134,6 +136,97 @@ class IamSecurityChainIT {
         mvc.perform(post("/api/auth/refresh").contentType("application/json")
                         .content("{\"refreshToken\":\"unknown-token\"}"))
                 .andExpect(status().isUnauthorized());   // 业务拒绝 ≠ 认证拦截
+    }
+
+    // ---------- v0.4 收口：CSRF 边界收紧（CsrfFilter） ----------
+
+    /** 从响应 Set-Cookie 头解析指定 cookie（手工头不进 getCookies()）。 */
+    private static Cookie parseCookie(MvcResult result, String name) {
+        for (String h : result.getResponse().getHeaders("Set-Cookie")) {
+            if (h.startsWith(name + "=")) {
+                int eq = name.length() + 1;
+                int semi = h.indexOf(';', eq);
+                Cookie c = new Cookie(name, semi > 0 ? h.substring(eq, semi) : h.substring(eq));
+                c.setPath("/");
+                return c;
+            }
+        }
+        throw new IllegalStateException("响应缺 cookie: " + name);
+    }
+
+    @Test
+    void crossOriginCsrfRequestIsRejected() throws Exception {
+        // 双提交等值但 Origin 不匹配 → 403 CSRF_ORIGIN_REJECTED（精确匹配——子串绕过不再可能）
+        MvcResult csrf = mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk()).andReturn();
+        Cookie csrfCookie = parseCookie(csrf, "schema_csrf");
+        String evilOrigin = "http://localhost:8080.evil.example.com";   // 旧 contains 匹配会放行
+        mvc.perform(post("/api/auth/login")
+                        .cookie(csrfCookie)
+                        .header("X-CSRF-Token", csrfCookie.getValue())
+                        .header("Origin", evilOrigin)
+                        .contentType("application/json")
+                        .content("{\"username\":\"admin_sec\",\"password\":\"whatever1\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CSRF_ORIGIN_REJECTED"));
+        // 同构造但 Origin 缺失（无 Referer）→ 同样 403（缺失即拒）
+        MvcResult csrf2 = mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk()).andReturn();
+        Cookie csrfCookie2 = parseCookie(csrf2, "schema_csrf");
+        mvc.perform(post("/api/auth/login")
+                        .cookie(csrfCookie2)
+                        .header("X-CSRF-Token", csrfCookie2.getValue())
+                        .contentType("application/json")
+                        .content("{\"username\":\"admin_sec\",\"password\":\"whatever1\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CSRF_ORIGIN_REJECTED"));
+    }
+
+    @Test
+    void fakeAuthorizationHeaderDoesNotBypassCsrf() throws Exception {
+        // 非 Bearer 形态的 Authorization 头不豁免双提交——但有 csrf cookie 时必须走双提交判定：
+        // 头缺失 → 403 CSRF_TOKEN_REJECTED（旧逻辑任意 Authorization 头一刀切放行的漏洞收口）
+        MvcResult csrf = mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk()).andReturn();
+        Cookie csrfCookie = parseCookie(csrf, "schema_csrf");
+        mvc.perform(post("/api/org/members")
+                        .cookie(csrfCookie)   // 有 csrf cookie（预签过）→ 要求双提交
+                        .header("Authorization", "Basic Zm9vOmJhcg==")   // 非 Bearer 伪造头
+                        .header("Origin", "http://localhost")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CSRF_TOKEN_REJECTED"));
+        // 匿名无任何 cookie 的请求：放行给认证层 401（认证边界语义优先——非 CSRF 403）
+        mvc.perform(post("/api/org/members")
+                        .header("Authorization", "Basic Zm9vOmJhcg==")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void sessionCookieRequestWithoutCsrfHeaderIsRejected() throws Exception {
+        // 已登录会话（schema_at cookie）+ csrf cookie 存在但头缺失 → 403（不再「无头放行」）
+        // 构造：真实登录拿三件套
+        MvcResult csrf = mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk()).andReturn();
+        Cookie csrfCookie = parseCookie(csrf, "schema_csrf");
+        // admin_sec 种子密码哈希是占位 'bcrypt-hash'——直接造一次成功登录需要真实哈希；
+        // 此处用普通成员 plain_sec 不行（同为占位）。改为直接验证逻辑：会话 cookie + csrf cookie + 无头
+        // 用 jwt 签发 access 构造 schema_at cookie（浏览器等价物）
+        Cookie atCookie = new Cookie("schema_at", access(plainId, 1));
+        atCookie.setPath("/");
+        mvc.perform(post("/api/org/members/" + plainId + "/roles")
+                        .cookie(atCookie, csrfCookie)
+                        .header("Origin", "http://localhost")
+                        .contentType("application/json")
+                        .content("{\"appId\":1,\"roleIds\":[]}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CSRF_TOKEN_REJECTED"));
+        // 同请求带头且等值 → 通过 CSRF 层（业务层再按权限判定 403 PERM_DENIED）
+        mvc.perform(post("/api/org/members/" + plainId + "/roles")
+                        .cookie(atCookie, csrfCookie)
+                        .header("X-CSRF-Token", csrfCookie.getValue())
+                        .header("Origin", "http://localhost")
+                        .contentType("application/json")
+                        .content("{\"appId\":1,\"roleIds\":[]}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("PERM_DENIED"));
     }
 
     // ---------- 03BE §7：管理端点权限判定（普通成员 403 PERM_DENIED） ----------

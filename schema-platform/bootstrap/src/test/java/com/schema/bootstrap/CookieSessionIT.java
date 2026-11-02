@@ -86,17 +86,18 @@ class CookieSessionIT {
         return new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode(raw);
     }
 
-    /** 真实登录流程：匿名 csrf → login（带头双提交；返回三件套 cookie）。 */
+    /** 真实登录流程：匿名 csrf → login（带头双提交 + Origin；返回三件套 cookie）。 */
     private Cookie[] loginCookies() throws Exception {
         MvcResult csrf = mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk()).andReturn();
         Cookie csrfCookie = parseCookies(csrf).get(SessionCookies.CSRF);
         MvcResult result = mvc.perform(post("/api/auth/login")
                         .cookie(csrfCookie)
                         .header("X-CSRF-Token", csrfCookie.getValue())
+                        .header("Origin", "http://localhost")   // v0.4 收口：Origin 缺失即拒
                         .contentType("application/json")
                         .content("{\"username\":\"cookie_user\",\"password\":\"InitPass123\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").exists())   // 过渡兼容（Bearer 迁移窗口）
+                .andExpect(jsonPath("$.accessToken").doesNotExist())   // v0.4 收口：响应体零凭证
                 .andReturn();
         // 手工 Set-Cookie 头签发的 cookie 不进 MockMvc getCookies()——从响应头解析（浏览器真实行为模拟）
         Map<String, Cookie> issued = parseCookies(result);
@@ -170,9 +171,10 @@ class CookieSessionIT {
         }
         // 三枚均 host-only（不设 Domain）
         assertTrue(!joined.contains("Domain="), "host-only 定版——不设 Domain");
-        // 响应体不含 refresh token（前端零凭证存储不变量）
+        // 响应体不含任何凭证字段（v0.4 收口：零凭证不变量——refresh 与 access 均不得入体）
         String body = result.getResponse().getContentAsString();
         assertTrue(!body.contains("refreshToken"), "refresh 不得入响应体");
+        assertTrue(!body.contains("accessToken"), "access 不得入响应体");
     }
 
     // ---------- 双提交校验（四道防线第一道） ----------
@@ -199,6 +201,7 @@ class CookieSessionIT {
         mvc.perform(put("/api/me/password")
                         .cookie(cookies)
                         .header("X-CSRF-Token", csrfCookie.getValue())
+                        .header("Origin", "http://localhost")
                         .contentType("application/json")
                         .content("{\"oldPassword\":\"wrong\",\"newPassword\":\"NewPass456\"}"))
                 .andExpect(status().isUnauthorized())   // 原密码错 → 业务 401（CSRF 层已放行）
@@ -213,9 +216,10 @@ class CookieSessionIT {
         // 零 body：schema_rt cookie 自动携带语义（MockMvc 显式传 cookie 模拟浏览器）
         mvc.perform(post("/api/auth/refresh")
                         .cookie(cookies)
-                        .header("X-CSRF-Token", cookie(cookies, SessionCookies.CSRF).getValue()))
+                        .header("X-CSRF-Token", cookie(cookies, SessionCookies.CSRF).getValue())
+                        .header("Origin", "http://localhost"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").exists());
+                .andExpect(jsonPath("$.accessToken").doesNotExist());   // v0.4 收口：刷新响应体零凭证
         // 无 cookie 无 body：401（cookie 缺失与吊销同判）
         mvc.perform(post("/api/auth/refresh"))
                 .andExpect(status().isUnauthorized())
@@ -237,7 +241,8 @@ class CookieSessionIT {
                 try {
                     return mvc.perform(post("/api/auth/refresh")
                                     .cookie(cookies)
-                                    .header("X-CSRF-Token", cookie(cookies, SessionCookies.CSRF).getValue()))
+                                    .header("X-CSRF-Token", cookie(cookies, SessionCookies.CSRF).getValue())
+                                    .header("Origin", "http://localhost"))
                             .andReturn().getResponse().getStatus();
                 } catch (Exception e) {
                     return -1;
@@ -302,7 +307,8 @@ class CookieSessionIT {
         Cookie[] cookies = loginCookies();
         MvcResult result = mvc.perform(post("/api/auth/logout")
                         .cookie(cookies)
-                        .header("X-CSRF-Token", cookie(cookies, SessionCookies.CSRF).getValue()))
+                        .header("X-CSRF-Token", cookie(cookies, SessionCookies.CSRF).getValue())
+                        .header("Origin", "http://localhost"))
                 .andExpect(status().isOk())
                 .andReturn();
         List<String> headers = result.getResponse().getHeaders("Set-Cookie");
