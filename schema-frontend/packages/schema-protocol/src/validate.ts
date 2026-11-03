@@ -75,12 +75,18 @@ export function checkLayoutNode(node: unknown, pointer: string, errs: string[], 
     errs.push(`${pointer}: componentName 非法`);
   }
   if (node.fieldRef !== undefined) {
-    if (!page) errs.push(`${pointer}: fieldRef 校验需要页面上下文`);
+    if (typeof node.fieldRef !== 'string' || !node.fieldRef) {
+      errs.push(`${pointer}: fieldRef 必须为非空字符串`);
+    } else if (!page) errs.push(`${pointer}: fieldRef 校验需要页面上下文`);
     else if (!page.modelId) errs.push(`${pointer}: fieldRef 需要页面绑定模型`);
     else {
-      // 引用不存在的字段是非法配置；DELETED 字段属渲染层过滤，不算结构错误
+      // 字段存在性属运行时语义（02FE §5：字段上下文由宿主从模型服务拉取，页面协议冻结态
+      // 不内嵌 fields）。此处仅当页面携带内嵌 fields（设计器草稿兼容形态）时校验存在性；
+      // 引用不存在字段的最终拦截在渲染层（fields.get 未命中渲染 null + design 模式标黄）。
       const fields = collectFields(page);
-      if (!fields.includes(String(node.fieldRef))) errs.push(`${pointer}: fieldRef 指向未知字段 ${String(node.fieldRef)}`);
+      if (fields.length > 0 && !fields.includes(String(node.fieldRef))) {
+        errs.push(`${pointer}: fieldRef 指向未知字段 ${String(node.fieldRef)}`);
+      }
     }
   }
   if (!isObject(node.props)) errs.push(`${pointer}: props 必须为对象`);

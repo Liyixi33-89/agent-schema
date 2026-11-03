@@ -186,3 +186,62 @@ describe('page schema validation', () => {
     }
   });
 });
+
+describe('fieldRef validation (协议冻结态：页面不内嵌 fields)', () => {
+  const pageWithFieldRef = (extra: Record<string, unknown> = {}) => ({
+    id: 'p1', pageKey: 'expense_form', name: '报销登记', type: 'FORM', path: '/expense/form',
+    schemaVersion: 1, modelId: '1', layout: [], actions: [], ...extra,
+  });
+
+  const fieldNode = (fieldRef: string) => ({
+    id: 'f1', componentName: 'TextInput', props: {}, fieldRef,
+  });
+
+  it('合法页面不内嵌 fields 也能通过（fieldRef 存在性属运行时语义）', () => {
+    const page = { ...pageWithFieldRef(), layout: [{ id: 'w1', componentName: 'FormItem', props: { label: '事由' }, children: [fieldNode('title')] }] };
+    expect(validatePageSchema(page).id).toBe('p1');
+  });
+
+  it('fieldRef 缺页面模型绑定（modelId）被拒', () => {
+    const noModel = { ...pageWithFieldRef(), modelId: undefined,
+      layout: [{ id: 'w1', componentName: 'FormItem', props: {}, children: [fieldNode('title')] }] };
+    try {
+      validatePageSchema(noModel);
+      throw new Error('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(SchemaValidationError);
+      expect((e as SchemaValidationError).pointers.some((p) => p.includes('fieldRef 需要页面绑定模型'))).toBe(true);
+    }
+  });
+
+  it('设计器草稿兼容形态：内嵌 fields 时未知 fieldRef 被拒', () => {
+    const page = { ...pageWithFieldRef(),
+      layout: [{ id: 'w1', componentName: 'FormItem', props: {}, children: [fieldNode('ghost')] }],
+      fields: [{ key: 'title', label: '事由', type: 'text', fieldStatus: 'ACTIVE', sortOrder: 1 }] };
+    try {
+      validatePageSchema(page);
+      throw new Error('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(SchemaValidationError);
+      expect((e as SchemaValidationError).pointers.some((p) => p.includes('未知字段 ghost'))).toBe(true);
+    }
+  });
+
+  it('内嵌 fields 含已知 fieldRef 时通过（草稿形态正向）', () => {
+    const page = { ...pageWithFieldRef(),
+      layout: [{ id: 'w1', componentName: 'FormItem', props: {}, children: [fieldNode('title')] }],
+      fields: [{ key: 'title', label: '事由', type: 'text', fieldStatus: 'ACTIVE', sortOrder: 1 }] };
+    expect(validatePageSchema(page).id).toBe('p1');
+  });
+
+  it('fieldRef 非字符串类型被拒（类型非法）', () => {
+    const page = { ...pageWithFieldRef(),
+      layout: [{ id: 'w1', componentName: 'FormItem', props: {}, children: [{ id: 'f1', componentName: 'TextInput', props: {}, fieldRef: 123 }] }] };
+    try {
+      validatePageSchema(page);
+      throw new Error('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(SchemaValidationError);
+    }
+  });
+});
