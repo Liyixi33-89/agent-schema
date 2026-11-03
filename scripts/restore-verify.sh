@@ -33,15 +33,19 @@ check_table() { # table label
     [ "$n" -ge 0 ] || FAIL=1
 }
 echo "业务数据核对:"
-check_table sys_tenant
+# 注：本项目无独立租户表（租户为 sys_user.tenant_id 列）——核对真实存在的核心表
 check_table sys_user
 check_table sys_role
+check_table sys_dept
 check_table meta_model
+check_table page_schema
 check_table app
+check_table flyway_schema_history
 
 # 4) 迁移水位核对：恢复库的 flyway 水位与备份时一致（防备份截断）
+# ⚠️ split_part 是 text——max(text) 按字典序（'9'>'14'），必须先 ::int 再聚合
 FLY=$(runuser -u postgres -- psql -tAc \
-    "SELECT max(split_part(version,'.',1))::int FROM flyway_schema_history WHERE success" "$TMPDB")
+    "SELECT max(split_part(version,'.',1)::int) FROM flyway_schema_history WHERE success" "$TMPDB")
 echo "恢复库迁移水位: v$FLY"
 [ -n "$FLY" ] && [ "$FLY" -gt 0 ] || { echo "FAIL: flyway 水位缺失"; FAIL=1; }
 
