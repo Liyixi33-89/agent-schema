@@ -91,8 +91,9 @@ db_baseline() { # version-dir -> e.g. "14"
 }
 
 db_current() { # 当前库实际迁移水位
+    # ⚠️ split_part 是 text——max(text) 按字典序（'9'>'14'），必须先 ::int 再聚合
     runuser -u postgres -- psql -d schema_prod -tAc \
-        "SELECT max(split_part(version,'.',1))::int FROM flyway_schema_history WHERE success" 2>/dev/null || echo 0
+        "SELECT max(split_part(version,'.',1)::int) FROM flyway_schema_history WHERE success" 2>/dev/null || echo 0
 }
 
 backup_db() {
