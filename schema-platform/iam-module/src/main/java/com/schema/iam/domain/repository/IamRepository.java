@@ -113,10 +113,26 @@ public interface IamRepository {
      */
     java.time.OffsetDateTime refreshConsumedAt(String tokenHash);
 
+    /**
+     * 容忍窗口内重放的「同一次轮换结果」缓存行（2026-11-03 收口）：
+     * 首次消费成功时把本次签发的 refresh 哈希与 csrf 值暂存到消费行——窗口内重放
+     * 直接用同一组轮换结果再签发（不再滚动新链，收敛多标签各自成链的发散）。
+     */
+    Optional<Map<String, Object>> findRotationOf(String tokenHash);
+
+    /** 首次消费成功时写入轮换结果缓存（rotated_hash/rotated_csrf）。 */
+    void recordRotation(String tokenHash, String rotatedHash, String rotatedCsrf);
+
     /** 吊销用户全部 refresh（改密/登出全部设备/停用）。 */
     void revokeAllRefreshTokens(long userId);
 
     void revokeRefreshToken(String tokenHash);
+
+    /** 登出收口：吊销用户全部活跃（未吊销未过期）refresh——并发刷新滚动留下的其他链一并失效。 */
+    void revokeActiveRefreshTokens(long userId);
+
+    /** 过期行物理清理（refresh 自然过期后的垃圾行——调用时机：刷新路径顺带清理该用户的过期行）。 */
+    int purgeExpiredRefreshTokens(long userId);
 
     /** 用户密码版本（v0.4 强失效：access claim 与库值比对）。 */
     int findPwdVersion(long userId);

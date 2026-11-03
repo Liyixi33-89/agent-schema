@@ -12,20 +12,17 @@ import { RequestClient } from './request';
 import { UsageTracker } from '@schema/usage-tracker';
 import FormPageHost from './FormPageHost';
 import { AppShell, watchTenantChange } from './AppShell';
+import SessionExpired from './SessionExpired';
 
 // v0.4 Cookie 通道：正式访问不带 getToken（schema_at 自动携带）；预览页场景由宿主另行注入 Bearer
+/** 会话失效信号桥（模块级——client 回调触发 React 状态切占位组件；App 挂载时接管）。 */
+let notifySessionExpired: (() => void) | null = null;
 const client = new RequestClient({
   baseUrl: import.meta.env.VITE_API_BASE ?? '',
   getTenantId: () => localStorage.getItem('schema_tenant'),
-  // 401 静默刷新失败（REFRESH_REVOKED）：清本地页面缓存跳登录提示（运行时无登录页——提示后由
-  // 宿主/用户重新进入；缓存清除防下一会话读到跨会话 schema）
-  onSessionExpired: () => {
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const key = localStorage.key(i);
-      if (key?.startsWith('schema_page_cache_')) localStorage.removeItem(key);
-    }
-    location.reload();
-  },
+  // 401 静默刷新失败（REFRESH_REVOKED）：置会话失效态渲染占位组件（2026-11-03 收口——
+  // 不再 location.reload：停止加载业务、不反复重载、清权限快照与 Schema 缓存防旧数据/跨会话残留）
+  onSessionExpired: () => { notifySessionExpired?.(); },
 });
 
 /** 计量埋点（09FE）：认证头与请求层同通道（Cookie + 双提交）——上报通道需登录态。 */
@@ -77,6 +74,11 @@ function cacheEntry(pageId: string, etag: string | null, schema: unknown): void 
 
 function App(): React.ReactElement {
   const [route, setRoute] = React.useState<RouteInfo | null>(parseHash());
+  const [sessionExpired, setExpired] = React.useState(false);
+  React.useEffect(() => {
+    notifySessionExpired = () => setExpired(true);
+    return () => { notifySessionExpired = null; };
+  }, []);
   React.useEffect(() => {
     const onHash = (): void => setRoute(parseHash());
     window.addEventListener('hashchange', onHash);
@@ -89,6 +91,11 @@ function App(): React.ReactElement {
       stop();
     };
   }, []);
+
+  // 会话失效：占位组件接管整页（业务组件卸载——停止加载、不重载、不残留旧数据）
+  if (sessionExpired) {
+    return <SessionExpired />;
+  }
 
   const pageHost = (pageId: string, recordId?: string): React.ReactElement => {
     const cached = cachedEntry(pageId);

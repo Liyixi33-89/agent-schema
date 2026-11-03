@@ -301,8 +301,11 @@ public class JdbcIamRepository implements IamRepository {
 
     @Override
     public void revokeAllRefreshTokens(long userId) {
+        // 改密/停用强失效路径同登出语义：活跃行全吊销 + 已消费行清窗口缓存
         jdbc.update("UPDATE sys_refresh_token SET revoked=true, revoked_at=now() "
                 + "WHERE user_id=? AND revoked=false", userId);
+        jdbc.update("UPDATE sys_refresh_token SET consumed_at=NULL, rotated_hash=NULL, rotated_csrf=NULL "
+                + "WHERE user_id=? AND consumed_at IS NOT NULL", userId);
     }
 
     @Override
@@ -315,8 +318,11 @@ public class JdbcIamRepository implements IamRepository {
 
     @Override
     public OffsetDateTime refreshConsumedAt(String tokenHash) {
+        // 只返回「滚动消费」产生的时间戳：登出/改密路径吊销（revoked=true 且 consumed_at 为空）
+        // 不得进入容忍窗口判定——否则登出后 10s 内重放旧 token 可恢复会话（2026-11-03 收口）
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT consumed_at FROM sys_refresh_token WHERE token_hash=?", tokenHash);
+                "SELECT consumed_at FROM sys_refresh_token WHERE token_hash=? AND consumed_at IS NOT NULL",
+                tokenHash);
         if (rows.isEmpty()) {
             return null;
         }
@@ -324,8 +330,51 @@ public class JdbcIamRepository implements IamRepository {
     }
 
     @Override
+    public Optional<Map<String, Object>> findRotationOf(String tokenHash) {
+        // 轮换结果缓存列（V15 迁移补列；老库无列时返回空——容忍窗口退化为「再签一组」旧语义）
+        try {
+            return jdbc.queryForList(
+                    "SELECT rotated_hash, rotated_csrf FROM sys_refresh_token WHERE token_hash=?",
+                    tokenHash).stream().findFirst();
+        } catch (org.springframework.dao.DataAccessException e) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public void recordRotation(String tokenHash, String rotatedHash, String rotatedCsrf) {
+        try {
+            jdbc.update("UPDATE sys_refresh_token SET rotated_hash=?, rotated_csrf=? WHERE token_hash=?",
+                    rotatedHash, rotatedCsrf, tokenHash);
+        } catch (org.springframework.dao.DataAccessException e) {
+            // 老库无列（迁移未执行）——退化为不缓存，容忍窗口内重放仍按旧语义再签发
+        }
+    }
+
+    @Override
     public void revokeRefreshToken(String tokenHash) {
         jdbc.update("UPDATE sys_refresh_token SET revoked=true, revoked_at=now() WHERE token_hash=?", tokenHash);
+    }
+
+    @Override
+    public void revokeActiveRefreshTokens(long userId) {
+        // 两段收口（2026-11-03）：
+        // 1) 活跃行（revoked=false）全量吊销——并发刷新滚动留下的多条链一并断；
+        // 2) **已消费行**（revoked=true 且 consumed_at 非空）清除 consumed_at/轮换缓存——
+        //    否则 10s 容忍窗口仍放行重放，登出后借旧 token 恢复会话（实测暴露）。
+        jdbc.update("UPDATE sys_refresh_token SET revoked=true, revoked_at=now() "
+                + "WHERE user_id=? AND revoked=false", userId);
+        jdbc.update("UPDATE sys_refresh_token SET consumed_at=NULL, rotated_hash=NULL, rotated_csrf=NULL "
+                + "WHERE user_id=? AND consumed_at IS NOT NULL", userId);
+    }
+
+    @Override
+    public int purgeExpiredRefreshTokens(long userId) {
+        try {
+            return jdbc.update("DELETE FROM sys_refresh_token WHERE user_id=? AND expires_at <= now()", userId);
+        } catch (org.springframework.dao.DataAccessException e) {
+            return 0;
+        }
     }
 
     @Override

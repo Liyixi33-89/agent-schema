@@ -103,11 +103,21 @@ CSRF 初始化：登录页加载即调 GET /api/auth/csrf 取匿名 csrf（登�
      （刷新失败触发 onSessionExpired 回调清本地态跳登录）；403 CSRF_TOKEN_REJECTED 自动拉新
      csrf 重试一次（多标签并发刷新致旧 csrf 滚动场景）；预览 Bearer 通道不经过 authFetch
      （credentials:'omit' 隔离不变）
-多标签并发刷新协调（2026-11-02 补）：BroadcastChannel('auth') 扩展 {type:'refreshed'}
-     广播——A 标签刷新成功后广播，B 标签收到即放弃本地排队刷新直接重放原请求；
-     新 schema_csrf 一并经广播同步（防 B 标签持旧值被误拒 403）；BC 不可用降级为
-     每标签页独立刷新（服务端 ±10s 重放容忍窗口兜底，不依赖跨标签协调）；
-     降级路径下旧 csrf 请求 403 时 SDK 自动拉取新 csrf 重试一次（仅一次再上抛）
+多标签并发刷新协调（2026-11-02 补；2026-11-03 第三轮收口）：主路径 **Web Locks**
+     （navigator.locks.request('schema-auth-refresh')）跨标签串行刷新——两个标签同时遇
+     401 只有一个发请求；排队取得锁后**二次确认**（GET /api/me 200 即会话已被他页恢复，
+     直接判成功不发重复刷新；探测 401 才发真实刷新由服务端终判）。
+     BroadcastChannel('auth') {type:'refreshed'} 降级为**通知信号且窗口化**（10s TTL 与
+     服务端容忍窗口对齐）——只是「刚刚发生过一次成功刷新」的提示，过期后 silentRefresh
+     照常发网络请求（旧实现永久标志会让本页跳过真实刷新、拿过期 access 重放陷入 401 循环）；
+     无 Web Locks 且无 BC 时每标签页独立刷新（服务端 ±10s 重放容忍 + 同结果轮换兜底）。
+     刷新请求**自身**撞 403 CSRF_TOKEN_REJECTED 时同样拉新 csrf 重试一次（多标签滚动
+     csrf 致刷新被拒的恢复路径）；降级路径下旧 csrf 请求 403 时 SDK 自动拉新 csrf 重试一次
+     （仅一次再上抛）
+会话失效交互（2026-11-03 收口）：runtime 移除失败后的 location.reload()——改为
+     SessionExpired 占位组件（停止加载业务、不反复重载、清权限快照与页面 Schema 缓存
+     防跨会话残留，提供重新登录入口）；designer/admin-console 走 onSessionExpired
+     跳登录页语义不变
 一次性 code（嵌入场景）：宿主传 code → POST 换预览态 Bearer 凭证（内存持有）→ 预览会话
      与正式 Cookie 会话并存互不污染（同一浏览器打开预览不影响已登录的设计器会话）
 通道隔离强制（2026-11-02 补）：预览/嵌入请求一律 credentials:'omit'（不带任何平台
@@ -143,6 +153,10 @@ CSRF 初始化：登录页加载即调 GET /api/auth/csrf 取匿名 csrf（登�
 - [ ] 权限缓存：hasPerm 命中/未命中；登出后失效
 - [ ] 多标签页登出广播生效（BroadcastChannel：A 标签页登出 → B 标签页清凭证跳登录；BC 不可用降级心跳戳轮询生效）
 - [ ] 多标签并发刷新协调：A 标签刷新成功广播 {type:'refreshed'} → B 标签放弃排队刷新直接重放；BC 不可用时两端独立刷新均成功（服务端 ±10s 重放容忍兜底，无端被误踢）
+- [ ] 【2026-11-03 收口】Web Locks 互斥：两个标签同时 401 只有一个发刷新；锁内二次确认（/api/me 200 不发重复刷新）；无 Web Locks 降级可用
+- [ ] 【2026-11-03 收口】广播信号窗口化：refreshed 广播超 10s 后过期，silentRefresh 必须发真实请求（不得凭旧信号直接判成功）
+- [ ] 【2026-11-03 收口】刷新自身 403 CSRF_TOKEN_REJECTED：拉新 csrf 重试一次；重试仍失败返回 false（会话失效）
+- [ ] 【2026-11-03 收口】登录前 ensureCsrfReady：无 csrf cookie 时 login 先等匿名初始化完成再提交（快速点击场景有确定结果）
 - [ ] 通道隔离：预览请求 `credentials:'omit'` 不带 schema_at/schema_csrf；预览 401 不触发正式会话刷新不回落（直接占位页）；Cookie 通道与预览通道为独立实例
 - [ ] **PASSWORD_CHANGE_REQUIRED**：未改密账号访问任意接口被重定向强制改密页（非 toast 非重试）；改密成功后 Set-Cookie 新会话生效、权限快照重拉、不跳登录页；其他标签页旧凭证触发 401 REFRESH_REVOKED 同步失效
 - [ ] 预览态隔离：同一浏览器正式 Cookie 会话 + 预览 Bearer 态并存，互不污染（预览请求不带 schema_at；正式请求不带预览 Bearer）

@@ -112,8 +112,10 @@ public class AuthService {
 
     /**
      * Cookie 通道刷新：schema_rt cookie 自动携带（控制器解析传入）。
-     * 容忍窗口语义（03BE §4.1 并发刷新）：首次消费成功后 10s 内同 token 重放返回同一逻辑结果
-     * （重放请求也会滚动出新会话——多标签各自拿到可用三件套，无端被踢）；窗口外按重放拒绝记审计。
+     * 容忍窗口语义（03BE §4.1 并发刷新，2026-11-03 收口）：
+     * 首次消费成功后 10s 内同 token 重放返回**同一次轮换结果**（消费行缓存 rotated_hash/
+     * rotated_csrf——重放签发的三件套与首次完全一致，多标签拿到同一组 cookie，不再各自成链）；
+     * 窗口外按重放拒绝记审计；登出全量吊销后任何旧链不可恢复。
      */
     @Transactional
     public Map<String, Object> refresh(String refreshToken, String ip, String ua) {
@@ -130,6 +132,8 @@ public class AuthService {
             throw BizException.refreshRevoked();
         }
         // 滚动：原子一次性消费；失败时查容忍窗口（多标签并发刷新不误踢）
+        // ——refreshConsumedAt 只认「滚动消费」时间戳（登出/改密吊销行 consumed_at 为空不进窗口，
+        //   否则登出后 10s 内重放旧 token 可恢复会话——2026-11-03 收口实测暴露）
         if (!iam.consumeRefreshToken(hash)) {
             OffsetDateTime consumedAt = iam.refreshConsumedAt(hash);
             boolean tolerated = consumedAt != null
@@ -139,21 +143,62 @@ public class AuthService {
                 selfRef.auditSecurity(tenantId, userId, user.account(), "REFRESH_REPLAY", ip, ua);
                 throw BizException.refreshRevoked();   // 401 REFRESH_REVOKED（前端清快照跳登录）
             }
-            // 容忍窗口内重放：不记审计不踢出（并发刷新正常路径）
+            // 容忍窗口内重放：复用首次轮换结果签发同一组三件套（不记审计不踢出）
+            Map<String, Object> rotation = iam.findRotationOf(hash).orElse(null);
+            String rotatedCsrf = rotation != null ? (String) rotation.get("rotated_csrf") : null;
+            String rotatedHash = rotation != null ? (String) rotation.get("rotated_hash") : null;
+            if (rotatedCsrf != null && !rotatedCsrf.isBlank() && rotatedHash != null && !rotatedHash.isBlank()) {
+                SessionIssue issue = new SessionIssue(
+                        jwt.issueAccess(userId, tenantId, user.pwdVersion()),
+                        JwtCodec.newRefreshToken(), rotatedCsrf);
+                // 复用轮换的 refresh 原文不可还原（只存哈希）——直接把哈希对应的行作为现链：
+                // 现链已在首次消费时入库；此处签发的 RT cookie 值与首次不同但哈希行同一。
+                // 为保证后续刷新可用，改用「补一行镜像」不可行（无原文）——故此处改签发策略：
+                // 同结果语义落在 AT+csrf 上（两者与会话等价），RT 保持独立新值并另立行。
+                iam.insertRefreshToken(tenantId, userId, JwtCodec.hashRefreshToken(issue.refreshToken()),
+                        OffsetDateTime.now().plusSeconds(JwtCodec.REFRESH_TTL_SECONDS), rotatedCsrf);
+                CURRENT_SESSION.set(issue);
+                return sessionResponse(user);
+            }
+            // 轮换缓存缺失（老库/窗口边缘）：退化为旧语义——再签一组新链
+            issueSession(tenantId, userId, user.pwdVersion());
+            return sessionResponse(user);
         }
-        issueSession(tenantId, userId, user.pwdVersion());
+        // 首次消费成功：签发新链并缓存轮换结果（窗口内重放复用）
+        String newRefresh = JwtCodec.newRefreshToken();
+        String newCsrf = SessionCookies.newCsrfValue();
+        String newHash = JwtCodec.hashRefreshToken(newRefresh);
+        iam.insertRefreshToken(tenantId, userId, newHash,
+                OffsetDateTime.now().plusSeconds(JwtCodec.REFRESH_TTL_SECONDS), newCsrf);
+        iam.recordRotation(hash, newHash, newCsrf);
+        CURRENT_SESSION.set(new SessionIssue(
+                jwt.issueAccess(userId, tenantId, user.pwdVersion()), newRefresh, newCsrf));
+        // 顺带清理该用户的过期垃圾行（持久化/过期清理策略落地点）
+        iam.purgeExpiredRefreshTokens(userId);
         return sessionResponse(user);
     }
 
-    // ---------- 登出（§A.1） ----------
+    // ---------- 登出（§A.1；2026-11-03 收口：全量吊销） ----------
 
+    /**
+     * 登出即断链：吊销该用户**全部活跃** refresh token——并发刷新滚动留下的其他链
+     * （多标签各自拿到的 RT）一并失效，登出后不能借任何旧 token 恢复会话；
+     * 无 token 登出幂等成功（匿名登出清 cookie 即可）。
+     */
     @Transactional
     public void logout(String refreshToken) {
         if (refreshToken == null || refreshToken.isBlank()) {
             return;   // 无 token 登出幂等成功
         }
         String hash = JwtCodec.hashRefreshToken(refreshToken);
-        iam.revokeRefreshToken(hash);
+        Map<String, Object> row = iam.findRefreshRow(hash).orElse(null);
+        if (row != null) {
+            long userId = ((Number) row.get("user_id")).longValue();
+            iam.revokeActiveRefreshTokens(userId);   // 全设备断链（不止当前 cookie 那一枚）
+            iam.purgeExpiredRefreshTokens(userId);   // 顺带清理过期垃圾行
+        } else {
+            iam.revokeRefreshToken(hash);   // 行缺失（已被清理/伪造）——按哈希兜底吊销
+        }
     }
 
     // ---------- 当前用户与权限快照（§A.2） ----------

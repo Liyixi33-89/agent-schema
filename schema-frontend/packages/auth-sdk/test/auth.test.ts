@@ -82,11 +82,24 @@ vi.stubGlobal('localStorage', {
   setItem: (k: string, v: string) => { lsStore[k] = v; },
   removeItem: (k: string) => { delete lsStore[k]; },
 });
+// navigator：默认无 locks（走降级路径）；Web Locks 用例经 installLocks() 覆盖
+vi.stubGlobal('navigator', {});
 
 // 模块级单飞状态在用例间须复位——动态 import 前清空模块缓存
 async function freshSdk() {
   const mod = await import('../src/index');
   return mod;
+}
+
+/** 可控锁管理器 stub（文件级——多个 describe 共用）：记录请求名并同步执行回调。 */
+function installLocks() {
+  vi.stubGlobal('navigator', {
+    locks: {
+      async request(_name: string, cb: () => Promise<void>) {
+        await cb();
+      },
+    },
+  });
 }
 
 let sdk: Awaited<ReturnType<typeof freshSdk>>;
@@ -98,6 +111,28 @@ beforeEach(async () => {
   lsStore = {};
   ChannelStub.instances = [];
   vi.resetModules();
+  vi.unstubAllGlobals();   // 清 installLocks/navigator 残留——每用例从干净全局开始
+  vi.stubGlobal('fetch', fetchStub);
+  vi.stubGlobal('BroadcastChannel', ChannelStub);
+  vi.stubGlobal('navigator', {});
+  vi.stubGlobal('document', {
+    get cookie(): string {
+      return Object.entries(cookieStore).map(([k, v]) => `${k}=${v}`).join('; ');
+    },
+    set cookie(v: string) {
+      const [pair] = v.split(';');
+      const eq = pair.indexOf('=');
+      const name = pair.slice(0, eq).trim();
+      const value = pair.slice(eq + 1);
+      if (v.includes('Max-Age=0')) delete cookieStore[name];
+      else cookieStore[name] = value;
+    },
+  });
+  vi.stubGlobal('localStorage', {
+    getItem: (k: string) => lsStore[k] ?? null,
+    setItem: (k: string, v: string) => { lsStore[k] = v; },
+    removeItem: (k: string) => { delete lsStore[k]; },
+  });
   sdk = await freshSdk();
 });
 
@@ -213,5 +248,124 @@ describe('多标签 refreshed 广播消费', () => {
     sdk.watchAuthChannel(spy);
     ChannelStub.instances[0].receive({ type: 'logout' });
     expect(spy).toHaveBeenCalledWith({ type: 'logout' });
+  });
+
+  it('【窗口化收口】广播信号过期后 silentRefresh 必须发真实请求（旧永久标志致 401 循环）', async () => {
+    ChannelStub.instances[0].receive({ type: 'refreshed' });
+    // 前进 11s（超过 10s TTL）——旧实现永久标志会继续凭信号判成功
+    const now = Date.now;
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11_000);
+    try {
+      enqueue(200, {});   // 真实 refresh 请求成功
+      const ok = await sdk.silentRefresh('');
+      expect(ok).toBe(true);
+      expect(calls.some((c) => c.url.includes('/api/auth/refresh'))).toBe(true);
+    } finally {
+      vi.spyOn(Date, 'now').mockRestore();
+      void now;
+    }
+  });
+
+  it('【乱序过期】先收过期前的旧广播再刷新：窗口内信号仍有效直接判成功', async () => {
+    ChannelStub.instances[0].receive({ type: 'refreshed' });
+    enqueue(200, {});
+    const ok = await sdk.silentRefresh('');
+    expect(ok).toBe(true);
+    expect(calls).toHaveLength(0);   // 窗口内信号有效——不发请求
+  });
+});
+
+describe('Web Locks 跨标签互斥（2026-11-03 收口）', () => {
+  it('有 Web Locks 时刷新经锁串行，且锁内先二次确认会话（/api/me 200 即恢复）', async () => {
+    installLocks();
+    // 二次确认 /api/me 返回 200（他页已刷新、cookie 已共享本页）
+    enqueue(200, { userId: 1 });   // GET /api/me
+    const ok = await sdk.silentRefresh('');
+    expect(ok).toBe(true);
+    // 不发 /api/auth/refresh——会话已恢复，锁内直接判成功
+    expect(calls.some((c) => c.url.includes('/api/auth/refresh'))).toBe(false);
+    expect(calls.some((c) => c.url.includes('/api/me'))).toBe(true);
+  });
+
+  it('锁内探测 401（会话未恢复）时发真实刷新请求', async () => {
+    installLocks();
+    enqueue(401);                  // GET /api/me → 401
+    enqueue(200, {});              // POST /api/auth/refresh → 200
+    const ok = await sdk.silentRefresh('');
+    expect(ok).toBe(true);
+    expect(calls.some((c) => c.url.includes('/api/auth/refresh'))).toBe(true);
+  });
+
+  it('无 Web Locks（navigator.locks 缺失）降级可用：直接走刷新请求', async () => {
+    vi.stubGlobal('navigator', {});
+    enqueue(200, {});
+    const ok = await sdk.silentRefresh('');
+    expect(ok).toBe(true);
+    expect(calls.some((c) => c.url.includes('/api/auth/refresh'))).toBe(true);
+  });
+});
+
+describe('刷新请求自身 CSRF 失效恢复（2026-11-03 收口）', () => {
+  it('refresh 撞 403 CSRF_TOKEN_REJECTED：拉新 csrf 重试一次成功并广播', async () => {
+    installLocks();
+    enqueue(401);                          // /api/me 探测 → 401（会话未恢复）
+    enqueue(403, { code: 'CSRF_TOKEN_REJECTED' });   // refresh 第一拍 → csrf 滚动失效
+    enqueue(200, {});                      // GET /api/auth/csrf 拉新值
+    enqueue(200, {});                      // refresh 重试 → 成功
+    const ok = await sdk.silentRefresh('');
+    expect(ok).toBe(true);
+    expect(calls.filter((c) => c.url.includes('/api/auth/refresh'))).toHaveLength(2);
+    expect(ChannelStub.instances[0].posted).toContainEqual({ type: 'refreshed' });
+  });
+
+  it('refresh 重试仍失败：返回 false（调用方判会话失效）', async () => {
+    installLocks();
+    enqueue(401);                          // /api/me → 401
+    enqueue(403, { code: 'CSRF_TOKEN_REJECTED' });   // refresh → 403 csrf
+    enqueue(200, {});                      // 拉新 csrf
+    enqueue(401, { code: 'REFRESH_REVOKED' });       // 重试 → 401 终判
+    const ok = await sdk.silentRefresh('');
+    expect(ok).toBe(false);
+  });
+
+  it('refresh 403 但非 CSRF 码（如越权）：不重试直接失败', async () => {
+    installLocks();
+    enqueue(401);                          // /api/me → 401
+    enqueue(403, { code: 'PERM_DENIED' }); // refresh → 403 非 csrf
+    const ok = await sdk.silentRefresh('');
+    expect(ok).toBe(false);
+    expect(calls.filter((c) => c.url.includes('/api/auth/refresh'))).toHaveLength(1);
+  });
+});
+
+describe('登录前 CSRF 就绪（ensureCsrfReady——快速点击场景）', () => {
+  it('无 csrf cookie 时 login 先等待匿名初始化完成', async () => {
+    // login 内部：ensureCsrfReady 先 GET /api/auth/csrf，再 POST login
+    enqueue(200, {});   // GET /api/auth/csrf
+    enqueue(200, { mustChangePassword: false });   // POST /api/auth/login
+    await sdk.login('', { username: 'alice', password: 'p' });
+    const csrfCall = calls.find((c) => c.url.includes('/api/auth/csrf'));
+    const loginCall = calls.find((c) => c.url.includes('/api/auth/login'));
+    expect(csrfCall).toBeTruthy();
+    expect(loginCall).toBeTruthy();
+    // csrf 初始化先于登录请求发出
+    expect(calls.indexOf(csrfCall!)).toBeLessThan(calls.indexOf(loginCall!));
+  });
+
+  it('已有 csrf cookie 时不重复初始化直接登录', async () => {
+    cookieStore['schema_csrf'] = 'tok-ready';
+    enqueue(200, { mustChangePassword: false });
+    await sdk.login('', { username: 'alice', password: 'p' });
+    expect(calls).toHaveLength(1);   // 只有 login，无 csrf 初始化
+    expect((lastCall().init.headers as Record<string, string>)['X-CSRF-Token']).toBe('tok-ready');
+  });
+
+  it('csrf 初始化网络失败不阻断登录提交（服务端 Origin 校验兜底）', async () => {
+    // GET /api/auth/csrf 抛网络异常 → ensureCsrfReady 吞掉 → login 照常发出
+    responses.push(null);   // fetch stub 收到 null 时抛异常的钩子见下
+    fetchStub.mockImplementationOnce(async () => { throw new TypeError('network down'); });
+    enqueue(200, { mustChangePassword: false });
+    await sdk.login('', { username: 'alice', password: 'p' });
+    expect(calls.some((c) => c.url.includes('/api/auth/login'))).toBe(true);
   });
 });

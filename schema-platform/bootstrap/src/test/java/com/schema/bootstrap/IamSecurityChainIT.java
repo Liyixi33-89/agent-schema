@@ -331,13 +331,40 @@ class IamSecurityChainIT {
             }
         }
         pool.shutdown();
-        // v0.4 §4.1：首次消费后 10s 容忍窗口内同 token 重放全部成功（滚动出新会话不误踢）
+        // v0.4 §4.1（2026-11-03 收口）：首次消费后 10s 容忍窗口内同 token 重放全部成功；
+        // csrf 复用首次轮换结果（同组三件套语义——并发请求拿到一致的新会话）
         assertEquals(threads, ok, "容忍窗口内并发刷新必须全部成功");
         // 容忍窗口语义下并发刷新不记重放审计（偶发竞态窗口判定偏差允许 ≤1 条——宁可多记不可漏记）
         Long replays = jdbc.queryForObject(
                 "SELECT count(*) FROM sys_audit_log WHERE event_type='SECURITY' "
                         + "AND diff->>'reason'='REFRESH_REPLAY'", Long.class);
         assertTrue(replays <= 1, "容忍窗口内并发刷新不得逐次记重放审计");
+    }
+
+    @Test
+    void concurrentRefreshWithinToleranceReturnsConsistentCsrf() throws Exception {
+        // 同结果一致性（2026-11-03 收口）：窗口内重放的 csrf 必须与首次轮换一致
+        org.springframework.test.web.servlet.MvcResult first =
+                mvc.perform(post("/api/auth/refresh").contentType("application/json")
+                                .content("{\"refreshToken\":\"" + plainRefresh + "\"}"))
+                        .andReturn();
+        String firstCsrf = csrfCookieOf(first);
+        org.springframework.test.web.servlet.MvcResult replay =
+                mvc.perform(post("/api/auth/refresh").contentType("application/json")
+                                .content("{\"refreshToken\":\"" + plainRefresh + "\"}"))
+                        .andReturn();
+        String replayCsrf = csrfCookieOf(replay);
+        assertEquals(firstCsrf, replayCsrf, "容忍窗口内重放必须返回同一次轮换的 csrf");
+    }
+
+    /** 从响应 Set-Cookie 头解析 schema_csrf 值。 */
+    private String csrfCookieOf(org.springframework.test.web.servlet.MvcResult result) {
+        for (jakarta.servlet.http.Cookie c : result.getResponse().getCookies()) {
+            if ("schema_csrf".equals(c.getName())) {
+                return c.getValue();
+            }
+        }
+        return null;
     }
 
     @Test

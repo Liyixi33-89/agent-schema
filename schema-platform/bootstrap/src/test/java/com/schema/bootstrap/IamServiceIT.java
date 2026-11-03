@@ -176,19 +176,70 @@ class IamServiceIT {
         String refresh1 = issuedRefreshToken();   // v0.4：refresh 不再入体
         assertNull(session.get("refreshToken"), "v0.4 refresh 不得入响应体");
 
-        // 滚动刷新：新对签发
+        // 滚动刷新：新对签发（一次消费取全三件套——csrf 供窗口重放一致性比对）
         Map<String, Object> rotated = TenantContext.with(T1, () -> auth.refresh(refresh1, "test", "test"));
-        String refresh2 = issuedSession().refreshToken();
+        AuthService.SessionIssue firstRotation = issuedSession();
+        String refresh2 = firstRotation.refreshToken();
         assertNull(rotated.get("accessToken"), "v0.4 收口：access 不得入响应体");
         assertNotNull(rotated.get("mustChangePassword"));
 
-        // v0.4 ±10s 容忍窗口内旧 token 重放：成功滚动（多标签并发刷新正常路径）
-        Map<String, Object> tolerated = TenantContext.with(T1, () -> auth.refresh(refresh1, "test", "test"));
-        String refresh3 = issuedSession().refreshToken();
-        assertNotNull(refresh3, "容忍窗口内重放必须成功（多标签不误踢）");
-        assertFalse(refresh3.equals(refresh2), "容忍重放同样滚动新对");
+        // v0.4 ±10s 容忍窗口内旧 token 重放：返回**同一次轮换结果**（2026-11-03 收口）
+        // ——csrf 必须与首次滚动完全一致（多标签拿到同一组 cookie，不再各自成链）
+        TenantContext.with(T1, () -> auth.refresh(refresh1, "test", "test"));
+        AuthService.SessionIssue replaySession = issuedSession();
+        assertNotNull(replaySession.refreshToken(), "容忍窗口内重放必须成功（多标签不误踢）");
+        assertEquals(firstRotation.csrfValue(), replaySession.csrfValue(),
+                "容忍重放必须复用首次轮换的 csrf（同一次轮换结果语义）");
 
         // 窗口外重放拒绝语义由安全链 IT（staleRefreshOutsideToleranceIsRejectedAndAudited）覆盖
+    }
+
+    // ---------- 登出全量吊销（2026-11-03 收口：并发刷新留下的其他链一并失效） ----------
+
+    @Test
+    void logoutRevokesAllActiveChains() {
+        String account = currentAccount();
+        loginOk(account);
+        String refreshA = issuedRefreshToken();
+
+        // 多标签并发刷新：A 刷新成功拿新链，B 在容忍窗口内重放旧 token 也拿链
+        TenantContext.with(T1, () -> auth.refresh(refreshA, "test", "test"));
+        String refreshChainA = issuedRefreshToken();
+        TenantContext.with(T1, () -> auth.refresh(refreshA, "test", "test"));
+        String refreshChainB = issuedRefreshToken();
+
+        // 登出（以 A 链身份）：全部活跃链失效（logout 无返回值——with 需要 Supplier）
+        TenantContext.with(T1, () -> {
+            auth.logout(refreshChainA);
+            return null;
+        });
+
+        // A 链刷新被拒
+        BizException kickedA = TenantContext.with(T1, () -> {
+            try {
+                auth.refresh(refreshChainA, "test", "test");
+                return null;
+            } catch (BizException e) {
+                return e;
+            }
+        });
+        assertEquals("REFRESH_REVOKED", kickedA.code(), "登出后当前链不可恢复会话");
+
+        // B 链（并发刷新滚动留下的另一条活跃链）也必须被拒——登出不得遗留可用链
+        BizException kickedB = TenantContext.with(T1, () -> {
+            try {
+                auth.refresh(refreshChainB, "test", "test");
+                return null;
+            } catch (BizException e) {
+                return e;
+            }
+        });
+        assertEquals("REFRESH_REVOKED", kickedB.code(), "登出必须全量吊销并发刷新留下的其他活跃链");
+
+        // 库内不再有该用户的活跃行
+        Long active = jdbc.queryForObject(
+                "SELECT count(*) FROM sys_refresh_token WHERE user_id=? AND revoked=false", Long.class, userId);
+        assertEquals(0L, active, "登出后该用户不得存在任何活跃 refresh 行");
     }
 
     // ---------- 03BE §7：P1 建号/重置一次性密码 ----------

@@ -321,4 +321,89 @@ class CookieSessionIT {
         assertTrue(joined.contains("schema_csrf="), "schema_csrf 必须清除: " + joined);
         assertTrue(joined.contains("Path=/api/auth"), "rt 清除属性须与签发一致: " + joined);
     }
+
+    // ---------- 登出全量吊销（2026-11-03 收口：容忍窗口链不得借尸还魂） ----------
+
+    @Test
+    void logoutRevokesToleranceWindowChainsToo() throws Exception {
+        // 标签 A、B 各自登录拿独立链（模拟两个标签页各自的 RT cookie）
+        Cookie[] cookiesA = loginCookies();
+        String rtA = cookie(cookiesA, SessionCookies.RT).getValue();
+        String csrfA = cookie(cookiesA, SessionCookies.CSRF).getValue();
+
+        // A 刷新滚动出新链（A 的旧链被消费、新链 active）
+        mvc.perform(post("/api/auth/refresh")
+                        .cookie(cookie(cookiesA, SessionCookies.AT),
+                                new Cookie(SessionCookies.RT, rtA),
+                                new Cookie(SessionCookies.CSRF, csrfA))
+                        .header("X-CSRF-Token", csrfA)
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isOk());
+
+        // 标签 B 在容忍窗口内重放 A 的旧 RT（多标签共享 cookie 场景的极限形态）——成功
+        mvc.perform(post("/api/auth/refresh")
+                        .cookie(new Cookie(SessionCookies.RT, rtA),
+                                new Cookie(SessionCookies.CSRF, csrfA))
+                        .header("X-CSRF-Token", csrfA)
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isOk());
+
+        // 此时用户已拥有多条活跃链；登出（B 身份）必须全量吊销
+        Long activeBefore = jdbc.queryForObject(
+                "SELECT count(*) FROM sys_refresh_token WHERE user_id=? AND revoked=false", Long.class, userId);
+        assertTrue(activeBefore >= 2, "并发刷新后应存在多条活跃链: " + activeBefore);
+
+        MvcResult logout = mvc.perform(post("/api/auth/logout")
+                        .cookie(new Cookie(SessionCookies.RT, rtA),
+                                new Cookie(SessionCookies.CSRF, csrfA))
+                        .header("X-CSRF-Token", csrfA)
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertTrue(logout.getResponse().getHeaders("Set-Cookie").size() >= 3);
+
+        // 登出后：任何旧链（含容忍窗口内滚出的链）恢复会话必须被拒
+        Long activeAfter = jdbc.queryForObject(
+                "SELECT count(*) FROM sys_refresh_token WHERE user_id=? AND revoked=false", Long.class, userId);
+        assertEquals(0L, activeAfter, "登出后不得遗留任何活跃 refresh 行");
+
+        // 重放旧 RT：401 REFRESH_REVOKED（不得恢复会话）
+        mvc.perform(post("/api/auth/refresh")
+                        .cookie(new Cookie(SessionCookies.RT, rtA),
+                                new Cookie(SessionCookies.CSRF, csrfA))
+                        .header("X-CSRF-Token", csrfA)
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("REFRESH_REVOKED"));
+        // 被拒的重放不得再签发新链
+        Long activeAfterReplay = jdbc.queryForObject(
+                "SELECT count(*) FROM sys_refresh_token WHERE user_id=? AND revoked=false", Long.class, userId);
+        assertEquals(0L, activeAfterReplay, "被拒重放不得再签发新链");
+    }
+
+    // ---------- 容忍窗口同结果一致性（2026-11-03 收口：并发请求拿到同一组轮换） ----------
+
+    @Test
+    void toleranceReplayReturnsSameRotationCsrf() throws Exception {
+        Cookie[] cookies = loginCookies();
+        Cookie rt = cookie(cookies, SessionCookies.RT);
+        Cookie csrf = cookie(cookies, SessionCookies.CSRF);
+        // 首次刷新：拿第一次轮换的 csrf
+        MvcResult first = mvc.perform(post("/api/auth/refresh")
+                        .cookie(cookie(cookies, SessionCookies.AT), rt, csrf)
+                        .header("X-CSRF-Token", csrf.getValue())
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String firstCsrf = parseCookies(first).get(SessionCookies.CSRF).getValue();
+        // 窗口内重放：csrf 必须与首次一致（同一次轮换结果）
+        MvcResult replay = mvc.perform(post("/api/auth/refresh")
+                        .cookie(rt, csrf)
+                        .header("X-CSRF-Token", csrf.getValue())
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isOk())
+                .andReturn();
+        String replayCsrf = parseCookies(replay).get(SessionCookies.CSRF).getValue();
+        assertEquals(firstCsrf, replayCsrf, "容忍窗口内重放必须复用同一次轮换的 csrf");
+    }
 }
