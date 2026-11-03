@@ -86,9 +86,9 @@ cmd_upload() {
     [ -f "$dest/schema-platform.jar" ] || { rm -rf "$dest"; die "产物缺 schema-platform.jar"; }
     [ -d "$dest/web" ] || { rm -rf "$dest"; die "产物缺 web/"; }
     chown -R schema:schema "$dest"
-    # 权限模型：jar 收紧（750/640）；web/ 必须全局可读——nginx worker 以 nginx 用户运行，
-    # 目录 750/文件 640 会让 nginx 全站 403（2026-11-03 发布演练实测）。
-    chmod 750 "$dest"
+    # 权限模型：jar 收紧（640）；web/** 与版本目录必须全局可读——nginx worker 以 nginx
+    # 用户运行，目录不可穿越即全站 403（2026-11-03 演练实测：750 版本目录挡住 nginx）。
+    chmod 755 "$dest"
     chmod 640 "$dest/schema-platform.jar"
     find "$dest/web" -type d -exec chmod 755 {} +
     find "$dest/web" -type f -exec chmod 644 {} +
