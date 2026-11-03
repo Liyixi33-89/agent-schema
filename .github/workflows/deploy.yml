@@ -1,0 +1,102 @@
+name: deploy
+
+# 发布工作流（人工确认门禁）——普通 push 只触发 verify.yml；本工作流只能手动触发。
+# 与 verify.yml 的关系：verify 是自动审计（push/PR 即跑），deploy 是受控发布通道：
+#   1. 手动触发时选择版本（默认 HEAD），自动复检工作区与 verify；
+#   2. production 环境配置人工审批（Settings → Environments → production → Required reviewers）；
+#      若仓库暂未配置审批人，本工作流仍可手动跑——审批配置是 GitHub 侧操作，不在代码库生效；
+#   3. 审批通过后构建产物、上传服务器、切换版本（服务器侧自动备份 DB + 就绪探针 + 失败回滚）；
+#   4. 发布后验证三入口 + 版本一致性，结果写入 Summary。
+#
+# 所需 Secrets（Settings → Secrets and variables → Actions）：
+#   SCHEMA_DEPLOY_SSH_KEY   服务器 SSH 私钥（专用部署账号，非 root 个人长期密钥更佳）
+#   SCHEMA_DEPLOY_HOST      如 root@111.231.57.177（或部署账号形式 deploy@host）
+#   SCHEMA_KNOWN_HOSTS      ssh-keyscan <host> 输出（固定 host key，绝不关闭 StrictHostKeyChecking）
+#
+# 环境变量注入版本：APP_VERSION/GIT_COMMIT 经 /etc/schema-release.env 由服务器侧追加——
+# 见 scripts/schema-release.sh switch 注释与 migrate-to-releases.sh 第 2 步。
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本（git commit hash，默认 HEAD）'
+        required: false
+        default: ''
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false   # 同一环境串行——发布不并发
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production   # 在 GitHub 仓库设置中给该环境配置 Required reviewers
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: schema_dev
+          POSTGRES_USER: schema_dev
+          POSTGRES_PASSWORD: schema_local_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U schema_dev -d schema_dev"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          V="${{ github.event.inputs.version }}"
+          [ -z "$V" ] && V="${{ github.sha }}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "发布版本: $V (sha=${{ github.sha }})"
+
+      - name: Setup toolchain
+        uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.33.0 }
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install frontend dependencies
+        working-directory: schema-frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify (commit level)
+        shell: pwsh
+        run: ./scripts/verify.ps1 -Level commit
+
+      - name: Install deploy SSH key
+        env:
+          SSH_KEY: ${{ secrets.SCHEMA_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.SCHEMA_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.SCHEMA_DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          echo "SCHEMA_DEPLOY_HOST=$DEPLOY_HOST" >> "$GITHUB_ENV"
+
+      - name: Build and deploy
+        run: |
+          python scripts/deploy.py --version "${{ steps.ver.outputs.version }}" --skip-verify
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          {
+            echo "## 部署结果"
+            echo '- 版本: ${{ steps.ver.outputs.version }}'
+            echo '- 触发人: ${{ github.actor }}'
+            echo '- 时间: $(date -Is)'
+          } >> "$GITHUB_STEP_SUMMARY"
