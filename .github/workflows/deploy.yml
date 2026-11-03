@@ -9,9 +9,11 @@ name: deploy
 #   4. 发布后验证三入口 + 版本一致性，结果写入 Summary。
 #
 # 所需 Secrets（Settings → Secrets and variables → Actions）：
-#   SCHEMA_DEPLOY_SSH_KEY   服务器 SSH 私钥（专用部署账号，非 root 个人长期密钥更佳）
-#   SCHEMA_DEPLOY_HOST      如 root@111.231.57.177（或部署账号形式 deploy@host）
+#   SCHEMA_DEPLOY_SSH_KEY   deploy 账号 SSH 私钥（专用部署账号——setup-deploy-user.sh 创建，
+#                            sudo 白名单仅限发布三脚本，日常发布不走 root）
+#   SCHEMA_DEPLOY_HOST      deploy@111.231.57.177
 #   SCHEMA_KNOWN_HOSTS      ssh-keyscan <host> 输出（固定 host key，绝不关闭 StrictHostKeyChecking）
+#   SCHEMA_ALERT_WEBHOOK    备份失败告警 webhook（可选；服务器侧 schema-backup.sh 消费）
 #
 # 环境变量注入版本：APP_VERSION/GIT_COMMIT 经 /etc/schema-release.env 由服务器侧追加——
 # 见 scripts/schema-release.sh switch 注释与 migrate-to-releases.sh 第 2 步。
@@ -47,15 +49,23 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout target version
+        uses: actions/checkout@v4
+        with:
+          # 发布任意指定 commit（不只 HEAD）——版本输入与产物必须一一对应
+          ref: ${{ github.event.inputs.version || github.sha }}
+          fetch-depth: 0
 
       - name: Resolve version
         id: ver
         run: |
           V="${{ github.event.inputs.version }}"
           [ -z "$V" ] && V="${{ github.sha }}"
+          # 校验输入确实是仓库中的 commit（防止手滑输入分支名/不存在 hash）
+          git cat-file -e "$V^{commit}" 2>/dev/null || { echo "版本 $V 不是有效 commit"; exit 1; }
+          V=$(git rev-parse "$V")
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "发布版本: $V (sha=${{ github.sha }})"
+          echo "发布版本: $V"
 
       - name: Setup toolchain
         uses: actions/setup-node@v4

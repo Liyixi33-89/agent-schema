@@ -29,6 +29,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SERVER = os.environ.get("SCHEMA_DEPLOY_HOST", "root@111.231.57.177")
+# 部署通道：日常发布用 deploy 专用账号（setup-deploy-user.sh 创建，sudo 白名单仅 schema-release.sh）；
+# root 直连仅作为初始化/救援通道保留（环境变量 SCHEMA_DEPLOY_ROLE 可临时覆盖）。
+ROLE = os.environ.get("SCHEMA_DEPLOY_ROLE", "deploy")
 REMOTE_ROOT = "/opt/schema"
 ENTRIES = {  # 入口 -> 路径（发布后独立验证）
     "runtime": "/",
@@ -120,6 +123,22 @@ def make_version_file(version: str, workdir: Path, backend_jar: Path, web_dir: P
         encoding="utf-8")
 
 
+def make_manifest(workdir: Path):
+    """产物完整性清单（MANIFEST.sha256）：jar + web 全量文件哈希。
+
+    服务器端 upload 逐条 sha256sum -c 比对——传输损坏/缺文件在上传阶段即拒绝入库，
+    不再等到运行时发现。格式与 sha256sum -c 兼容（相对路径 + 两空格 + 哈希）。
+    """
+    lines = []
+    for path in sorted(workdir.rglob("*")):
+        if path.is_file() and path.name != "MANIFEST.sha256":
+            rel = path.relative_to(workdir).as_posix()
+            lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {rel}")
+    manifest = "\n".join(lines) + "\n"
+    (workdir / "MANIFEST.sha256").write_text(manifest, encoding="utf-8", newline="\n")
+    print(f"== MANIFEST 生成: {len(lines)} 个文件 ==")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", required=True, help="git commit（完整或短 hash）")
@@ -143,38 +162,42 @@ def main():
         else:
             raise SystemExit("--skip-build 暂未支持（无产物缓存机制）")
         make_version_file(head, work, backend_jar, web_dir)
+        make_manifest(work)
 
         tar_path = work / "bundle.tar.gz"
         with tarfile.open(tar_path, "w:gz") as tar:
-            for name in ("schema-platform.jar", "web", "VERSION.txt"):
+            for name in ("schema-platform.jar", "web", "VERSION.txt", "MANIFEST.sha256"):
                 tar.add(work / name, arcname=name)
         print(f"== 打包完成 {tar_path.stat().st_size // 1024} KiB ==")
 
         print("== 上传 ==")
+        # 上传与切换统一走 sudo 白名单通道：deploy 用户可执行 schema-release.sh（root 权限内收口在该脚本）
         with open(tar_path, "rb") as f:
             proc = subprocess.Popen(
                 ["ssh", "-o", "BatchMode=yes", SERVER,
-                 f"bash {REMOTE_ROOT}/schema-release.sh upload {head}"],
+                 f"sudo -n bash {REMOTE_ROOT}/schema-release.sh upload {head}"],
                 stdin=f, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         out, _ = proc.communicate(timeout=600)
         print(out)
         if proc.returncode != 0:
             raise SystemExit(f"上传失败 exit={proc.returncode}")
 
-    print("== 切换版本（服务器侧自动备份 DB -> 探针 -> 失败回滚）==")
-    ssh(f"bash {REMOTE_ROOT}/schema-release.sh switch {head}")
+    print("== 切换版本（服务器侧：发布锁 -> DB 备份 -> 探针+三入口+commit 全量验证 -> 失败自动回滚）==")
+    ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh switch {head}")
 
-    print("== 发布后验证 ==")
+    print("== 发布后独立复验（不依赖服务器脚本自身结论）==")
     for name, path in ENTRIES.items():
         r = ssh(f"curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1{path}", check=False)
         code = r.stdout.strip()
         print(f"  {name:8s} {path:12s} -> {code}")
         if code != "200":
-            raise SystemExit(f"入口验证失败: {name} -> {code}")
-    probe = json.loads(ssh(f"curl -s {REMOTE_ROOT and ''}http://127.0.0.1:18080/internal/health/readiness").stdout)
+            ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh rollback", check=False)
+            raise SystemExit(f"入口验证失败且已触发服务器侧回滚: {name} -> {code}")
+    probe = json.loads(ssh("curl -s http://127.0.0.1:18080/internal/health/readiness").stdout)
     print(f"  probe    -> {probe}")
     if probe.get("commit") not in (head, head[:8], head[:12]):
-        raise SystemExit(f"线上 commit 与目标不一致: {probe.get('commit')} != {head[:12]}")
+        ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh rollback", check=False)
+        raise SystemExit(f"线上 commit 与目标不一致且已触发回滚: {probe.get('commit')} != {head[:12]}")
 
     print(f"\n发布成功: {head[:12]} @ {SERVER}")
     print(f"回滚命令: ssh {SERVER} 'bash {REMOTE_ROOT}/schema-release.sh rollback'")
