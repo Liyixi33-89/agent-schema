@@ -168,10 +168,17 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
       const nodeId = props['data-node-id'] as string;
       const fieldRef = fieldRefOf(page, nodeId);
       const [err, setErr] = useState<string | null>(null);
+      // 受控值订阅（M11 验收缺陷修复）：store.set 后包装组件必须重渲染回显——
+      // 否则受控 value 恒为首次渲染快照，输入框打不上字（dispatchEvent 与真实键盘同症）。
+      const [, bumpValue] = useState(0);
       // 字段错误订阅（通道分发——错误回填/清除即时可见，组件类型不变）
       useEffect(() => {
         if (!fieldRef) return;
         return store.subscribeFieldErrors(fieldRef, (message) => setErr(message));
+      }, [fieldRef, store]);
+      useEffect(() => {
+        if (!fieldRef) return;
+        return store.scope.subscribe([fieldRef], () => bumpValue((n) => n + 1));
       }, [fieldRef, store]);
       if (!fieldRef) return <Comp {...props} />;
       const field = store.fields.get(fieldRef);
