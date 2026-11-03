@@ -46,9 +46,9 @@ if [ -f "$NGINX" ]; then
     nginx -t && systemctl reload nginx
 fi
 
-# 4) 安装发布与备份脚本
-install -m 750 /dev/stdin "$ROOT/schema-release.sh" < /dev/null 2>/dev/null || true
-log "请通过 deploy.py 上传 scripts/schema-release.sh（下一步）"
+# 4) 发布与备份脚本由外部上传（scp scripts/*.sh），此处仅校验非空
+[ -s "$ROOT/schema-release.sh" ] || log "警告: schema-release.sh 缺失或为空——请 scp 上传 scripts/schema-release.sh"
+[ -s "$ROOT/schema-backup.sh" ] || log "警告: schema-backup.sh 缺失或为空——请 scp 上传 scripts/schema-backup.sh"
 
 # 5) 每日备份 cron（DB + 文件）+ 保留 14 天
 if ! crontab -l 2>/dev/null | grep -q schema-backup; then
