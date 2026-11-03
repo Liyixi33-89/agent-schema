@@ -40,7 +40,8 @@ ENTRIES = {  # 入口 -> 路径（发布后独立验证）
 def run(cmd, cwd=None, check=True, capture=False):
     print(f"+ {' '.join(str(c) for c in cmd)}")
     return subprocess.run(
-        [str(c) for c in cmd], cwd=cwd, check=check, shell=False,
+        [str(c) for c in cmd], cwd=cwd, check=check,
+        shell=False if os.name != "nt" else True,  # Windows: mvn/pnpm 是 .cmd，必须走 shell
         capture_output=capture, text=True)
 
 
