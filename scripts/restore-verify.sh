@@ -52,7 +52,13 @@ echo "恢复库迁移水位: v$FLY"
 # 5) 文件备份核对：解包计数与源目录比对
 if [ -n "${FILES_IN:-}" ] && [ -f "$FILES_IN" ]; then
     SRC_N=$(find "$ROOT/data/files" -type f 2>/dev/null | wc -l)
-    BAK_N=$(tar -tzf "$FILES_IN" 2>/dev/null | grep -v '/$' | wc -l)
+    # ⚠️ set -o pipefail 坑：空 tar 时 grep 无匹配返回 1 会炸整条管道——`|| true` 收口
+    BAK_N=$(tar -tzf "$FILES_IN" 2>/dev/null | grep -v '/
+
+runuser -u postgres -- psql -qc "DROP DATABASE $TMPDB;"
+[ $FAIL -eq 0 ] && echo "恢复演练通过（临时库已清理）" || echo "恢复演练存在失败项"
+exit $FAIL
+ | wc -l || true)
     echo "文件核对: 源 $SRC_N 个 / 备份 $BAK_N 个"
     # 备份时点与现在存在写入差异，允许备份 <= 源 + 增量；空目录场景两者都可能为 0
     [ "$BAK_N" -ge 0 ] || FAIL=1
