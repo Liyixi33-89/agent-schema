@@ -86,12 +86,21 @@ cmd_upload() {
     [ -f "$dest/schema-platform.jar" ] || { rm -rf "$dest"; die "产物缺 schema-platform.jar"; }
     [ -d "$dest/web" ] || { rm -rf "$dest"; die "产物缺 web/"; }
     chown -R schema:schema "$dest"
-    chmod 750 "$dest"; find "$dest" -type d -exec chmod 750 {} + ; find "$dest" -type f -exec chmod 640 {} +
+    # 权限模型：jar 收紧（750/640）；web/ 必须全局可读——nginx worker 以 nginx 用户运行，
+    # 目录 750/文件 640 会让 nginx 全站 403（2026-11-03 发布演练实测）。
+    chmod 750 "$dest"
+    chmod 640 "$dest/schema-platform.jar"
+    find "$dest/web" -type d -exec chmod 755 {} +
+    find "$dest/web" -type f -exec chmod 644 {} +
     log "上传完成: $version ($(du -sh "$dest" | cut -f1))"
 }
 
 switch_to() { # version（不做回滚保护——内部复用）
     local version="$1"
+    # 版本注入：systemd EnvironmentFile（migrate-to-releases.sh 已挂 /etc/schema-release.env）——
+    # DeploymentProbeFilter 读 APP_VERSION/GIT_COMMIT，线上可回答「跑的是哪个 commit」。
+    printf 'APP_VERSION=%s\nGIT_COMMIT=%s\n' "$version" "$version" > /etc/schema-release.env
+    chmod 600 /etc/schema-release.env
     ln -sfn "$RELEASES/$version" "$CURRENT"
     systemctl restart "$SERVICE"
     if ! wait_ready; then
