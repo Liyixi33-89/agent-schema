@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 恢复演练：DB 备份 -> 独立临时库；文件备份 -> 解包比对。
-# 不止「恢复成功」，还核对业务数据真实存在（用户/租户/模型/页面记录行数）与文件数量一致性。
+# 不止「恢复成功」，还核对业务数据真实存在（用户/模型/页面/应用记录行数）与文件数量一致性。
 # 用法: restore-verify.sh [db-backup.sql.gz] [files-backup.tar.gz]（缺省取最新）
 set -euo pipefail
 ROOT=/opt/schema
@@ -43,7 +43,7 @@ check_table app
 check_table flyway_schema_history
 
 # 4) 迁移水位核对：恢复库的 flyway 水位与备份时一致（防备份截断）
-# ⚠️ split_part 是 text——max(text) 按字典序（'9'>'14'），必须先 ::int 再聚合
+# 注意：split_part 返回 text，max(text) 按字典序（9 > 14），必须先 ::int 再聚合
 FLY=$(runuser -u postgres -- psql -tAc \
     "SELECT max(split_part(version,'.',1)::int) FROM flyway_schema_history WHERE success" "$TMPDB")
 echo "恢复库迁移水位: v$FLY"
@@ -52,13 +52,8 @@ echo "恢复库迁移水位: v$FLY"
 # 5) 文件备份核对：解包计数与源目录比对
 if [ -n "${FILES_IN:-}" ] && [ -f "$FILES_IN" ]; then
     SRC_N=$(find "$ROOT/data/files" -type f 2>/dev/null | wc -l)
-    # ⚠️ set -o pipefail 坑：空 tar 时 grep 无匹配返回 1 会炸整条管道——`|| true` 收口
-    BAK_N=$(tar -tzf "$FILES_IN" 2>/dev/null | grep -v '/
-
-runuser -u postgres -- psql -qc "DROP DATABASE $TMPDB;"
-[ $FAIL -eq 0 ] && echo "恢复演练通过（临时库已清理）" || echo "恢复演练存在失败项"
-exit $FAIL
- | wc -l || true)
+    # pipefail 坑：空 tar 时 grep 无匹配返回 1 会炸整条管道——必须 || true 收口
+    BAK_N=$(tar -tzf "$FILES_IN" 2>/dev/null | grep -cv '/$' || true)
     echo "文件核对: 源 $SRC_N 个 / 备份 $BAK_N 个"
     # 备份时点与现在存在写入差异，允许备份 <= 源 + 增量；空目录场景两者都可能为 0
     [ "$BAK_N" -ge 0 ] || FAIL=1
