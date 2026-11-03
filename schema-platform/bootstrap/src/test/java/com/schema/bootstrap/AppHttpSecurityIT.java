@@ -68,6 +68,16 @@ class AppHttpSecurityIT {
                 .build();
         adminId = ensureUser("app_admin_http");
         outsiderId = ensureUser("app_outsider_http");
+        // 应用创建权限闸（PRD07 §4）：admin 需持租户级 org:manage（幂等种子）
+        jdbc.update("INSERT INTO sys_role (tenant_id, app_id, code, name, role_type) "
+                + "VALUES (1, 1, 'it_org_admin', 'IT 组织管理员', 'APP') "
+                + "ON CONFLICT DO NOTHING");
+        Long roleId = jdbc.queryForObject(
+                "SELECT id FROM sys_role WHERE tenant_id=1 AND code='it_org_admin'", Long.class);
+        jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) "
+                + "VALUES (?, 'ACTION', 0, 'org:manage') ON CONFLICT DO NOTHING", roleId);
+        jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?) "
+                + "ON CONFLICT DO NOTHING", adminId, roleId);
         // 管理员身份创建应用（自动 app_admin）
         long stamp = System.nanoTime();
         appName = "HTTP安全应用_" + stamp;
@@ -183,5 +193,19 @@ class AppHttpSecurityIT {
         mvc.perform(get("/api/apps/" + appId + "/members").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.list[0].roles[0]").value("app_admin"));
+    }
+
+    // ---------- 应用创建权限闸（PRD07 §4：租户管理员） ----------
+
+    @Test
+    void outsiderCannotCreateApp() throws Exception {
+        // outsider 无 org:manage → 建应用 403
+        mvc.perform(post("/api/apps").header("Authorization", "Bearer " + access(outsiderId))
+                        .contentType("application/json")
+                        .content("{\"name\":\"越权创建应用\",\"description\":\"应被拒\"}"))
+                .andExpect(status().isForbidden());
+        // 无副作用：应用不存在
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM app WHERE name='越权创建应用'", Integer.class));
     }
 }

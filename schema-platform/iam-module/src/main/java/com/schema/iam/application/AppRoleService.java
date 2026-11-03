@@ -155,6 +155,30 @@ public class AppRoleService {
         }
     }
 
+    /**
+     * 租户级应用创建闸（PRD07 §4 权限矩阵：应用创建 = 租户管理员）。
+     * 放行口径：持有 org:manage 权限点（平台管理员即租户管理员口径，03BE §5 同源）。
+     * 逐请求实时判定（与 requireAppAdmin 同构）。
+     */
+    public void requireTenantAdminForAppCreate(long tenantId, Long operatorId) {
+        if (operatorId == null || operatorId <= 0) {
+            throw BizException.permDenied();
+        }
+        UserAccount operator = iam.findUserById(operatorId).orElse(null);
+        if (operator == null || operator.tenantId() != tenantId) {
+            throw BizException.permDenied();
+        }
+        List<Long> roleIds = new ArrayList<>();
+        for (Map<String, Object> r : iam.findRolesOfUser(tenantId, operatorId)) {
+            roleIds.add(((Number) r.get("id")).longValue());
+        }
+        boolean orgManage = iam.findPermsOfRoles(roleIds).stream()
+                .anyMatch(p -> ORG_MANAGE_PERM.equals(p.toPermString()));
+        if (!orgManage) {
+            throw BizException.permDenied();
+        }
+    }
+
     /** 应用是否存在本租户有效的应用管理员（删除确认影响面提示用）。 */
     public boolean hasAppAdmin(long tenantId, long appId) {
         for (Map<String, Object> m : listMembers(tenantId, appId)) {

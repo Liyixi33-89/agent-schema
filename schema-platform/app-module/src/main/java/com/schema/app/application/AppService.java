@@ -49,11 +49,13 @@ public class AppService {
 
     // ---------- §A.1 生命周期 ----------
 
-    /** 创建应用（13BE §A.1）：初始化默认角色 + 创建者自动成为应用管理员。 */
+    /** 创建应用（13BE §A.1）：初始化默认角色 + 创建者自动成为应用管理员。
+     *  权限闸（PRD07 §4）：应用创建 = 租户管理员（org:manage 持有者）。 */
     @Transactional
     public Map<String, Object> create(String name, Long iconFileId, String description,
             String themeJson, String ip, String ua) {
         TenantInfo ctx = TenantContext.get();
+        appRoles.requireTenantAdminForAppCreate(ctx.tenantId(), ctx.operatorId());
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("应用名称必填");
         }
