@@ -30,11 +30,11 @@ async function waitText(include, timeoutMs = 6000) {
     // ---------- 1. 登录（普通成员） ----------
     await cdp.goto(`${BASE}/designer/`);
     await cdp.waitFor('input[placeholder="账号"]', 10000);
-    await cdp.fill('input[placeholder="账号"]', 'accept_user');
-    await cdp.fill('input[placeholder="密码"]', 'Accept!2026');
+    await cdp.fill('input[placeholder="账号"]', process.env.ACCEPT_USERNAME || 'accept_user');
+    await cdp.fill('input[placeholder="密码"]', process.env.ACCEPT_PASSWORD || 'Accept!2026');
     await cdp.click('button[type="submit"]');
-    await cdp.waitFor('.ant-layout-header', 10000);
-    ok('登录成功(普通成员)', true);
+    const headerShown = await cdp.waitFor('.ant-layout-header', 10000);
+    ok('登录成功(普通成员)', headerShown, '登录后必须出现导航壳');
 
     // ---------- 2. 导航壳（菜单权限过滤：user 角色应见报销中心+帮助中心） ----------
     await cdp.goto(`${BASE}/#/app/1`);
