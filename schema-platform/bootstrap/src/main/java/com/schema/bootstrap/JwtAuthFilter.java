@@ -141,6 +141,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             request.setAttribute("auth.userId", issuerId);
             request.setAttribute("auth.previewAllowRealWrite", allowRealWrite);
             request.setAttribute("auth.previewAppId", sessionAppId);
+            // 自我吊销归属校验消费（PreviewGrantController）：jti = 会话 uuid
+            request.setAttribute("auth.previewSessionId", claims.jti());
             chain.doFilter(request, response);
             return;
         }
@@ -196,9 +198,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
      *  /api/runtime/pages 只读面全方法放行；/api/data 写方法（POST 根/batch、PUT、DELETE）
      *  由引擎侧 PreviewDataGuard 按 allowRealWrite 判定——此处须放行到达守卫，
      *  否则 allowRealWrite=true 的真实写预览在过滤器层即被 403，守卫形同虚设。
-     *  读语义 POST 子路径（query/aggregate/unique-check）与 GET 同前放行。 */
+     *  读语义 POST 子路径（query/aggregate/unique-check）与 GET 同前放行。
+     *  预览会话自我吊销（2026-11-04 收口）：/api/preview/sessions/{uuid}/revoke
+     *  允许预览 token 调用——否则吊销闭环死锁（正式凭证被预览组拒、匿名 401、
+     *  预览 token 被 scope 拒）；归属校验在服务层（revokeSession 按 claims.jti 对会话，
+     *  只能吊销自己）。仅 POST 放行。 */
     private static boolean isPreviewAllowed(String method, String path) {
         if (path.startsWith("/api/runtime/pages")) {
+            return true;
+        }
+        if (path.startsWith("/api/preview/sessions/") && path.endsWith("/revoke") && "POST".equals(method)) {
             return true;
         }
         return path.startsWith("/api/data");
