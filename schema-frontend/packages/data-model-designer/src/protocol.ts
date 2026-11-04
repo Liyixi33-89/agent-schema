@@ -42,6 +42,14 @@ export interface Risk {
 export type Severity = 'HIGH' | 'MEDIUM' | 'INFO';
 export type ConfirmMode = 'INFO' | 'CHECKBOX' | 'TYPE_MODEL_NAME';
 
+/**
+ * 类型相关配置枚举真源（01BE §4.2 冻结枚举——与后端 validateFieldConfig 同判；
+ * 表单层禁止再写散落字面量：CASCADE/ON_WRITE 等历史漂移值一律以本表为准）。
+ */
+export const RELATION_CARDINALITIES = ['1:1', '1:n', 'n:n'] as const;
+export const RELATION_CASCADES = ['FORBID', 'SET_NULL', 'CASCADE_SOFT_DELETE'] as const;
+export const COMPUTED_PERSIST_MODES = ['READ_TIME', 'PERSISTED'] as const;
+
 /** 01BE §A.1 模型详情（fieldView 形态）。 */
 export interface ModelField {
   fieldKey: string;
@@ -149,12 +157,67 @@ export function saveLayoutDraft(tenantId: string | number, appId: string | numbe
   } catch { /* 配额满静默放弃（视图态非业务数据） */ }
 }
 
-/** 自动布局（10FE §1.2 dagre 分层布局的零依赖简化：网格排布，关系交叉最少化留给手动拖拽）。 */
+/** 兼容保留：纯网格排布（新代码用 layeredLayout——10FE §1.2 分层布局语义）。 */
 export function gridLayout(models: ModelSummary[], perRow = 3): Record<string, { x: number; y: number }> {
   const positions: Record<string, { x: number; y: number }> = {};
   models.forEach((m, i) => {
     positions[m.id] = { x: 40 + (i % perRow) * 340, y: 40 + Math.floor(i / perRow) * 260 };
   });
+  return positions;
+}
+
+/** 分层布局（dagre 语义的零依赖实现）：关系图 BFS 定层，层内网格横排。
+ *  输入为模型与关系边（已加载详情提取）；返回坐标——仍是视图态，不入 Schema。 */
+export function layeredLayout(
+  models: { id: string }[],
+  edges: { sourceModelId: string; targetModelId: string }[],
+  options?: { startX?: number; startY?: number; colWidth?: number; rowHeight?: number },
+): Record<string, { x: number; y: number }> {
+  const { startX = 40, startY = 40, colWidth = 360, rowHeight = 280 } = options ?? {};
+  // 邻接表（有向：源 → 目标）
+  const adj = new Map<string, string[]>();
+  for (const m of models) adj.set(m.id, []);
+  for (const e of edges) adj.get(e.sourceModelId)?.push(e.targetModelId);
+  // BFS 分层：入度为 0 的起点入第 0 层；其余取最长路径层级（分层布局语义）
+  const indeg = new Map<string, number>();
+  for (const m of models) indeg.set(m.id, 0);
+  for (const e of edges) indeg.set(e.targetModelId, (indeg.get(e.targetModelId) ?? 0) + 1);
+  const queue: string[] = models.filter((m) => (indeg.get(m.id) ?? 0) === 0).map((m) => m.id);
+  const level = new Map<string, number>();
+  queue.forEach((id) => level.set(id, 0));
+  let head = 0;
+  let guard = 0;
+  const maxGuard = models.length * (models.length + 1);   // 环路保护上限
+  while (head < queue.length && guard < maxGuard) {
+    const cur = queue[head++];
+    const curLevel = level.get(cur) ?? 0;
+    for (const next of adj.get(cur) ?? []) {
+      const known = level.get(next);
+      if (known == null || known < curLevel + 1) {
+        level.set(next, curLevel + 1);
+        queue.push(next);
+      }
+    }
+    guard++;
+  }
+  // 环上未定层模型（BFS 未触达）归入剩余最大层 +1 兜底
+  let maxLevel = 0;
+  for (const l of level.values()) maxLevel = Math.max(maxLevel, l);
+  for (const m of models) if (!level.has(m.id)) level.set(m.id, maxLevel + 1);
+  // 层内横排
+  const byLevel = new Map<number, string[]>();
+  for (const m of models) {
+    const l = level.get(m.id) ?? 0;
+    const arr = byLevel.get(l) ?? [];
+    arr.push(m.id);
+    byLevel.set(l, arr);
+  }
+  const positions: Record<string, { x: number; y: number }> = {};
+  for (const [l, ids] of byLevel) {
+    ids.forEach((id, i) => {
+      positions[id] = { x: startX + i * colWidth, y: startY + l * rowHeight };
+    });
+  }
   return positions;
 }
 
@@ -258,4 +321,51 @@ export function buildDraftChanges(serverFields: ModelField[], draftFields: Draft
 /** 字段标识本地重名前置判定（服务端 FIELD_KEY_DUPLICATED 兜底）。 */
 export function isDuplicateFieldKey(existing: { fieldKey: string }[], candidate: string): boolean {
   return existing.some((f) => f.fieldKey === candidate);
+}
+
+/**
+ * 409 三方对比（10FE §1.3 ⑥ / 04FE §7 同款交互）：本地草稿 vs 服务端最新 vs 合并起点（baseVersion 快照）。
+ * 纯逻辑：按 fieldKey 对齐三方字段行，产出逐字段三态行供对比面板渲染——不承诺自动合并
+ * （建模器是锁机制域，ADR-FE-003：冲突自动合并不可预测性高于交互成本）。
+ */
+export interface ConflictRow {
+  fieldKey: string;
+  /** mine=本地草稿相对合并起点的变更；theirs=服务端最新相对合并起点的变更。 */
+  mine: ChangeOp | null;
+  theirs: ChangeOp | null;
+  /** 同字段双方均有变更且 patch 语义不等 → true（面板高亮人工裁决）。 */
+  bothChanged: boolean;
+}
+
+export function buildConflictRows(
+  baseFields: ModelField[],
+  draftFields: DraftFieldLike[],
+  serverFields: ModelField[],
+): ConflictRow[] {
+  const baseChanges = buildDraftChanges(baseFields, draftFields);
+  // theirs 侧：服务端软删行（fieldStatus=DELETED）映射为 _deleted 标记——
+  // buildDraftChanges 忽略第二参 fieldStatus，不映射则服务端删除在对比面板不可见。
+  const serverAsDraft: DraftFieldLike[] = serverFields.map((f) =>
+    f.fieldStatus === 'DELETED' ? { ...f, _deleted: true } : { ...f });
+  const serverChanges = buildDraftChanges(baseFields, serverAsDraft);
+  const mineByKey = new Map(baseChanges.map((c) => [c.fieldKey, c]));
+  const theirsByKey = new Map(serverChanges.map((c) => [c.fieldKey, c]));
+  const keys: string[] = [];
+  for (const k of mineByKey.keys()) if (!keys.includes(k)) keys.push(k);
+  for (const k of theirsByKey.keys()) if (!keys.includes(k)) keys.push(k);
+  const rows: ConflictRow[] = [];
+  for (const fieldKey of keys) {
+    const mine = mineByKey.get(fieldKey) ?? null;
+    const theirs = theirsByKey.get(fieldKey) ?? null;
+    rows.push({ fieldKey, mine, theirs, bothChanged: !!mine && !!theirs && JSON.stringify(mine) !== JSON.stringify(theirs) });
+  }
+  return rows;
+}
+
+/**
+ * 显式放弃本地草稿：以服务端最新态重建草稿字段（放弃是用户显式动作，非静默覆盖——
+ * 与 409 后自动 refreshDetail 的旧实现本质区别）。
+ */
+export function adoptServerDraft(serverFields: ModelField[]): DraftFieldLike[] {
+  return serverFields.map((f) => ({ ...f }));
 }

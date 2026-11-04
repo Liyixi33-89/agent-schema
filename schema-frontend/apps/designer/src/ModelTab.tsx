@@ -12,11 +12,13 @@ import {
   Select, Space, Spin, Tag, Timeline, Tooltip, Typography,
 } from 'antd';
 import { ApiError, type ApiClient, type ModelDetail, type ModelField, type ModelSummary, type PrecheckResp, type VersionRow } from './api';
+import ErCanvas from './ErCanvas';
 import {
-  buildPatch, effectiveConfirmMode, gridLayout, isRollbackNoop,
+  buildPatch, effectiveConfirmMode, gridLayout, layeredLayout, isRollbackNoop,
   loadLayoutDraft, saveLayoutDraft, extractRelationEdges,
-  buildDraftChanges, isDuplicateFieldKey,
-  type ChangeOp, type SavePhase,
+  buildDraftChanges, buildConflictRows, adoptServerDraft, isDuplicateFieldKey,
+  RELATION_CARDINALITIES, RELATION_CASCADES, COMPUTED_PERSIST_MODES,
+  type ChangeOp, type ConflictRow, type SavePhase,
 } from '@schema/data-model-designer';
 
 const TYPE_OPTIONS = [
@@ -39,11 +41,16 @@ interface DraftField extends ModelField {
 interface DraftModel {
   detail: ModelDetail;
   fields: DraftField[];
+  /** 编辑基线（加载时快照）——409 三方对比的合并起点；与服务端 detail 分离。 */
+  baseFields: ModelField[];
 }
+
+/** 详情加载状态：null=未加载；'loading' 进行中；失败标记便于重试。 */
+type DetailState = DraftModel | 'loading' | 'error';
 
 export default function ModelTab({ api, appId }: { api: ApiClient; appId: number }): React.ReactElement {
   const [models, setModels] = React.useState<ModelSummary[] | null>(null);
-  const [details, setDetails] = React.useState<Record<string, DraftModel>>({});
+  const [details, setDetails] = React.useState<Record<string, DetailState>>({});
   const [selected, setSelected] = React.useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DraftField | null>(null);
@@ -64,6 +71,10 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
   const [effMode, setEffMode] = React.useState<'INFO' | 'CHECKBOX' | 'TYPE_MODEL_NAME'>('INFO');
   const [checkedRisks, setCheckedRisks] = React.useState<Set<number>>(new Set());
   const [modelNameInput, setModelNameInput] = React.useState('');
+  // 409 冲突对比弹层（10FE §1.3 ⑥）：本地草稿保留，用户显式裁决后处理
+  const [conflictOpen, setConflictOpen] = React.useState(false);
+  const [conflictRows, setConflictRows] = React.useState<ConflictRow[]>([]);
+  const [conflictServer, setConflictServer] = React.useState<ModelDetail | null>(null);
   // 版本时间线
   const [versionsOpen, setVersionsOpen] = React.useState(false);
   const [versions, setVersions] = React.useState<VersionRow[] | null>(null);
@@ -72,18 +83,22 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
   const [rollbackPre, setRollbackPre] = React.useState<PrecheckResp | null>(null);
 
   const tenantId = localStorage.getItem('schema_tenant') ?? '1';
+  // 请求序号（异步一致性）：切换模型/应用后旧响应晚到不得覆盖新选中对象的编辑态
+  const reqSeqRef = React.useRef(0);
+  const inflightRef = React.useRef(0);
+  const LOAD_CONCURRENCY = 3;
 
   const loadModels = React.useCallback(async () => {
     try {
       const r = await api.listModels(appId);
       setModels(r.list);
-      // 模型详情改为选中时按需加载（全量并发会把浏览器 6 连接占满——precheck 等写请求排队超时）
-      // 关系边提取仅消费已加载详情（懒加载下的渐进呈现）
-      // 坐标草稿：已有草稿用草稿，否则网格自动布局
+      // 模型详情限并发渐进加载（并发占满浏览器 6 连接会让写请求排队超时）
+      // 关系边来源升级：全部模型详情后台加载（画布全应用关系完整呈现）
       const draft = loadLayoutDraft(tenantId, appId);
-      const missing = r.list.filter((m) => !draft.positions[m.id]);
+      const known = new Set(Object.keys(draft.positions));
+      const missing = r.list.filter((m) => !known.has(m.id));
       if (missing.length) {
-        const auto = gridLayout(r.list);
+        const auto = layeredLayout(r.list, []);
         draft.positions = { ...draft.positions, ...Object.fromEntries(Object.entries(auto).filter(([id]) => !(id in draft.positions))) };
         saveLayoutDraft(tenantId, appId, draft);
       }
@@ -94,21 +109,58 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
     }
   }, [api, appId, tenantId]);
 
-  /** 强制重拉单个模型详情（保存/回滚后调用——懒加载缓存必须失效，否则版本号与字段集停留旧态）。 */
-  const refreshDetail = React.useCallback(async (id: string) => {
+  /** 强制重拉单个模型详情（保存/回滚/放弃后调用——懒加载缓存必须失效，否则版本号与字段集停留旧态）。 */
+  const refreshDetail = React.useCallback(async (id: string): Promise<ModelDetail | null> => {
+    const seq = ++reqSeqRef.current;
+    setDetails((prev) => ({ ...prev, [id]: prev[id] ?? 'loading' }));
     try {
       const d = await api.modelDetail(appId, id);
-      setDetails((prev) => ({ ...prev, [id]: { detail: d, fields: d.fields.map((f: ModelField) => ({ ...f })) } }));
+      if (seq !== reqSeqRef.current && selectedRef.current !== id) return null;   // 旧响应晚到：不覆盖当前编辑对象
+      setDetails((prev) => ({
+        ...prev,
+        [id]: { detail: d, fields: d.fields.map((f: ModelField) => ({ ...f })), baseFields: d.fields },
+      }));
+      return d;
     } catch (e) {
+      setDetails((prev) => ({ ...prev, [id]: 'error' }));
       handleError(e);
+      return null;
     }
   }, [api, appId]);
 
+  /** 选中对象追踪（refreshDetail 旧响应判定用——避免闭包读到旧 selected）。 */
+  const selectedRef = React.useRef<string | null>(null);
+  React.useEffect(() => { selectedRef.current = selected; }, [selected]);
+
   /** 选中即拉取该模型详情（单请求——画布字段数与版本号渐进呈现）。 */
   const ensureDetail = React.useCallback(async (id: string) => {
-    if (details[id]) return;
+    const cur = details[id];
+    if (cur && cur !== 'loading' && cur !== 'error') return;
     await refreshDetail(id);
   }, [details, refreshDetail]);
+
+  /** 限并发后台加载全部详情（画布全应用关系完整性——LOAD_CONCURRENCY 路连接占用）。 */
+  const loadAllDetails = React.useCallback(async (list: ModelSummary[]) => {
+    const pending = list.filter((m) => {
+      const cur = details[m.id];
+      return !cur || cur === 'error';
+    }).map((m) => m.id);
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (cursor < pending.length) {
+        const id = pending[cursor++];
+        inflightRef.current++;
+        try { await refreshDetail(id); } finally { inflightRef.current--; }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(LOAD_CONCURRENCY, pending.length) }, worker));
+  }, [details, refreshDetail]);
+
+  React.useEffect(() => {
+    if (models && models.length) void loadAllDetails(models);
+    // 仅在模型列表首次装载/刷新时触发（details 变化会引起刷新循环——依赖里排除）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models]);
 
   /** 打开抽屉入口：选中 + 拉详情。 */
   const openDrawer = React.useCallback((id: string) => {
@@ -125,12 +177,13 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
 
   React.useEffect(() => { void loadModels(); }, [loadModels]);
 
-  const selectedDetail = selected ? details[selected] : null;
+  const selectedEntry = selected ? details[selected] : null;
+  const selectedDetail = selectedEntry && selectedEntry !== 'loading' && selectedEntry !== 'error' ? selectedEntry : null;
 
   /** 生成当前草稿 vs 服务端版本的变更集（纯逻辑在 protocol 包 buildDraftChanges——可单测）。 */
   const buildChanges = React.useCallback((): ChangeOp[] => {
     if (!selectedDetail) return [];
-    return buildDraftChanges(selectedDetail.detail.fields, selectedDetail.fields);
+    return buildDraftChanges(selectedDetail.baseFields, selectedDetail.fields);
   }, [selectedDetail]);
 
   const pendingChanges = React.useMemo(() => buildChanges(), [buildChanges]);
@@ -216,17 +269,26 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
       setConfirmOpen(false);
       setChanges([]);
       setPrecheck(null);
-      await refreshDetail(selectedDetail.detail.id);   // 缓存失效：版本号/字段集同步新态
+      // 缓存失效：版本号/字段集同步新态；刷新失败显式提示（保存已成功，禁止用旧版本继续提交）
+      const fresh = await refreshDetail(selectedDetail.detail.id);
+      if (!fresh) message.warning('保存已成功，但详情刷新失败——请手动刷新页面获取新版本号');
       void loadModels();
     } catch (e) {
       // token 一次性：失败即关弹层作废，重新 precheck
       setConfirmOpen(false);
       if (e instanceof ApiError) {
         if (e.code === 'MODEL_VERSION_CONFLICT') {
-          message.error(`版本冲突：他人已保存新版本（画布已刷新，请基于新版重做变更）`);
+          // 409 草稿保护（10FE §1.3 ⑥）：拉服务端最新做三方对比，本地草稿保留待用户显式裁决
+          try {
+            const server = await api.modelDetail(appId, selectedDetail.detail.id);
+            const rows = buildConflictRows(selectedDetail.baseFields, selectedDetail.fields, server.fields);
+            setConflictServer(server);
+            setConflictRows(rows);
+            setConflictOpen(true);
+          } catch {
+            message.error('版本冲突且服务端最新态拉取失败——本地草稿已保留，请稍后重试保存');
+          }
           setPrecheck(null);
-          await refreshDetail(selectedDetail.detail.id);   // 本地缓存版本号过期——必须重拉
-          void loadModels();
         } else if (e.code === 'CONFIRM_TOKEN_INVALID') {
           message.error('确认令牌无效或已过期——请重新预检保存');
         } else {
@@ -255,14 +317,19 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
     }
   };
 
+  // 回滚预检失败标记（弹层提供重试入口——不允许永久停在加载态）
+  const [rollbackPreFailed, setRollbackPreFailed] = React.useState(false);
+
   const runRollback = React.useCallback(async (target: number): Promise<void> => {
     setSaving(true);
+    setRollbackPreFailed(false);
     try {
       const pre = await api.rollbackPrecheck(appId, selectedDetail!.detail.id, target);
       // 回滚统一 TYPE_MODEL_NAME（01BE §4.3）；预检风险先呈现再提交（不静默越过高风险确认）
       setRollbackPre(pre);
     } catch (e) {
       handleError(e);
+      setRollbackPreFailed(true);   // 弹层转失败态提供重试，不永久 loading
     } finally {
       setSaving(false);
     }
@@ -297,15 +364,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
     }
   };
 
-  // ---------- 关系边几何 ----------
-
-  const edges = React.useMemo(() => {
-    if (!models) return [];
-    const withFields = models
-      .filter((m) => details[m.id])
-      .map((m) => ({ id: m.id, fields: details[m.id].fields.filter((f) => !f._deleted) }));
-    return extractRelationEdges(withFields);
-  }, [models, details]);
+  // ---------- 关系边几何 ----------（边渲染已移入 ErCanvas：此处仅保留详情就绪判定）
 
   const nodeCenter = (id: string): { x: number; y: number } | null => {
     const p = positions[id];
@@ -336,8 +395,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
           setPrecheck(null);
           if (selected) void refreshDetail(selected);
           void loadModels();
-        }}>放弃修改</Button>
-        {hasDelete && <Tag color="red">含删除操作</Tag>}
+        }}>放弃修改</Button>        {hasDelete && <Tag color="red">含删除操作</Tag>}
         <Typography.Text type="secondary">
           画布坐标仅存本地草稿（不入 Schema）；字段标识与类型创建后不可修改。
         </Typography.Text>
@@ -348,72 +406,41 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
       ) : models.length === 0 ? (
         <Empty description="暂无模型——点击「新建模型」开始 ER 建模" />
       ) : (
-        <div style={{ position: 'relative', height: 520, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 8, background: '#fafafa' }}>
-          {/* 关系连线层 */}
-          <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-            {edges.flatMap((e) => {
-              const a = nodeCenter(e.sourceModelId);
-              const b = nodeCenter(e.targetModelId);
-              if (!a || !b) return [];
-              return (
-                <g key={e.id}>
-                  <line x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                    stroke={e.cardinality === '1:1' ? '#595959' : '#1677ff'} strokeWidth={e.cardinality === '1:1' ? 1.5 : 1}
-                    strokeDasharray={e.cardinality === 'n:n' ? '6 3' : undefined} />
-                  <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 6} fontSize={11} fill="#8c8c8c"
-                    textAnchor="middle">{e.sourceFieldKey} · {e.cardinality}</text>
-                </g>
-              );
-            })}
-          </svg>
-          {/* 模型节点层 */}
-          {models.map((m) => {
-            const pos = positions[m.id] ?? { x: 40, y: 40 };
-            const draft = details[m.id];
-            const activeCount = draft ? draft.fields.filter((f) => !f._deleted && f.fieldStatus === 'ACTIVE').length : 0;
-            const dirty = draft ? draft.fields.some((f) => f._deleted || f.fieldStatus === 'DELETED') || pendingChanges.length > 0 : false;
-            return (
-              <div key={m.id}
-                style={{
-                  position: 'absolute', left: pos.x, top: pos.y, width: 300,
-                  background: '#fff', border: `1px solid ${selected === m.id ? '#1677ff' : '#d9d9d9'}`,
-                  borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,.06)', cursor: 'grab', zIndex: selected === m.id ? 2 : 1,
-                }}
-                onMouseDown={(e) => { openDrawerSilently(m.id); onCanvasMouseDown(e, m.id); }}
-                onClick={() => openDrawerSilently(m.id)}
-              >
-                <div style={{ padding: '10px 14px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', background: selected === m.id ? '#e6f4ff' : '#fff' }}>
-                  <Space>
-                    <Typography.Text strong>{m.name}</Typography.Text>
-                    <Tag>{m.modelKey}</Tag>
-                  </Space>
-                  <Tag color="blue">v{m.currentVersion}</Tag>
-                </div>
-                <div style={{ padding: '6px 14px 10px' }}>
-                  {draft ? (
-                    draft.fields.filter((f) => f.fieldStatus === 'ACTIVE').slice(0, 5).map((f) => (
-                      <div key={f.fieldKey} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0', opacity: f._deleted ? 0.45 : 1, textDecoration: f._deleted ? 'line-through' : 'none' }}>
-                        <span>{f.label || f.fieldKey}</span>
-                        <span style={{ color: '#8c8c8c' }}>{f.type}{f.required ? ' *' : ''}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>加载中…</Typography.Text>
-                  )}
-                  {(draft?.fields.filter((f) => f.fieldStatus === 'ACTIVE').length ?? 0) > 5 && (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      … 共 {activeCount} 个字段
-                    </Typography.Text>
-                  )}
-                  <Button block size="small" style={{ marginTop: 8 }}
-                    onClick={(e) => { e.stopPropagation(); openDrawer(m.id); }}>
-                    编辑字段
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <ErCanvas
+          models={models}
+          details={Object.fromEntries(Object.entries(details).filter(([, v]) => v && v !== 'loading' && v !== 'error')
+            .map(([k, v]) => [k, { fields: (v as DraftModel).fields }]))}
+          positions={positions}
+          selected={selected}
+          onSelect={(id) => { if (id) openDrawerSilently(id); }}
+          onOpenEditor={openDrawer}
+          onPositionsChange={(next) => {
+            setPositions(next);
+            saveLayoutDraft(tenantId, appId, { positions: next });
+          }}
+          onConnectModels={(sourceId, targetId) => {
+            // 连线创建：打开 source 模型字段抽屉并预填 relation 目标（表单提交才真正落草稿）
+            setSelected(sourceId);
+            setDrawerOpen(true);
+            void ensureDetail(sourceId).then(() => {
+              setEditing({ placeholder: 'new' } as unknown as DraftField);
+              setEditingIndex(-1);
+              fieldForm.resetFields();
+              fieldForm.setFieldsValue({ type: 'relation', relation: { targetModelId: targetId, cardinality: '1:n', cascade: 'FORBID' } });
+            });
+          }}
+          onDeleteEdge={(sourceModelId, sourceFieldKey) => {
+            // 删除边 = 删除对应 relation 字段（走字段变更协议——两段式保存确认）
+            setSelected(sourceModelId);
+            setDetails((prev) => {
+              const cur = prev[sourceModelId];
+              if (!cur || cur === 'loading' || cur === 'error') return prev;
+              const next = cur.fields.map((f) => f.fieldKey === sourceFieldKey ? { ...f, _deleted: true } : f);
+              return { ...prev, [sourceModelId]: { ...cur, fields: next } };
+            });
+            message.info(`关系字段 ${sourceFieldKey} 已标记删除——保存时按删除协议确认`);
+          }}
+        />
       )}
 
       {/* 新建模型 */}
@@ -470,7 +497,13 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                         <Input placeholder="如 amount" />
                       </Form.Item>
                       <Form.Item name="type" label="字段类型（12 种冻结枚举）" rules={[{ required: true }]}>
-                        <Select options={TYPE_OPTIONS} />
+                        <Select options={TYPE_OPTIONS} onChange={(newType) => {
+                          // 类型切换清理：不适用配置的旧表单值必须清除（防残留误发——后端 FIELD_CONFIG_INVALID 兜底）
+                          const prev = fieldForm.getFieldValue('type') as string | undefined;
+                          if (prev && prev !== newType) {
+                            fieldForm.setFieldsValue({ enumOptionsStr: undefined, relation: undefined, computed: undefined });
+                          }
+                        }} />
                       </Form.Item>
                     </>
                   )}
@@ -523,19 +556,17 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                           </Form.Item>
                           <Form.Item name={['relation', 'cardinality']} label="基数" initialValue="1:n"
                             rules={[{ required: true }]}>
-                            <Select options={[
-                              { value: '1:1', label: '1:1 一对一' },
-                              { value: '1:n', label: '1:n 一对多' },
-                              { value: 'n:n', label: 'n:n 多对多' },
-                            ]} />
+                            <Select options={RELATION_CARDINALITIES.map((c) => ({
+                              value: c,
+                              label: c === '1:1' ? '1:1 一对一' : c === '1:n' ? '1:n 一对多' : 'n:n 多对多',
+                            }))} />
                           </Form.Item>
                           <Form.Item name={['relation', 'cascade']} label="级联策略" initialValue="FORBID"
                             rules={[{ required: true }]}>
-                            <Select options={[
-                              { value: 'FORBID', label: 'FORBID 禁止删除' },
-                              { value: 'SET_NULL', label: 'SET_NULL 置空' },
-                              { value: 'CASCADE', label: 'CASCADE 级联' },
-                            ]} />
+                            <Select options={RELATION_CASCADES.map((c) => ({
+                              value: c,
+                              label: c === 'FORBID' ? 'FORBID 禁止删除' : c === 'SET_NULL' ? 'SET_NULL 置空' : 'CASCADE_SOFT_DELETE 级联软删',
+                            }))} />
                           </Form.Item>
                         </>
                       );
@@ -552,10 +583,10 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                             <Input placeholder="amount, rate" />
                           </Form.Item>
                           <Form.Item name={['computed', 'persistMode']} label="持久化模式" initialValue="READ_TIME" rules={[{ required: true }]}>
-                            <Select options={[
-                              { value: 'READ_TIME', label: 'READ_TIME 读时计算' },
-                              { value: 'ON_WRITE', label: 'ON_WRITE 写时物化' },
-                            ]} />
+                            <Select options={COMPUTED_PERSIST_MODES.map((m) => ({
+                              value: m,
+                              label: m === 'READ_TIME' ? 'READ_TIME 读时计算' : 'PERSISTED 写时物化',
+                            }))} />
                           </Form.Item>
                         </>
                       );
@@ -582,8 +613,8 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                         if (v.relation?.targetModelId) {
                           out.relation = {
                             targetModelId: String(v.relation.targetModelId),
-                            cardinality: String(v.relation.cardinality ?? '1:n'),
-                            cascade: String(v.relation.cascade ?? 'FORBID'),
+                            cardinality: RELATION_CARDINALITIES.includes(v.relation.cardinality) ? v.relation.cardinality : '1:n',
+                            cascade: RELATION_CASCADES.includes(v.relation.cascade) ? v.relation.cascade : 'FORBID',
                           };
                         }
                       }
@@ -592,7 +623,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                           out.computed = {
                             expr: { kind: 'expr', source: String(v.computed.expr.source) },
                             dependsOn: String(v.computed.dependsOn ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-                            persistMode: String(v.computed.persistMode ?? 'READ_TIME'),
+                            persistMode: COMPUTED_PERSIST_MODES.includes(v.computed.persistMode) ? v.computed.persistMode : 'READ_TIME',
                           };
                         }
                       }
@@ -601,7 +632,11 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                     if (editingIndex >= 0) {
                       const next = [...selectedDetail.fields];
                       next[editingIndex] = { ...next[editingIndex], label: v.label, required: !!v.required, ...parseConfigs() };
-                      setDetails((d) => ({ ...d, [selected!]: { ...d[selected!], fields: next } }));
+                      setDetails((d) => {
+                        const cur = d[selected!];
+                        if (!cur || cur === 'loading' || cur === 'error') return d;
+                        return { ...d, [selected!]: { ...cur, fields: next } };
+                      });
                     } else {
                       // 本地重名前置阻断（服务端 FIELD_KEY_DUPLICATED 兜底——提前给出可定位的错误）
                       const key = String(v.fieldKey ?? '');
@@ -614,7 +649,11 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                         required: !!v.required, uniqueFlag: false, indexed: false, promoteStatus: null, sortOrder: selectedDetail.fields.length + 1,
                         ...parseConfigs(),
                       };
-                      setDetails((d) => ({ ...d, [selected!]: { ...d[selected!], fields: [...d[selected!].fields, newField] } }));
+                      setDetails((d) => {
+                        const cur = d[selected!];
+                        if (!cur || cur === 'loading' || cur === 'error') return d;
+                        return { ...d, [selected!]: { ...cur, fields: [...cur.fields, newField] } };
+                      });
                     }
                     setEditing(null);
                     setEditingIndex(-1);
@@ -654,17 +693,21 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                     f._deleted ? (
                       <Button key="undo" size="small" type="link" onClick={() => {
                         setDetails((d) => {
-                          const next = [...d[selected!].fields];
+                          const cur = d[selected!];
+                          if (!cur || cur === 'loading' || cur === 'error') return d;
+                          const next = [...cur.fields];
                           next[i] = { ...next[i], _deleted: false };
-                          return { ...d, [selected!]: { ...d[selected!], fields: next } };
+                          return { ...d, [selected!]: { ...cur, fields: next } };
                         });
                       }}>撤销</Button>
                     ) : (
                       <Popconfirm key="del" title="删除该字段？（保存时强制勾选确认）" onConfirm={() => {
                         setDetails((d) => {
-                          const next = [...d[selected!].fields];
+                          const cur = d[selected!];
+                          if (!cur || cur === 'loading' || cur === 'error') return d;
+                          const next = [...cur.fields];
                           next[i] = { ...next[i], _deleted: true };
-                          return { ...d, [selected!]: { ...d[selected!], fields: next } };
+                          return { ...d, [selected!]: { ...cur, fields: next } };
                         });
                       }}>
                         <Button size="small" type="link" danger>删除</Button>
@@ -685,6 +728,51 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
           </>
         )}
       </Drawer>
+
+      {/* 409 三方对比弹层（10FE §1.3 ⑥ / 04FE §7 同款）：本地草稿保留，显式裁决 */}
+      <Modal title={`版本冲突 · ${selectedDetail?.detail.name ?? ''}（他人已保存 v${conflictServer?.currentVersion ?? '?'}）`}
+        open={conflictOpen} width={760} footer={null} onCancel={() => setConflictOpen(false)}>
+        <Typography.Paragraph type="warning">
+          你与服务端基于不同版本做了修改。下方为逐字段对比（我的草稿 / 服务端最新）；
+          选择「放弃我的修改」将以服务端最新覆盖本地草稿；关闭弹层可继续保留草稿查看。
+        </Typography.Paragraph>
+        <List size="small" style={{ maxHeight: 320, overflow: 'auto' }}
+          locale={{ emptyText: '无字段级差异' }}
+          dataSource={conflictRows}
+          renderItem={(row) => (
+            <List.Item style={{ padding: '4px 0', background: row.bothChanged ? 'rgba(255,77,79,.06)' : undefined }}>
+              <Space>
+                <Tag color={row.bothChanged ? 'red' : 'blue'}>{row.bothChanged ? '双方修改' : '单方修改'}</Tag>
+                <span>{row.fieldKey}</span>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {'我的：'}{row.mine ? `${row.mine.op}` : '未改'}
+                  {' / '}
+                  {'服务端：'}{row.theirs ? `${row.theirs.op}` : '未改'}
+                </Typography.Text>
+              </Space>
+            </List.Item>
+          )} />
+        <Space style={{ marginTop: 16 }}>
+          <Button danger onClick={() => {
+            // 显式放弃：adoptServerDraft 以服务端态重建草稿（用户主动动作，非静默覆盖）
+            if (!conflictServer || !selected) return;
+            setDetails((prev) => ({
+              ...prev,
+              [selected]: {
+                detail: conflictServer,
+                fields: adoptServerDraft(conflictServer.fields).map((f) => ({ ...f })) as DraftField[],
+                baseFields: conflictServer.fields,
+              },
+            }));
+            setConflictOpen(false);
+            setConflictServer(null);
+            setConflictRows([]);
+            setPrecheck(null);
+            message.info('已放弃本地修改，草稿与服务端 v' + conflictServer.currentVersion + ' 对齐');
+          }}>{'放弃我的修改（采用服务端）'}</Button>
+          <Button onClick={() => setConflictOpen(false)}>{'保留草稿，稍后处理'}</Button>
+        </Space>
+      </Modal>
 
       {/* 两段式确认弹层：左变更清单 + 右影响面（severity 排序） */}
       <Modal title={`保存确认 · ${selectedDetail?.detail.name ?? ''}`} open={confirmOpen} width={720}
@@ -825,6 +913,14 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                         </Space>
                       </List.Item>
                     )} />
+                </div>
+              ) : rollbackPreFailed ? (
+                <div style={{ marginBottom: 12 }}>
+                  <Typography.Text type="danger">回滚影响面获取失败——本地草稿未受影响，可重试。</Typography.Text>
+                  <Button size="small" style={{ marginTop: 8 }} loading={saving}
+                    onClick={() => { if (rollbackTarget != null) void runRollback(rollbackTarget); }}>
+                    重试获取影响面
+                  </Button>
                 </div>
               ) : (
                 <Typography.Text type="secondary">正在获取回滚影响面…</Typography.Text>
