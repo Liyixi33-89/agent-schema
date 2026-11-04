@@ -56,8 +56,12 @@ class SchemaContractTest {
         for (Map<String, Object> fixture : fixtures) {
             Map<String, Object> schema = GSON.fromJson(definitions.get((String) fixture.get("schema")),
                     new TypeToken<Map<String, Object>>() {}.getType());
-            assertEquals(fixture.get("valid"), SchemaValidator.accepts(schema, fixture.get("input")),
-                    "双端判定不一致: " + fixture.get("name"));
+            boolean semantic = Boolean.TRUE.equals(fixture.get("semantic"));
+            // 结构层：SchemaValidator 只执行 JSON Schema（语义约束有意不导出，见 export-schema.ts）；
+            // 语义层样本在此反向锚定——后端结构判定必须为 true（即结构层不拦截），防止语义约束悄悄漏进结构导出。
+            boolean expectedStructural = semantic || Boolean.TRUE.equals(fixture.get("valid"));
+            assertEquals(expectedStructural, SchemaValidator.accepts(schema, fixture.get("input")),
+                    "结构层判定不一致: " + fixture.get("name"));
         }
     }
 
@@ -100,7 +104,13 @@ class SchemaContractTest {
         Map<String, Boolean> verdicts = (Map<String, Boolean>) GSON.fromJson(root.get("fixtureVerdicts"),
                 new TypeToken<Map<String, Boolean>>() {}.getType());
         assertNotNull(verdicts);
-        assertEquals(6, verdicts.size(), "fixture 判定表应含 6 条");
+        assertEquals(12, verdicts.size(), "fixture 判定表应含 12 条（结构 11 + 语义 1）");
+        assertEquals(Boolean.TRUE, verdicts.get("field-ref-with-model-bound"));
+        assertEquals(Boolean.TRUE, verdicts.get("field-ref-without-embedded-fields"));
+        assertEquals(Boolean.TRUE, verdicts.get("field-ref-deep-nested-valid"));
+        assertEquals(Boolean.FALSE, verdicts.get("field-ref-empty-string"));
+        assertEquals(Boolean.FALSE, verdicts.get("field-ref-invalid-type"));
+        assertEquals(Boolean.FALSE, verdicts.get("field-ref-missing-model-binding"));
         assertEquals(Boolean.TRUE, verdicts.get("minimal-valid"));
         assertEquals(Boolean.TRUE, verdicts.get("expr-prop"));
         assertEquals(Boolean.TRUE, verdicts.get("agg-structure"));

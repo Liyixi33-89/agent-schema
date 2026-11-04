@@ -633,7 +633,8 @@
               }
             },
             "fieldRef": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             }
           },
           "required": [
@@ -982,7 +983,8 @@
                     }
                   },
                   "fieldRef": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   }
                 },
                 "required": [
@@ -1621,6 +1623,12 @@
     "bad-action": false,
     "oversize-pagination": false,
     "bad-component-name": false,
-    "agg-structure": true
+    "agg-structure": true,
+    "field-ref-with-model-bound": true,
+    "field-ref-without-embedded-fields": true,
+    "field-ref-empty-string": false,
+    "field-ref-invalid-type": false,
+    "field-ref-deep-nested-valid": true,
+    "field-ref-missing-model-binding": false
   }
 }

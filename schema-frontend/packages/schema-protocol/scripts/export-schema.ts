@@ -35,7 +35,7 @@ const layoutNodeSchema: z.ZodType<unknown> = z.lazy(() =>
     componentName: z.string().regex(/^[A-Za-z][\w.]*$/),
     props: z.record(z.union([jsonPrimitiveSchema, expressionSchema, z.array(actionBindingSchema), z.lazy(() => z.array(layoutNodeSchema)), jsonValueSchema])),
     children: z.array(z.lazy(() => layoutNodeSchema)).optional(),
-    fieldRef: z.string().optional(),
+    fieldRef: z.string().min(1).optional(),
   }),
 );
 const filterSchema: z.ZodType<unknown> = z.lazy(() => z.union([
@@ -79,6 +79,15 @@ const pageSchema = z.object({
   dataSource: dataSourceSchema.optional(),
   actions: z.array(actionBindingSchema),
   schemaVersion: z.number().int().min(1),
+});
+// 语义约束（不进 JSON Schema，与 src/validate.ts 双判一致）：fieldRef 必须有页面模型绑定。
+type ZodNode = { fieldRef?: unknown; children?: ZodNode[] };
+const nodesWithFieldRef = (nodes: ZodNode[]): ZodNode[] =>
+  nodes.flatMap((n) => [n, ...(n.children ? nodesWithFieldRef(n.children) : [])]).filter((n) => n.fieldRef !== undefined);
+const pageWithBinding = pageSchema.superRefine((page, ctx) => {
+  if (!page.modelId && nodesWithFieldRef(page.layout as ZodNode[]).length > 0) {
+    ctx.addIssue({ code: 'custom', message: 'fieldRef 需要页面绑定模型' });
+  }
 });
 
 // ===== 双定义一致性断言：同一 fixture 必须双判一致 =====
@@ -128,6 +137,34 @@ const fixtures: Array<{ name: string; input: unknown; valid: boolean }> = [
   },
 ];
 
+// 字段引用类型属于结构契约；模型绑定及字段存在性另走语义校验。
+const FIELD_REF_LAYOUT = { id: 'wrapper', componentName: 'FormItem', props: {},
+  children: [{ id: 'input', componentName: 'TextInput', props: {} }] };
+for (const [name, fieldRef, valid] of [
+  ['field-ref-with-model-bound', 'title', true],
+  ['field-ref-without-embedded-fields', 'title', true],
+  ['field-ref-empty-string', '', false],
+  ['field-ref-invalid-type', 123, false],
+] as const) {
+  fixtures.push({ name, valid, input: {
+    id: 'p1', pageKey: 'form', name: 'Form', type: 'FORM', modelId: '1',
+    path: '/form', schemaVersion: 1, actions: [],
+    layout: [{ ...FIELD_REF_LAYOUT, children: [{ ...FIELD_REF_LAYOUT.children[0], fieldRef }] }],
+  } });
+}
+fixtures.push({ name: 'field-ref-deep-nested-valid', valid: true, input: {
+  id: 'p1', pageKey: 'form', name: 'Form', type: 'FORM', modelId: '1',
+  path: '/form', schemaVersion: 1, actions: [],
+  layout: [{ id: 'l1', componentName: 'Card', props: {},
+    children: [{ id: 'l2', componentName: 'Card', props: {},
+      children: [{ ...FIELD_REF_LAYOUT, children: [{ ...FIELD_REF_LAYOUT.children[0], fieldRef: 'title' }] }] }] }],
+} });
+fixtures.push({ name: 'field-ref-missing-model-binding', valid: false, semantic: true, input: {
+  id: 'p1', pageKey: 'form', name: 'Form', type: 'FORM',
+  path: '/form', schemaVersion: 1, actions: [],
+  layout: [{ ...FIELD_REF_LAYOUT, children: [{ ...FIELD_REF_LAYOUT.children[0], fieldRef: 'title' }] }],
+} });
+
 const modelFixtures = [
   { name: 'model-valid', input: { id: 'm1', modelKey: 'orders', name: 'Orders', fields: [{ key: 'amount', label: 'Amount', type: 'number', fieldStatus: 'ACTIVE', sortOrder: 0 }], version: 1, schemaVersion: 1 }, valid: true },
   { name: 'model-invalid-field-type', input: { id: 'm1', modelKey: 'orders', name: 'Orders', fields: [{ key: 'amount', label: 'Amount', type: 'datetime', fieldStatus: 'ACTIVE', sortOrder: 0 }], version: 1, schemaVersion: 1 }, valid: false },
@@ -141,7 +178,7 @@ for (const f of modelFixtures) {
 
 const disagreements: string[] = [];
 for (const f of fixtures) {
-  const zodOk = pageSchema.safeParse(f.input).success;
+  const zodOk = pageWithBinding.safeParse(f.input).success;
   let runtimeOk = true;
   try { validatePageSchema(f.input); } catch { runtimeOk = false; }
   if (zodOk !== f.valid) disagreements.push(`zod 对 ${f.name} 判定 ${zodOk}，期望 ${f.valid}`);
@@ -178,4 +215,5 @@ writeFileSync(resolve(here, '../contract/schema-fixtures.json'), `${JSON.stringi
   ...fixtures.map((f) => ({ ...f, schema: 'PageSchema' })),
   ...modelFixtures.map((f) => ({ ...f, schema: 'ModelSchema' })),
 ], null, 2)}\n`, 'utf8');
-console.log(`[export-schema] ${fixtures.length} fixtures 双判一致，导出 ${Object.keys(exported.definitions).length} 组定义 -> ${outFile}`);
+const semanticCount = fixtures.filter((f) => (f as { semantic?: boolean }).semantic).length;
+console.log(`[export-schema] ${fixtures.length} fixtures 双判一致（语义样本 ${semanticCount} 条），导出 ${Object.keys(exported.definitions).length} 组定义 -> ${outFile}`);

@@ -133,6 +133,200 @@
     "schema": "PageSchema"
   },
   {
+    "name": "field-ref-with-model-bound",
+    "valid": true,
+    "input": {
+      "id": "p1",
+      "pageKey": "form",
+      "name": "Form",
+      "type": "FORM",
+      "modelId": "1",
+      "path": "/form",
+      "schemaVersion": 1,
+      "actions": [],
+      "layout": [
+        {
+          "id": "wrapper",
+          "componentName": "FormItem",
+          "props": {},
+          "children": [
+            {
+              "id": "input",
+              "componentName": "TextInput",
+              "props": {},
+              "fieldRef": "title"
+            }
+          ]
+        }
+      ]
+    },
+    "schema": "PageSchema"
+  },
+  {
+    "name": "field-ref-without-embedded-fields",
+    "valid": true,
+    "input": {
+      "id": "p1",
+      "pageKey": "form",
+      "name": "Form",
+      "type": "FORM",
+      "modelId": "1",
+      "path": "/form",
+      "schemaVersion": 1,
+      "actions": [],
+      "layout": [
+        {
+          "id": "wrapper",
+          "componentName": "FormItem",
+          "props": {},
+          "children": [
+            {
+              "id": "input",
+              "componentName": "TextInput",
+              "props": {},
+              "fieldRef": "title"
+            }
+          ]
+        }
+      ]
+    },
+    "schema": "PageSchema"
+  },
+  {
+    "name": "field-ref-empty-string",
+    "valid": false,
+    "input": {
+      "id": "p1",
+      "pageKey": "form",
+      "name": "Form",
+      "type": "FORM",
+      "modelId": "1",
+      "path": "/form",
+      "schemaVersion": 1,
+      "actions": [],
+      "layout": [
+        {
+          "id": "wrapper",
+          "componentName": "FormItem",
+          "props": {},
+          "children": [
+            {
+              "id": "input",
+              "componentName": "TextInput",
+              "props": {},
+              "fieldRef": ""
+            }
+          ]
+        }
+      ]
+    },
+    "schema": "PageSchema"
+  },
+  {
+    "name": "field-ref-invalid-type",
+    "valid": false,
+    "input": {
+      "id": "p1",
+      "pageKey": "form",
+      "name": "Form",
+      "type": "FORM",
+      "modelId": "1",
+      "path": "/form",
+      "schemaVersion": 1,
+      "actions": [],
+      "layout": [
+        {
+          "id": "wrapper",
+          "componentName": "FormItem",
+          "props": {},
+          "children": [
+            {
+              "id": "input",
+              "componentName": "TextInput",
+              "props": {},
+              "fieldRef": 123
+            }
+          ]
+        }
+      ]
+    },
+    "schema": "PageSchema"
+  },
+  {
+    "name": "field-ref-deep-nested-valid",
+    "valid": true,
+    "input": {
+      "id": "p1",
+      "pageKey": "form",
+      "name": "Form",
+      "type": "FORM",
+      "modelId": "1",
+      "path": "/form",
+      "schemaVersion": 1,
+      "actions": [],
+      "layout": [
+        {
+          "id": "l1",
+          "componentName": "Card",
+          "props": {},
+          "children": [
+            {
+              "id": "l2",
+              "componentName": "Card",
+              "props": {},
+              "children": [
+                {
+                  "id": "wrapper",
+                  "componentName": "FormItem",
+                  "props": {},
+                  "children": [
+                    {
+                      "id": "input",
+                      "componentName": "TextInput",
+                      "props": {},
+                      "fieldRef": "title"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "schema": "PageSchema"
+  },
+  {
+    "name": "field-ref-missing-model-binding",
+    "valid": false,
+    "semantic": true,
+    "input": {
+      "id": "p1",
+      "pageKey": "form",
+      "name": "Form",
+      "type": "FORM",
+      "path": "/form",
+      "schemaVersion": 1,
+      "actions": [],
+      "layout": [
+        {
+          "id": "wrapper",
+          "componentName": "FormItem",
+          "props": {},
+          "children": [
+            {
+              "id": "input",
+              "componentName": "TextInput",
+              "props": {},
+              "fieldRef": "title"
+            }
+          ]
+        }
+      ]
+    },
+    "schema": "PageSchema"
+  },
+  {
     "name": "model-valid",
     "input": {
       "id": "m1",

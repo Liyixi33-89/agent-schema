@@ -90,7 +90,7 @@ describe('fixtures validate against exported json-schema (zod parity)', () => {
     componentName: z.string().regex(/^[A-Za-z][\w.]*$/),
     props: z.record(z.union([jsonPrimitive, expression, z.array(actionBinding), z.array(layoutNode), jsonValue])),
     children: z.array(z.lazy(() => layoutNode)).optional(),
-    fieldRef: z.string().optional(),
+    fieldRef: z.string().min(1).optional(),
   }));
   const page = z.object({
     id: z.string().min(1), pageKey: z.string(), name: z.string(), type: z.enum(PAGE_TYPES),
@@ -107,6 +107,12 @@ describe('fixtures validate against exported json-schema (zod parity)', () => {
       staticData: z.unknown().optional(),
     }).optional(),
     actions: z.array(actionBinding), schemaVersion: z.number().int().min(1),
+  // 语义精化须与 scripts/export-schema.ts 的 pageWithBinding 保持同判（fieldRef 需要模型绑定）。
+  }).superRefine((p, ctx) => {
+    type Node = { fieldRef?: unknown; children?: Node[] };
+    const refs = (nodes: Node[]): Node[] =>
+      nodes.flatMap((n) => [n, ...(n.children ? refs(n.children) : [])]).filter((n) => n.fieldRef !== undefined);
+    if (!p.modelId && refs(p.layout as Node[]).length > 0) ctx.addIssue({ code: 'custom', message: 'fieldRef 需要页面绑定模型' });
   });
   const schemas: Record<string, z.ZodType<unknown>> = { PageSchema: page, ModelSchema: model };
 

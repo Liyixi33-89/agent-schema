@@ -78,6 +78,7 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cach
         if (!page?.modelId) throw new ServerError('PAGE_INVALID', '页面未绑定数据模型');
         const fieldsRaw = await client.loadFields(page.modelId);
         const fields = normalizeFields(fieldsRaw);
+        validateLoadedFieldRefs(page, fields);
         if (cancelled) return;
         setState({ phase: 'ready', page, fields });
       } catch (e) {
@@ -297,6 +298,19 @@ function normalizeFields(raw: unknown): FieldSchema[] {
 }
 
 /** 节点 fieldRef 提取（受控注入定位）。 */
+export function validateLoadedFieldRefs(page: PageSchema, fields: FieldSchema[]): void {
+  const known = new Set(fields.map(field => field.key));
+  const visit = (nodes: PageSchema['layout']): void => {
+    for (const node of nodes) {
+      if (node.fieldRef !== undefined && !known.has(node.fieldRef)) {
+        throw new ServerError('PAGE_INVALID', `节点 ${node.id} 引用了模型中不存在的字段 ${node.fieldRef}`);
+      }
+      if (node.children) visit(node.children);
+    }
+  };
+  visit(page.layout);
+}
+
 function fieldRefOf(page: PageSchema, nodeId: string): string | undefined {
   const walk = (nodes: PageSchema['layout']): string | undefined => {
     for (const n of nodes) {

@@ -71,6 +71,38 @@ describe('联动编排（03FE §3）', () => {
   });
 });
 
+describe('数值序列化回归（M11 收口：NumberInput → store → 提交载荷）', () => {
+  it('number 字段值保持 number 类型且空值剔除', () => {
+    const store = new FormStore({
+      fields: [F('title'), F('amount', { type: 'number' })],
+    });
+    // 模拟 NumberInput onChange（antd InputNumber 回传 number）
+    store.set('amount', 88);
+    store.set('title', '差旅费');
+    const payload = store.serialize();
+    expect(payload.amount).toBe(88);
+    expect(typeof payload.amount).toBe('number');
+    expect(payload.title).toBe('差旅费');
+  });
+
+  it('number 字段清空后序列化剔除（undefined 不进载荷）', () => {
+    const store = new FormStore({ fields: [F('amount', { type: 'number' })] });
+    store.set('amount', 88);
+    store.set('amount', undefined);
+    expect(store.serialize()).toEqual({});
+  });
+
+  it('必填 number 校验后提交载荷含该字段', async () => {
+    const store = new FormStore({ fields: [F('amount', { type: 'number', required: true })] });
+    expect(store.validateAll()?.fieldKey).toBe('amount');
+    store.set('amount', 88);
+    const transport = { submit: vi.fn().mockResolvedValue({ id: 1 }) };
+    const result = await executeSubmit(store, { type: 'SUBMIT', successBehavior: 'TOAST' }, transport);
+    expect(result.ok).toBe(true);
+    expect(transport.submit).toHaveBeenCalledWith({ amount: 88 });
+  });
+});
+
 describe('校验管线（03FE §4）', () => {
   it('内置规则：required / 类型 / range / regex / enum / expression 全链', () => {
     const store = new FormStore({
