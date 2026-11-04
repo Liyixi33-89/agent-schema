@@ -133,6 +133,17 @@ public class AppRoleService {
      * 逐请求实时判定（角色快照不作数，与 requireOrgManagePerm 同构）。
      */
     public void requireAppAdmin(long tenantId, long appId, Long operatorId) {
+        if (!hasAppAdmin(tenantId, appId, operatorId)) {
+            throw BizException.permDenied();
+        }
+    }
+
+    /**
+     * 设计能力闸（PRD04 权限矩阵：建模/页面设计 = 开发者或应用管理员；01BE §A 应用域）。
+     * 放行口径：本应用 app_admin / developer，或 org:manage 平台管理员兜底。
+     * 与 requireAppAdmin 同构逐请求实时判定——M12 接入 /api/models 全链（验收挖出的越权缺口）。
+     */
+    public void requireDesignCapability(long tenantId, long appId, Long operatorId) {
         if (operatorId == null || operatorId <= 0) {
             throw BizException.permDenied();
         }
@@ -140,19 +151,31 @@ public class AppRoleService {
         if (operator == null || operator.tenantId() != tenantId) {
             throw BizException.permDenied();
         }
-        if (iam.findRoleCodesOfUserInApp(tenantId, operatorId, appId).contains(CODE_APP_ADMIN)) {
+        List<String> codes = iam.findRoleCodesOfUserInApp(tenantId, operatorId, appId);
+        if (codes.contains(CODE_APP_ADMIN) || codes.contains(CODE_DEVELOPER)) {
             return;
         }
-        // org:manage 兜底判定（平台管理员）
+        requireAppAdmin(tenantId, appId, operatorId);   // org:manage 兜底复用
+    }
+
+    /** requireAppAdmin 的布尔形态（hasAppAdmin 命名冲突——内部提取）。 */
+    private boolean hasAppAdmin(long tenantId, long appId, Long operatorId) {
+        if (operatorId == null || operatorId <= 0) {
+            return false;
+        }
+        UserAccount operator = iam.findUserById(operatorId).orElse(null);
+        if (operator == null || operator.tenantId() != tenantId) {
+            return false;
+        }
+        if (iam.findRoleCodesOfUserInApp(tenantId, operatorId, appId).contains(CODE_APP_ADMIN)) {
+            return true;
+        }
         List<Long> roleIds = new ArrayList<>();
         for (Map<String, Object> r : iam.findRolesOfUser(tenantId, operatorId)) {
             roleIds.add(((Number) r.get("id")).longValue());
         }
-        boolean orgManage = iam.findPermsOfRoles(roleIds).stream()
+        return iam.findPermsOfRoles(roleIds).stream()
                 .anyMatch(p -> ORG_MANAGE_PERM.equals(p.toPermString()));
-        if (!orgManage) {
-            throw BizException.permDenied();
-        }
     }
 
     /**
@@ -180,7 +203,7 @@ public class AppRoleService {
     }
 
     /** 应用是否存在本租户有效的应用管理员（删除确认影响面提示用）。 */
-    public boolean hasAppAdmin(long tenantId, long appId) {
+    public boolean hasAnyAppAdmin(long tenantId, long appId) {
         for (Map<String, Object> m : listMembers(tenantId, appId)) {
             if (((List<?>) m.get("roles")).contains(CODE_APP_ADMIN)) {
                 return true;

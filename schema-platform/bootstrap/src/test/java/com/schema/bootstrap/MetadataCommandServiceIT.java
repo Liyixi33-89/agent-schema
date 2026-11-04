@@ -254,6 +254,39 @@ class MetadataCommandServiceIT {
         assertEquals("CIRCULAR_DEPENDENCY", e.code(), "依赖成环必须 422");
     }
 
+    // ---------- M12：应用域绑定（同租户跨应用越权） ----------
+
+    @Test
+    void crossAppAccessRejectedEvenWithDesignCapabilityInOwnApp() {
+        // 租户 1 应用 1 的模型（当前上下文默认应用域）
+        long victimModel = TenantContext.with(new TenantInfo(1, 1, 1), () ->
+                Long.parseLong((String) service.createModel("cross_app_" + System.nanoTime(), "跨应用受害者", null).get("id")));
+
+        // 同租户但路由应用域为 2（X-App-Id: 2）：即使调用者在应用 1 有设计能力，也必须拒绝
+        BizException e = TenantContext.with(new TenantInfo(1, 2, 1), () -> {
+            try {
+                service.getModel(victimModel);
+                return null;
+            } catch (BizException ex) {
+                return ex;
+            }
+        });
+        assertNotNull(e, "跨应用读取必须被拦截");
+        assertEquals("MODEL_NOT_FOUND", e.code(), "同判 404（不给跨应用存在性线索）");
+
+        // 写链路同样拦截：precheck / saveSchema / rollbackPrecheck 共用 loadForTenant
+        BizException write = TenantContext.with(new TenantInfo(1, 2, 1), () -> {
+            try {
+                service.precheck(victimModel, List.of(addAmount()));
+                return null;
+            } catch (BizException ex) {
+                return ex;
+            }
+        });
+        assertNotNull(write, "跨应用 precheck 必须被拦截");
+        assertEquals("MODEL_NOT_FOUND", write.code());
+    }
+
     // ---------- 保存校验器（01BE §4.2 步骤 4）：类型相关性 ----------
 
     @Test

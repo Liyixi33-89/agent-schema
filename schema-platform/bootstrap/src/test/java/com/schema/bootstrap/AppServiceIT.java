@@ -363,7 +363,7 @@ class AppServiceIT {
             }
             assertEquals(1, success, "并发互相移除恰一个成功（另一个被最后管理员保护拦下）");
             // 应用仍有管理员（非孤儿）
-            boolean hasAdmin = TenantContext.with(t(), () -> appRoles.hasAppAdmin(1, appId));
+            boolean hasAdmin = TenantContext.with(t(), () -> appRoles.hasAnyAppAdmin(1, appId));
             assertTrue(hasAdmin, "并发移除后应用仍须有管理员");
         } finally {
             pool.shutdownNow();

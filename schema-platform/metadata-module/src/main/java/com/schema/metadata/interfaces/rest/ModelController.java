@@ -2,6 +2,8 @@ package com.schema.metadata.interfaces.rest;
 
 import com.schema.metadata.application.MetadataCommandService;
 import com.schema.metadata.domain.model.ChangeOp;
+import com.schema.platform.common.web.BizException;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,41 +22,64 @@ import java.util.Map;
 /**
  * 模型管理 REST（01BE §4.1/§4.2/§4.4 附录 A）。
  * 接口层只做协议转换与租户上下文装配（无业务逻辑——四层职责铁律）。
+ * 全链挂设计能力闸（PRD04：建模 = developer/app_admin/org:manage——X-App-Id 路由应用域）。
  */
 @RestController
 @RequestMapping("/api/models")
 public class ModelController {
 
     private final MetadataCommandService service;
+    private final DesignGate designGate;
 
-    public ModelController(MetadataCommandService service) {
+    public ModelController(MetadataCommandService service, DesignGate designGate) {
         this.service = service;
+        this.designGate = designGate;
+    }
+
+    /** 设计能力闸（PRD04：建模 = 开发者/应用管理员；X-App-Id 路由应用域——缺省回落租户首个应用不可取，统一 403）。 */
+    private void requireDesign(HttpServletRequest request) {
+        String appHeader = request.getHeader("X-App-Id");
+        long appId;
+        try {
+            appId = Long.parseLong(appHeader == null ? "" : appHeader.trim());
+        } catch (NumberFormatException e) {
+            throw BizException.permDenied();   // 缺 X-App-Id 即无应用域上下文——拒绝（不可静默回落）
+        }
+        designGate.requireDesignCapability(appId);
     }
 
     @PostMapping
-    public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+    public Map<String, Object> create(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        requireDesign(request);
         return service.createModel(str(body.get("modelKey")), str(body.get("name")), str(body.get("icon")));
     }
 
     @GetMapping
     public Map<String, Object> list(@RequestParam(required = false) String keyword,
-            @RequestParam(name = "includeDeleted", defaultValue = "false") boolean includeDeleted) {
+            @RequestParam(name = "includeDeleted", defaultValue = "false") boolean includeDeleted,
+            HttpServletRequest request) {
+        requireDesign(request);
         return service.listModels(keyword, includeDeleted);
     }
 
     @GetMapping("/{id}")
-    public Map<String, Object> detail(@PathVariable long id) {
+    public Map<String, Object> detail(@PathVariable long id, HttpServletRequest request) {
+        requireDesign(request);
         return service.getModel(id);
     }
 
     @PutMapping("/{id}")
-    public Map<String, Object> update(@PathVariable long id, @RequestBody Map<String, Object> body) {
+    public Map<String, Object> update(@PathVariable long id, @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+        requireDesign(request);
         service.updateModel(id, str(body.get("name")), str(body.get("icon")));
         return Map.of();
     }
 
     @DeleteMapping("/{id}")
-    public Map<String, Object> delete(@PathVariable long id, @RequestBody(required = false) Map<String, Object> body) {
+    public Map<String, Object> delete(@PathVariable long id, @RequestBody(required = false) Map<String, Object> body,
+            HttpServletRequest request) {
+        requireDesign(request);
         // 两段式（01BE §4.1/§4.3）：带 confirmToken = 确认提交；不带 = precheck 签发
         if (body != null && body.get("confirmToken") != null) {
             service.deleteModelConfirm(id, str(body.get("confirmToken")), str(body.get("confirmValue")));
@@ -64,34 +89,44 @@ public class ModelController {
     }
 
     @PostMapping("/{id}/precheck")
-    public Map<String, Object> precheck(@PathVariable long id, @RequestBody Map<String, Object> body) {
+    public Map<String, Object> precheck(@PathVariable long id, @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+        requireDesign(request);
         return service.precheck(id, parseChanges(body.get("changes")));
     }
 
     @PostMapping("/{id}/schema")
-    public Map<String, Object> saveSchema(@PathVariable long id, @RequestBody Map<String, Object> body) {
+    public Map<String, Object> saveSchema(@PathVariable long id, @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+        requireDesign(request);
         return service.saveSchema(id, parseChanges(body.get("changes")),
                 intVal(body.get("baseVersion")), str(body.get("confirmToken")),
                 str(body.get("confirmValue")));
     }
 
     @GetMapping("/{id}/versions")
-    public Map<String, Object> versions(@PathVariable long id) {
+    public Map<String, Object> versions(@PathVariable long id, HttpServletRequest request) {
+        requireDesign(request);
         return service.listVersions(id);
     }
 
     @GetMapping("/{id}/versions/{version}")
-    public Map<String, Object> version(@PathVariable long id, @PathVariable int version) {
+    public Map<String, Object> version(@PathVariable long id, @PathVariable int version, HttpServletRequest request) {
+        requireDesign(request);
         return service.getVersion(id, version);
     }
 
     @PostMapping("/{id}/rollback/precheck")
-    public Map<String, Object> rollbackPrecheck(@PathVariable long id, @RequestBody Map<String, Object> body) {
+    public Map<String, Object> rollbackPrecheck(@PathVariable long id, @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+        requireDesign(request);
         return service.rollbackPrecheck(id, intVal(body.get("targetVersion")));
     }
 
     @PostMapping("/{id}/rollback")
-    public Map<String, Object> rollback(@PathVariable long id, @RequestBody Map<String, Object> body) {
+    public Map<String, Object> rollback(@PathVariable long id, @RequestBody Map<String, Object> body,
+            HttpServletRequest request) {
+        requireDesign(request);
         return service.rollback(id, intVal(body.get("targetVersion")), str(body.get("confirmToken")),
                 str(body.get("confirmValue")));
     }

@@ -30,6 +30,8 @@ public class GlobalExceptionHandler {
             case "MODEL_VERSION_CONFLICT" -> HttpStatus.CONFLICT;
             case "CONFIRM_TOKEN_INVALID", "FIELD_KEY_IMMUTABLE", "CIRCULAR_DEPENDENCY", "ROLLBACK_NOOP",
                  "FIELD_CONFIG_INVALID", "RELATION_TARGET_NOT_FOUND" -> HttpStatus.UNPROCESSABLE_ENTITY;
+            // PERM_DENIED 从本包抛出（DesignGate 越权/能力闸）——403（IAM 域 advice 不接力 metadata 包）
+            case "PERM_DENIED" -> HttpStatus.FORBIDDEN;
             case "MODEL_LIMIT_EXCEEDED" -> HttpStatus.FORBIDDEN;
             case "MODEL_NOT_FOUND" -> HttpStatus.NOT_FOUND;
             default -> HttpStatus.BAD_REQUEST;

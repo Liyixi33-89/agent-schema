@@ -446,6 +446,12 @@ public class MetadataCommandService {
         TenantInfo tenant = TenantContext.get();
         ModelAggregate model = models.findByIdAndTenant(modelId, tenant.tenantId())
                 .orElseThrow(() -> BizException.notFound("模型 " + modelId));
+        // 应用域绑定（M12 越权收口）：目标模型必须属于请求头 X-App-Id 路由的应用域，
+        // 防止「应用 A 的设计者携 A 的头操作应用 B 的模型」（同租户跨应用越权）。
+        // 同判 404（与 PageCommandService.assertAppConsistent 同构——不给跨应用存在性线索）。
+        if (model.appId() != tenant.appId()) {
+            throw BizException.notFound("模型 " + modelId);
+        }
         for (ModelAggregate.FieldDef f : fields.loadAll(modelId)) {
             model.loadField(f);
         }

@@ -88,6 +88,7 @@ async function clickTab(name) {
     const dbMembers = dbQuery(`SELECT count(*) FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id WHERE r.app_id=1`);
     ok('成员数与 DB 角色行一致', memberList?.length === Number(dbMembers[0]),
       `api=${memberList?.length} db=${dbMembers[0]}`);
+    await clickTab('成员');   // M12 起默认页签为「模型」——成员页签须显式切换
     ok('UI 成员列表含 accept_user', await waitText('accept_user', 5000));
 
     // 导航页签
