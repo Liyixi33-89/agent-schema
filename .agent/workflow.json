@@ -314,7 +314,7 @@
     {
       "id": "M12",
       "title": "ER 建模器与影响面交互",
-      "status": "planned",
+      "status": "implemented",
       "priority": 8,
       "dependsOn": [
         "M2-M5",
@@ -325,7 +325,9 @@
         {
           "id": "model-designer",
           "requirement": "画布建模、两段式保存、影响面确认、版本回滚浏览器闭环",
-          "evidence": null
+          "report": ".agent/evidence/M12-report.md",
+          "passed": true,
+          "note": "2026-11-04 收口：er-modeler 浏览器验收 48/48（建模→两段式保存→token 一次性→409 冲突→删除确认→版本回滚复活→越权负例）；普通成员建模 403（DesignGate + PERM_DENIED→403 映射修复）；跨应用越权同判 404（loadForTenant 应用域绑定）；缓存一致性收口（保存/回滚/409 后强制刷新详情）。回归四套全绿（designer 37/runtime 23/admin 23/cache 23）；verify[commit] 七步绿。基线偏离：自实现卡片+SVG 画布（非 React Flow）——网格布局+关系边提取已单测覆盖。"
         }
       ],
       "review": null
