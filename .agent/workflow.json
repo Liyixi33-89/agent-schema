@@ -1,4 +1,4 @@
-﻿{
+{
   "schemaVersion": 1,
   "tasks": [
     {
@@ -235,7 +235,7 @@
     {
       "id": "M11",
       "title": "应用基础服务与运行时导航工作台",
-      "status": "implementing",
+      "status": "accepted",
       "priority": 7,
       "dependsOn": [
         "M2-M5"
@@ -246,7 +246,7 @@
           "id": "app-runtime",
           "requirement": "应用 CRUD、成员、导航并发、发布、工作台、鉴权菜单与 ETag 缓存",
           "evidence": {
-            "commit": "56ecd986461bfcdce3c6b46f9d92c29923ab8683",
+            "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "node scripts/acceptance/accept-designer.cjs && node scripts/acceptance/accept-runtime.cjs（浏览器 CDP 真实事件；schema_accept 库）",
             "report": ".agent/evidence/M11-report.md",
             "passed": true
@@ -256,7 +256,7 @@
           "id": "console-p1",
           "requirement": "租户用量、成员、健康与维护公告页面可用",
           "evidence": {
-            "commit": "56ecd986461bfcdce3c6b46f9d92c29923ab8683",
+            "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "node scripts/acceptance/accept-admin.cjs（成员/用量/健康/公告全链 + 普通成员越权 403 + 跨租户隔离）",
             "report": ".agent/evidence/M11-report.md",
             "passed": true
@@ -266,7 +266,7 @@
           "id": "security-fix",
           "requirement": "2026-11-02 缺口修复：应用级权限闸全链（同租户越权 403）、删除确认协议（precheck+confirmValue）、最后管理员并发锁、配额并发锁、导航 id 唯一与 LINK URL 安全校验、导航过滤默认放行修复、GET /api/org/members、公告事务",
           "evidence": {
-            "commit": "56ecd986461bfcdce3c6b46f9d92c29923ab8683",
+            "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=AppServiceIT,AppHttpSecurityIT -Dsurefire.failIfNoSpecifiedTests=false（WSL PG 全绿）",
             "report": ".agent/evidence/M11-report.md",
             "passed": true
@@ -276,7 +276,7 @@
           "id": "cache-isolation",
           "requirement": "ETag/304 往返、草稿不影响正式、发布使旧 ETag 失效、预览正式隔离、预览会话自我吊销、登出凭证清理",
           "evidence": {
-            "commit": "56ecd986461bfcdce3c6b46f9d92c29923ab8683",
+            "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "node scripts/acceptance/accept-cache.cjs（23/23 PASS）",
             "report": ".agent/evidence/M11-report.md",
             "passed": true
@@ -286,7 +286,7 @@
           "id": "real-submit",
           "requirement": "真实鼠标/键盘填写唯一标识并提交：请求载荷、状态、业务响应、记录 ID 与 DB 精确核对（金额/租户/创建者）；登出后旧会话/刷新全失效并回会话过期占位",
           "evidence": {
-            "commit": "56ecd986461bfcdce3c6b46f9d92c29923ab8683",
+            "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "node scripts/acceptance/accept-runtime.cjs（CDP 网络域捕获 POST /api/data/1 → 200 → DB 行 1|2|<唯一戳>|88；此前暂跳过项已恢复）",
             "report": ".agent/evidence/M11-report.md",
             "passed": true
@@ -296,7 +296,7 @@
           "id": "logout-at-revocation",
           "requirement": "登出即断链：旧 access token 必须同步失效（2026-11-04 验收发现产品缺陷并修复）",
           "evidence": {
-            "commit": "56ecd986461bfcdce3c6b46f9d92c29923ab8683",
+            "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=CookieSessionIT -Dsurefire.failIfNoSpecifiedTests=false（12/12 含 logoutRevokesAccessTokenToo）",
             "report": ".agent/evidence/M11-report.md",
             "passed": true
@@ -305,7 +305,7 @@
       ],
       "review": {
         "approved": true,
-        "commit": "56ecd986461bfcdce3c6b46f9d92c29923ab8683",
+        "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
         "reviewer": "independent-reviewer",
         "report": ".agent/evidence/review-M11.md",
         "note": "2026-11-04 收口：四套件浏览器验收全绿（designer 37 / runtime 真实提交 23 / admin 23 / cache 23）；验收实证两个产品级安全缺陷并修复（登出 at 断链 6a9f283、预览吊销死锁 e664dc5）；恒真断言清除（56ecd98）；完整门禁 verify[commit] 七步绿。独立审查报告见 review-M11.md。"
