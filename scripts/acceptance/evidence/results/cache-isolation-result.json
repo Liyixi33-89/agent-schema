@@ -1,0 +1,28 @@
+﻿{
+  "suite": "cache-isolation",
+  "date": "2026-11-04T11:20+08:00",
+  "commit": "e664dc5a9925b7a122a696ccc490991edf188b6f",
+  "result": "PASS",
+  "passed": 23,
+  "total": 23,
+  "highlights": [
+    "运行时读取 ETag（vN）+ Cache-Control: no-store, private, must-revalidate",
+    "If-None-Match 命中 304 / 未命中 200 全量",
+    "草稿保存后正式 ETag 仍 304（隔离实证）",
+    "草稿保存后正式内容不含草稿改动（发布读取 published 快照）",
+    "发布成功 → 旧 ETag 失效（200 全量）→ 新 ETag 轮换（vN→vN+1）→ 新 ETag 304",
+    "预览凭证签发（grantId）→ 匿名 exchange（预览端点组拒正式凭证实证）",
+    "预览 token 读指定页面 200 / 越页 999 → 404（限页约束）",
+    "正式通道独立可用（cookie 读取不受预览范围影响）",
+    "预览会话自我吊销 → 吊销后预览读取 401（PREVIEW_SESSION_REVOKED）",
+    "登出 cookie 清空 + 登出后运行时读取 401"
+  ],
+  "fixedDuringAcceptance": {
+    "defect": "预览会话单会话吊销端点不可达——吊销闭环死锁（正式凭证被预览组拒/匿名 401/预览 token 被 PREVIEW_SCOPE_DENIED 拒）",
+    "fix": "JwtAuthFilter 白名单放行 /api/preview/sessions/*/revoke（仅 POST）+ 控制器归属校验（预览 token 仅可吊销自己，claims.jti=会话 uuid）（commit e664dc5）",
+    "verification": "accept-cache.cjs 吊销段：吊销 200 → 吊销后预览读取 401"
+  },
+  "notes": [
+    "验收中断期间曾把草稿名发布上线（脚本顺序 bug，非产品缺陷）——数据已修复还原（v8 起正式名为「报销登记」）"
+  ]
+}

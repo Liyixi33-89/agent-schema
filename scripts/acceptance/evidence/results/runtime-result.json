@@ -1,0 +1,25 @@
+﻿{
+  "suite": "runtime",
+  "date": "2026-11-04T10:52+08:00",
+  "commit": "e664dc5a9925b7a122a696ccc490991edf188b6f",
+  "result": "PASS",
+  "passed": 23,
+  "total": 23,
+  "highlights": [
+    "未登录渲染会话过期占位（首次访问即 SessionExpired）",
+    "登录(普通成员) + 导航壳菜单过滤",
+    "表单四字段渲染（事由/金额/日期/备注）+ 受控输入",
+    "真实 CDP 鼠标点击提交 → POST /api/data/1 → 200（CDP 网络域捕获）",
+    "写入载荷唯一戳 + amount:88（number 类型）",
+    "DB 精确核对：1|2|<唯一戳>|88（租户1/创建者2/金额88）",
+    "记录 ID 返回并可反查",
+    "登出 200 → /api/me 401 → refresh 401 → 强制 reload 后 SessionExpired 占位",
+    "旧 ETag 304 复用（发布页未变时零传输）",
+    "回归链路：退出码 0（此前真实提交验收暂跳过项已恢复）"
+  ],
+  "fixedDuringAcceptance": {
+    "defect": "登出仅吊销 rt，旧 at 在剩余 2h 有效期内仍可访问全部接口",
+    "fix": "UserAccount.signOutAllDevices() 复用 pwdVersion 强失效链路（commit 6a9f283）",
+    "verification": "CookieSessionIT.logoutRevokesAccessTokenToo —— 登出后旧 at 访问 /api/me 必须 401（12/12 绿）"
+  }
+}

@@ -98,6 +98,10 @@ def build(backend_jar: Path, web_dir: Path):
     if web_dir.exists():
         raise SystemExit("web 目录已存在——构建流程不应复用")
     web_dir.mkdir(parents=True)
+    import shutil
+    # 资产统一合并（G-04 修复）：三应用 index 均引用 /assets/ 绝对路径（vite base='/assets/' 打平），
+    # nginx 只服务一份 web/assets/——同路径同内容可复用（共享依赖同 hash），不同内容立即失败（构建漂移检测）。
+    merged_assets = {}
     for app, sub in (("runtime", "."), ("designer", "designer"), ("admin-console", "admin")):
         src = dist_root / app / "dist"
         if not src.exists():
@@ -105,12 +109,50 @@ def build(backend_jar: Path, web_dir: Path):
         dst = web_dir / sub
         dst.mkdir(parents=True, exist_ok=True)
         for item in src.iterdir():
-            (dst / item.name).write_bytes(item.read_bytes()) if item.is_file() else None
-        # 目录递归拷贝（保留子目录）
-        import shutil
-        for item in src.iterdir():
-            if item.is_dir():
+            if item.is_file():
+                shutil.copy2(item, dst / item.name)
+            elif item.is_dir() and item.name == "assets":
+                for asset in item.rglob("*"):
+                    if not asset.is_file():
+                        continue
+                    rel = asset.relative_to(item).as_posix()
+                    digest = hashlib.sha256(asset.read_bytes()).hexdigest()
+                    if rel in merged_assets and merged_assets[rel] != digest:
+                        raise SystemExit(
+                            f"资产冲突: assets/{rel} 在多应用间内容不一致（{merged_assets[rel][:12]} != {digest[:12]}）"
+                            "——检查 vite 构建配置是否漂移")
+                    merged_assets[rel] = digest
+            elif item.is_dir():
                 shutil.copytree(item, dst / item.name, dirs_exist_ok=True)
+    # 合并资产写入统一目录
+    unified = web_dir / "assets"
+    unified.mkdir(parents=True, exist_ok=True)
+    for app, _ in (("runtime", ""), ("designer", ""), ("admin-console", "")):
+        src_assets = dist_root / app / "dist" / "assets"
+        if not src_assets.exists():
+            continue
+        for asset in src_assets.rglob("*"):
+            if asset.is_file():
+                rel = asset.relative_to(src_assets)
+                target = unified / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if not target.exists():
+                    shutil.copy2(asset, target)
+    print(f"== 资产合并: {len(merged_assets)} 个文件（统一 web/assets/）==")
+    # 入口引用完整性：三个 index 引用的 JS/CSS 必须全部存在于统一资产目录
+    import re as _re
+    missing = []
+    for sub in (".", "designer", "admin"):
+        index = web_dir / sub / "index.html"
+        if not index.exists():
+            continue
+        html = index.read_text(encoding="utf-8")
+        for m in _re.finditer(r'(?:src|href)=["\'](/?assets/[^"\']+\.(?:js|css|woff2?))["\']', html):
+            ref = m.group(1).lstrip("/")
+            if not (web_dir / ref).exists():
+                missing.append(f"{sub or 'root'}/index.html -> /{ref}")
+    if missing:
+        raise SystemExit("入口引用缺失（nginx 将 404 不回退 HTML）:\n  " + "\n  ".join(missing))
 
 
 def make_version_file(version: str, workdir: Path, backend_jar: Path, web_dir: Path):

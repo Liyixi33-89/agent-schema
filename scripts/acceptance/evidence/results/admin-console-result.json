@@ -1,0 +1,20 @@
+﻿{
+  "suite": "admin-console",
+  "date": "2026-11-04T10:30+08:00",
+  "commit": "e664dc5a9925b7a122a696ccc490991edf188b6f",
+  "result": "PASS",
+  "passed": 23,
+  "total": 23,
+  "highlights": [
+    "管理员登录 + 健康（db/status UP）",
+    "成员列表结构（list[]）+ 双验收账号 + 角色数组",
+    "用量卡片（/api/metering/usage/summary 200）",
+    "公告发布 → 生效（level WARNING）→ DB 落库核对 → 撤下后无生效公告",
+    "普通成员越权全拒：成员清单 403 / 发公告 403 / 公告历史 403",
+    "普通成员可读生效公告（运行时横幅通道 200）",
+    "租户2登录（显式 tenantId）→ 无权拉成员清单 403",
+    "租户2公告空间独立（无租户1公告）",
+    "租户2应用列表隔离（不含租户1应用）",
+    "伪造 X-Tenant-Id 头 → 按 JWT 租户判定（TENANT_MISMATCH 审计路径）"
+  ]
+}
