@@ -100,6 +100,16 @@ public class UserAccount {
         this.pwdVersion++;
     }
 
+    /**
+     * 登出断链（2026-11-04 收口）：登出仅吊销 rt 不够——at 是无状态 JWT，
+     * 旧 at 在剩余有效期内仍可访问全部接口（OWASP 会话管理缺口）。
+     * 复用 pwdVersion 强失效链路：自增后旧 at 的 claim 与库值不符 → 下一请求 401。
+     * 语义与 rt 层「全量吊销」对齐：本设备登出 = 全设备凭证断链。
+     */
+    public void signOutAllDevices() {
+        this.pwdVersion++;
+    }
+
     // ---------- 访问器 ----------
 
     public Long id() { return id; }

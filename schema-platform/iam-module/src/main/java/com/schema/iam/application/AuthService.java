@@ -196,6 +196,12 @@ public class AuthService {
             long userId = ((Number) row.get("user_id")).longValue();
             iam.revokeActiveRefreshTokens(userId);   // 全设备断链（不止当前 cookie 那一枚）
             iam.purgeExpiredRefreshTokens(userId);   // 顺带清理过期垃圾行
+            // at 层断链（2026-11-04）：登出必须使旧 access token 同步失效——
+            // 否则无状态 at 在剩余 2h 内仍可访问全部接口（验收实证：登出后导航接口仍 200）。
+            iam.findUserById(userId).ifPresent(u -> {
+                u.signOutAllDevices();
+                iam.updateUser(u);
+            });
         } else {
             iam.revokeRefreshToken(hash);   // 行缺失（已被清理/伪造）——按哈希兜底吊销
         }

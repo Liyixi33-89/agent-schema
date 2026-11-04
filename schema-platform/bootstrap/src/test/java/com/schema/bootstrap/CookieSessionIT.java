@@ -406,4 +406,31 @@ class CookieSessionIT {
         String replayCsrf = parseCookies(replay).get(SessionCookies.CSRF).getValue();
         assertEquals(firstCsrf, replayCsrf, "容忍窗口内重放必须复用同一次轮换的 csrf");
     }
+
+    // ---------- 登出 at 层断链（2026-11-04 收口：旧 access 不得在剩余有效期内存活） ----------
+
+    @Test
+    void logoutRevokesAccessTokenToo() throws Exception {
+        Cookie[] cookies = loginCookies();
+        Cookie at = cookie(cookies, SessionCookies.AT);
+        Cookie rt = cookie(cookies, SessionCookies.RT);
+        Cookie csrf = cookie(cookies, SessionCookies.CSRF);
+
+        // 登出前：旧 at 可正常访问受保护接口
+        mvc.perform(get("/api/me").cookie(at)
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isOk());
+
+        // 登出（带完整 cookie 组 + CSRF 双提交）
+        mvc.perform(post("/api/auth/logout")
+                        .cookie(at, rt, csrf)
+                        .header("X-CSRF-Token", csrf.getValue())
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isOk());
+
+        // 登出后：旧 at 必须立即失效（pwdVersion 断链）——不得在剩余 2h 内继续访问
+        mvc.perform(get("/api/me").cookie(at)
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isUnauthorized());
+    }
 }
