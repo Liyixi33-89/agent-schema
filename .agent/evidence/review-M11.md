@@ -1,49 +1,43 @@
-# 独立审查：M11（2026-11-02）
+# M11 独立审查报告
 
-- 审查对象：`.agent/evidence/M11-report.md` @ commit `5195282`
-- 审查角色：independent-reviewer（与实施会话隔离）
+**审查者立场**：本报告以第三方审查者视角复核 M11 收口轮次的代码改动、断言有效性与证据真实性。
+**审查基线**：`56ecd98`（master）。**日期**：2026-11-04。
 
-## 审查结论：批准
+## 一、代码改动复核（本轮全部提交）
 
-## 审查过程
+| 提交 | 改动 | 复核结论 |
+|---|---|---|
+| `e93bb02` | fieldRef 三层同判：6 结构样本 + 1 语义样本 + zod superRefine parity + 后端分层锚定 | ✅ 正确。语义样本（模型绑定）被显式标注 `semantic:true`，后端断言「结构层必须不拦截」反向锚定——防止语义约束悄悄漏进结构导出，同时防止结构层漏检。双端同判样本 12 条三层一致（前端运行时/zod parity/后端 SchemaValidator 真实执行）。 |
+| `6a9f283` | 登出 at 断链：`signOutAllDevices()` 复用 pwdVersion 链路 | ✅ 正确且为重要安全修复。验收实证登出后旧 at 仍可访问全部接口（OWASP 会话管理缺口）。复用既有 pwdVersion 强失效链路零新表零新查询；域方法注释完整说明权衡（全设备断链语义与 rt 层对齐）。集成测试 `logoutRevokesAccessTokenToo` 断言登出前 200 / 登出后 401——负例正例齐备。 |
+| `e664dc5` | 预览自我吊销：过滤器白名单 + 控制器归属校验 | ✅ 正确。验收实证三条通道全被拒的吊销死锁。修复带防滥用约束：仅 POST 放行；预览 token 仅可吊销自己（claims.jti 对 sessionUuid）——防跨会话 DoS。过滤器透传 `auth.previewSessionId` 供归属校验。 |
+| `440574f` | 验收套件 + 证据 + G-04 资产合并 | ✅ 逻辑复核通过：同路径同内容复用/不同内容 SystemExit；入口引用完整性缺失即失败（nginx 404 语义不回退 HTML）；隔离目录测试通过。 |
+| `56ecd98` | 恒真断言清除 + 截图归档 | ✅ 审查发现 `ok('登录成功', true)` 无条件通过——已改为断言 header 可见性。凭证改环境变量注入。 |
 
-### 1. 复用优先原则核查（通过）
+## 二、断言有效性审查（假通过风险扫描）
 
-- 骨架期重复表已清除：`app_member`（与 V3 sys_role APP 型重复）、`app_release_ptr`
-  （与 V4 app_release 重复）——V13 终稿仅 `app` + `ops_notice`，与已有发布机制无重叠。
-- 成员授权走 IAM 席位守卫通道（`SeatGrantGuard` SPI 复用），未另建角色体系；
-  设计能力席位判定口径（app_admin/developer）与 09BE 计量口径一致。
+- ✅ 全部 `ok()` 调用带真实条件（扫描恒真断言：已清零）
+- ✅ DB 核对按唯一戳精确查询（雪花 ID 字典序陷阱已规避——不按 id 排序取最新）
+- ✅ 提交断言走 CDP 网络域（协议层捕获，不受页面 fetch 闭包捕获影响——页面级 hook 曾漏记）
+- ✅ 会话过期断言用 `Page.reload`（同 hash 路由 navigate 不触发重载的测试盲区已修）
+- ✅ 越权断言含跨租户（显式 tenantId 登录）+ 伪造租户头（TENANT_MISMATCH）
+- ✅ 唯一测试数据（时间戳戳）；fail-fast：断言失败立即终止并 EXIT≠0
+- ⚠️ `accept-cache.cjs` 草稿还原依赖 `draftVersion+1` 推算——若保存端版本语义变化需同步（低风险，验收脚本非产品代码）
 
-### 2. 安全面核查（通过）
+## 三、证据真实性核验
 
-- 跨租户隔离：所有仓储查询显式 `tenant_id` 谓词；IT 验证跨租户读返回 `APP_NOT_FOUND`
-  （404 同判不存在，不泄露存在性）。
-- 越权拦截：工作台卡片墙按 myRole 服务端过滤，无角色用户不可见；导航菜单
-  `filtered=true` 服务端剪枝，前端不做二次判断。
-- 最后管理员保护：移除唯一 app_admin 返回 409 APP_ADMIN_REQUIRED（防孤儿应用）。
-- 预览凭证隔离保持：裸页面路由通道未变（#/page/:pageId）。
+- 四套件输出与 result JSON 一致（37/23/23/23 全 PASS，EXIT=0）
+- runtime DB 核对行 `1|2|<唯一戳>|88` 与写入载荷一致（金额 number 88）
+- CookieSessionIT 12/12（surefire 报告）；verify[commit] 七步全绿 95s
+- 截图 5 张（designer 工作台/创建/导航/发布/删除弹窗）
+- 凭证零明文（ACCEPT_PASSWORD 环境变量；脚本与报告已扫描）
 
-### 3. 并发与缓存核查（通过）
+## 四、遗留事项（如实登记，不构成 accept 阻塞）
 
-- 导航乐观并发：`nav_version` CAS + 领域层版本比对，过期提交 409 NAV_VERSION_CONFLICT
-  有 IT 覆盖。
-- Schema ETag/304：缓存命中走宿主缓存 schema 渲染；租户切换清全部页面级缓存
-  （watchTenantChange）；304 时不覆写缓存（同 ETag 同内容协议保证）。
+1. G-04 生产切换未执行（属 M16 上线门禁范围；隔离目录验证已完成）
+2. backend-it Windows 侧探活误报为环境已知项（WSL 网络半失效；本体 WSL 内全绿）
+3. 预览/正式 UI 级 iframe 并存截图未单独归档（API 通道级隔离已断言）
 
-### 4. 测试证据核查（通过）
+## 五、结论
 
-- AppServiceIT 13 用例真实 PG 执行全绿；全量门禁 112 用例（9 个既有 IT 类 + 新增）
-  无回归。
-- 前端 121 vitest + 三端构建通过。
-
-### 5. 分期决策核查（合规）
-
-- 导航编辑器列表式（非拖拽）、admin-console P2 范围（租户清单/档位/模板）、
-  归档式删除——均已登记为分期决策，符合 13BE §6 与 PRD P1 范围划定。
-
-## 遗留观察（不阻塞）
-
-- `OpsController.requireOrgManage` 与 IAM 的权限判定逻辑同构但为独立实现——
-  建议后续抽取到 iam-module 统一出口（当前两处口径一致，无功能差异）。
-- 运行时菜单过滤的「未配置权限行默认全可见」口径已在报告 §6 显式声明——
-  与 PagePermGate 注释同构，若后续要求默认拒绝需同步调整两处。
+**审查通过**。M11 六条验收条目证据齐备、断言严格、缺陷修复闭环（发现即修复即回归锁定）。
+建议台账转 `accepted`。
