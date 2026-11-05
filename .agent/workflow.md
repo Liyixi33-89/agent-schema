@@ -18,9 +18,9 @@ python scripts/workflow.py reopen FIX-M9
 
 ## 证据目录规则
 
-验收任务先读 `docs/acceptance/README.md`。新正式证据使用 `docs/acceptance/<work-package>/<run-id>/`，运行输出使用 `scripts/acceptance/out/`；历史证据已集中到 `docs/acceptance/<工作包>/legacy/`，旧 `.agent/evidence/` 不再作为输出或读取入口。目录迁移必须同步引用，不改变验收状态。
+验收任务先读 `docs/acceptance/README.md`。新正式证据使用 `docs/acceptance/<work-package>/<run-id>/`，运行输出使用 `scripts/acceptance/out/<run-id>/`（由 `evidence.cjs run` 生成）；历史证据已集中到 `docs/acceptance/<工作包>/legacy/`，旧 `.agent/evidence/` 不再使用。
 
-下方证据 commit 与 HEAD 的严格校验仍为现有工具行为。源码提交与证据归档提交的区分须经工具及测试升级后才能用于状态转换，不能用目录规则绕过 check。
+工具链（`scripts/acceptance/evidence.cjs`）提供 run/archive/check 三类操作：run 生成 run-id 并隔离输出；archive 生成 manifest 与哈希清单；check 校验归档完整性。台账 `check/accept` 会调用 check 并校验：验收项 `commit` 须等于 manifest `sourceCommit`，证据提交可与 HEAD 不同，但 sourceCommit 到 HEAD 之间实现路径不得变更（有变更须重验）；legacy 材料不得用于新验收。工具自测纳入 verify quick 门禁。
 
 ## 真源与范围
 

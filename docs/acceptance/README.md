@@ -60,6 +60,18 @@ docs/acceptance/<work-package>/<run-id>/
 ## 6. 落地边界
 
 历史证据已完成集中迁移与引用同步；不改变验收状态。本地旧结果保留于 `scripts/acceptance/out/legacy/`，不作为新增正式验收依据。
+
+已实现的工具门禁（`scripts/acceptance/evidence.cjs`，零依赖）：
+
+- **run**：`node scripts/acceptance/evidence.cjs run <工作包> <套件名> -- <命令>`——生成/复用 run-id（同秒冲突自动加序号防覆盖），写 `out/<run-id>/run.json`，套件经 `ACCEPT_RUN_DIR/ACCEPT_RUN_ID` 环境变量隔离输出；失败退出码如实记录。
+- **archive**：`node scripts/acceptance/evidence.cjs archive <工作包> <runId> --files <相对路径...>`——生成 manifest.json（sourceCommit/环境/套件/SHA256 清单），拒绝覆盖已有归档、路径逃逸与禁入类型（浏览器 profile、临时查询脚本、cookie/env）；先校验后写盘，不留半成品目录。
+- **check**：`node scripts/acceptance/evidence.cjs check <归档相对路径>`——校验 manifest 结构（未知键拒绝）、材料存在与哈希、敏感内容扫描（密码/JWT/Authorization 模式，仅辅助）、结果与退出码一致性；FAIL 非零退出。
+
+台账接线（`scripts/workflow.py`）：验收项与独立评审引用 `docs/acceptance/<工作包>/<run-id>/` 下带 manifest 的 report；`commit` 须等于 manifest `sourceCommit`（完整 SHA），证据归档提交可与 HEAD 不同，但 sourceCommit→HEAD 之间实现/测试路径（schema-frontend、schema-platform、scripts、contract、sql）不得有变更，有则要求重验；`legacy` 目录材料不得用于新验收。
+
+工具自测（`scripts/acceptance/evidence.test.cjs`，node:test，9 用例）纳入 verify quick 门禁 `evidence-gate-test` 步骤；覆盖：并发防覆盖、失败退出码保留、归档拒绝覆盖/路径逃逸/禁入类型、哈希与材料缺失拒绝、敏感内容检测、结果与退出码一致性、manifest 未知键与非完整 SHA 拒绝。
+
+测试与 CI 可用 `ACCEPT_EVIDENCE_OUT` / `ACCEPT_EVIDENCE_ARCHIVE` 环境变量覆盖目录根（不污染真实 out/ 与归档）。
 现有工具只实现 `scripts/acceptance/out/` 输出隔离，尚未实现 run-id、manifest、归档校验或自动清理；这些属于后续工具改造，不视为已通过的自动门禁。
 
 后续工具验收至少覆盖：并发运行不覆盖、失败退出码保留、路径不得逃逸工作区、凭证不归档、台账链接有效、legacy 缺信息拒绝新验收、源码与证据提交区分、归档后结果可重读。
