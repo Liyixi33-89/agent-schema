@@ -14,3 +14,8 @@ target/
 dist/
 .turbo/
 coverage/
+
+# 验收运行产物（脚本输出到 scripts/acceptance/out/，证据归档在 docs/acceptance/）
+scripts/acceptance/out/
+scripts/acceptance/*-result.json
+scripts/acceptance/dbq_exec.sh

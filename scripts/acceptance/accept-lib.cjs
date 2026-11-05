@@ -115,7 +115,7 @@ function dbQuery(sql) {
 export PGPASSWORD=schema_local_only
 psql -h localhost -U schema_dev -d schema_accept -tAc "${sql.replace(/"/g, '\\"')}"
 `;
-  const tmp = path.join(__dirname, 'dbq_exec.sh');
+  const tmp = path.join(__dirname, 'dbq_exec.sh'); // 一次性查询脚本（运行产物，已 ignore）
   fs.writeFileSync(tmp, script.replace(/\r/g, ''));
   const wslPath = tmp.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (m) => `/mnt/${m[0].toLowerCase()}`);
   try {
@@ -126,10 +126,13 @@ psql -h localhost -U schema_dev -d schema_accept -tAc "${sql.replace(/"/g, '\\"'
   }
 }
 
+const OUT_DIR = path.join(__dirname, 'out');
+function outPath(name) { fs.mkdirSync(OUT_DIR, { recursive: true }); return path.join(OUT_DIR, name); }
+
 function summary(suite) {
   const failed = results.filter((r) => !r.pass);
   console.log(`\n=== ${suite} 验收: ${results.length - failed.length}/${results.length} PASS ===`);
-  fs.writeFileSync(path.join(__dirname, `${suite}-result.json`), JSON.stringify(results, null, 2));
+  fs.writeFileSync(outPath(`${suite}-result.json`), JSON.stringify(results, null, 2));
   if (failed.length) process.exitCode = 1;
 }
 

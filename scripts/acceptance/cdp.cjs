@@ -9,7 +9,8 @@ const path = require('path');
 
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const PORT = 9333;
-const SHOT_DIR = path.join(__dirname, 'shots');
+const OUT_DIR = path.join(__dirname, 'out');
+const SHOT_DIR = path.join(OUT_DIR, 'shots');
 fs.mkdirSync(SHOT_DIR, { recursive: true });
 
 let browser = null;
@@ -29,7 +30,7 @@ function httpGet(url) {
 
 async function launch(url = 'about:blank') {
   // 每轮独立 profile：时间戳目录，close 时删除（同轮内 goto 保持同一上下文）
-  profileDir = path.join(__dirname, `chrome-profile-${Date.now()}`);
+  profileDir = path.join(OUT_DIR, `chrome-profile-${Date.now()}`);
   fs.mkdirSync(profileDir, { recursive: true });
   browser = spawn(CHROME, [
     `--remote-debugging-port=${PORT}`,

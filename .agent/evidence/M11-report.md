@@ -9,7 +9,7 @@
 | admin-console 管理端 | PASS | 23/23 |
 | 缓存与发布隔离专项 | PASS | 23/23 |
 
-完整证据见 `scripts/acceptance/evidence/`（索引 + 结果 JSON + 原始输出 + 截图）。
+完整证据见 `docs/acceptance/`（索引 + 结果 JSON + 原始输出 + 截图；运行期产物现输出至 `scripts/acceptance/out/`，不入 git）。
 
 ## 二、验收实证命令
 
