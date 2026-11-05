@@ -1,0 +1,10 @@
+[INFO] Running com.schema.protocol.dto.ProtocolDtoTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.589 s -- in com.schema.protocol.dto.ProtocolDtoTest
+[INFO] Running com.schema.protocol.enums.EnumContractTest
+[INFO] Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.058 s -- in com.schema.protocol.enums.EnumContractTest
+[INFO] Running com.schema.protocol.expr.ExprVectorTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.204 s -- in com.schema.protocol.expr.ExprVectorTest
+[INFO] Running com.schema.protocol.schema.SchemaContractTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.095 s -- in com.schema.protocol.schema.SchemaContractTest
+[INFO] Tests run: 18, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS

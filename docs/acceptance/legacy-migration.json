@@ -1,0 +1,247 @@
+{
+  "formatVersion": 1,
+  "migrationDate": "2026-11-05",
+  "note": "Hashes record migration and reference-only edits; historical runtime metadata is not inferred.",
+  "files": [
+    {
+      "oldPath": ".agent/evidence/FIX-M10/backend-it-report.txt",
+      "newPath": "docs/acceptance/FIX-M10/legacy/backend-it-report.txt",
+      "originalSha256": "3853c90a2b65261c8b2b36aac23e0c702862ef49493c5d00f10aab7a749a10c9",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "3853c90a2b65261c8b2b36aac23e0c702862ef49493c5d00f10aab7a749a10c9",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+      "newPath": "docs/acceptance/FIX-M8M9M10/legacy/FIX-M8M9M10-it-report.txt",
+      "originalSha256": "8a4d70971ed5b53a2f5cfbafce0f8083d4feb8c9719c8d054e5a4230de294036",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "8a4d70971ed5b53a2f5cfbafce0f8083d4feb8c9719c8d054e5a4230de294036",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/M0M1-arch-test.txt",
+      "newPath": "docs/acceptance/M0M1/legacy/M0M1-arch-test.txt",
+      "originalSha256": "244bfc0b9ddd47759a2335a450f0b303ea6c9b21bdd16cc7f138dc9f7238599b",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "244bfc0b9ddd47759a2335a450f0b303ea6c9b21bdd16cc7f138dc9f7238599b",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/M0M1-backend-contract.txt",
+      "newPath": "docs/acceptance/M0M1/legacy/M0M1-backend-contract.txt",
+      "originalSha256": "97d6fcd53873d04d4564c4624af9c2dd0c60561d918d26ea6fadc12fba913c38",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "97d6fcd53873d04d4564c4624af9c2dd0c60561d918d26ea6fadc12fba913c38",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/M0M1-frontend-contract.txt",
+      "newPath": "docs/acceptance/M0M1/legacy/M0M1-frontend-contract.txt",
+      "originalSha256": "8d3d39cde4301f1898df036595d29d2cb89efc386272d95a5f6db706a04a566f",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "8d3d39cde4301f1898df036595d29d2cb89efc386272d95a5f6db706a04a566f",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/M11-report.md",
+      "newPath": "docs/acceptance/M11/legacy/M11-report.md",
+      "originalSha256": "ca6e99324093fe0815d695e8c285c6e95242674a72a14437fd6f271737376207",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "ca6e99324093fe0815d695e8c285c6e95242674a72a14437fd6f271737376207",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/M12-report.md",
+      "newPath": "docs/acceptance/M12/legacy/M12-report.md",
+      "originalSha256": "4492bc07023ea5c069c556f9f3de3ebd5d239556abdb0db6fae988f90ef6b810",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "4492bc07023ea5c069c556f9f3de3ebd5d239556abdb0db6fae988f90ef6b810",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/M2M5-report.md",
+      "newPath": "docs/acceptance/M2M5/legacy/M2M5-report.md",
+      "originalSha256": "0332c82768509878c3d27d111085e1703a3befe048e61d1e0f92d801bed0e6d8",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "0332c82768509878c3d27d111085e1703a3befe048e61d1e0f92d801bed0e6d8",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/M6M7-report.md",
+      "newPath": "docs/acceptance/M6M7/legacy/M6M7-report.md",
+      "originalSha256": "ec263f139e786ec80732206380cd24bac47dd9a7ae40ec601009c84a174a1416",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "ec263f139e786ec80732206380cd24bac47dd9a7ae40ec601009c84a174a1416",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/M8M10-it-report.md",
+      "newPath": "docs/acceptance/M8M10/legacy/M8M10-it-report.md",
+      "originalSha256": "c614e2053c731d7f66dc9ec37695cce09a3397e5e9ec4d5d1679fb62e58df8b2",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "c614e2053c731d7f66dc9ec37695cce09a3397e5e9ec4d5d1679fb62e58df8b2",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/review-M0M1.md",
+      "newPath": "docs/acceptance/M0M1/legacy/review-M0M1.md",
+      "originalSha256": "c4183fbaddbd787e16e4bae9e4585da896fdae46affd34eb7bc822e4b8ea26d1",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "8629d685eaa595c9bd61141485bab6dae9ce780fc8a7ec5902c877dde298406e",
+      "referenceOnlyChange": true
+    },
+    {
+      "oldPath": ".agent/evidence/review-M11.md",
+      "newPath": "docs/acceptance/M11/legacy/review-M11.md",
+      "originalSha256": "215187f579bd834a650a8d3cca68a54688964fb34f8aa4b8ac1444a25f141917",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "215187f579bd834a650a8d3cca68a54688964fb34f8aa4b8ac1444a25f141917",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": ".agent/evidence/review-M2M5.md",
+      "newPath": "docs/acceptance/M2M5/legacy/review-M2M5.md",
+      "originalSha256": "dd023ad5b9a97a6a8082709c4aba1cab8296e6a92304d29182dd5ed76aa8822f",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "9368584f26d1ea949bf1b98b967cfb82bd662d82cfd5aa251f58598606d6a7d9",
+      "referenceOnlyChange": true
+    },
+    {
+      "oldPath": ".agent/evidence/review-M6M7.md",
+      "newPath": "docs/acceptance/M6M7/legacy/review-M6M7.md",
+      "originalSha256": "97e2b12b78cb28a5c0472ed805899547cf9cbb1495c4b6bf4105a45bfd6e73e0",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "89fb711b72816fd79a5155d0aad28eeb22ea4d82e92a5f19591fc56181722ae2",
+      "referenceOnlyChange": true
+    },
+    {
+      "oldPath": ".agent/evidence/review-M8M10.md",
+      "newPath": "docs/acceptance/M8M10/legacy/review-M8M10.md",
+      "originalSha256": "2b24c03a954f567140567bdb89696012b48991391762f639aaa97e949af9cfe2",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "b3a8cfbebcdea515ffdd31aed16b98e32fdba85bf908a74efd49b99fbeb7ae16",
+      "referenceOnlyChange": true
+    },
+    {
+      "oldPath": ".agent/evidence/review-M8M9M10.md",
+      "newPath": "docs/acceptance/FIX-M8M9M10/legacy/review-M8M9M10.md",
+      "originalSha256": "b90160e06b5e799aa6a41cdd733479b9a1e2faf726086bfca75fd2e978a6fca6",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "f3217e1be3a79362f4470b42d330c16625ce3856045421b44148cd4a1d4fa108",
+      "referenceOnlyChange": true
+    },
+    {
+      "oldPath": "docs/acceptance/M11-验收索引.md",
+      "newPath": "docs/acceptance/M11/legacy/M11-验收索引.md",
+      "originalSha256": "f95b22d8fbba75fdbd5eea66d77084c65013ba839cf3bc43729ecd5dc63da149",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "f95b22d8fbba75fdbd5eea66d77084c65013ba839cf3bc43729ecd5dc63da149",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/results/admin-console-output.txt",
+      "newPath": "docs/acceptance/M11/legacy/results/admin-console-output.txt",
+      "originalSha256": "34ae7130053c0c222b0656db12baeffcf436ff555f7c62c05a0f31d24e4bf534",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "34ae7130053c0c222b0656db12baeffcf436ff555f7c62c05a0f31d24e4bf534",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/results/admin-console-result.json",
+      "newPath": "docs/acceptance/M11/legacy/results/admin-console-result.json",
+      "originalSha256": "1ca3cf19212aa7179e329e14203d2e2c47ddaae1b665e5235fabd7d4621dbbb2",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "1ca3cf19212aa7179e329e14203d2e2c47ddaae1b665e5235fabd7d4621dbbb2",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/results/cache-isolation-output.txt",
+      "newPath": "docs/acceptance/M11/legacy/results/cache-isolation-output.txt",
+      "originalSha256": "e4a64e99968a95c29a9ef0fa3596de1294589689f6d7b8afb65f2a64cbb944fc",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "e4a64e99968a95c29a9ef0fa3596de1294589689f6d7b8afb65f2a64cbb944fc",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/results/cache-isolation-result.json",
+      "newPath": "docs/acceptance/M11/legacy/results/cache-isolation-result.json",
+      "originalSha256": "8543ed7208c7840d11bd575df8632c74b883aaa949a2b2cce3e230dd9279c171",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "8543ed7208c7840d11bd575df8632c74b883aaa949a2b2cce3e230dd9279c171",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/results/designer-output.txt",
+      "newPath": "docs/acceptance/M11/legacy/results/designer-output.txt",
+      "originalSha256": "2599d22c16dbb392bdd99fc9057a6334b6a6553c36364d354e07c325cced9456",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "2599d22c16dbb392bdd99fc9057a6334b6a6553c36364d354e07c325cced9456",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/results/designer-result.json",
+      "newPath": "docs/acceptance/M11/legacy/results/designer-result.json",
+      "originalSha256": "9b79e4887f13b98bd143d7bca2ee055d7c6df7bb05d93430b255e9b0916a89ce",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "9b79e4887f13b98bd143d7bca2ee055d7c6df7bb05d93430b255e9b0916a89ce",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/results/runtime-output.txt",
+      "newPath": "docs/acceptance/M11/legacy/results/runtime-output.txt",
+      "originalSha256": "d106841dd1ef109f3d021dddbf2fcc82cb01c8ceef969ccb022231738d813c3e",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "d106841dd1ef109f3d021dddbf2fcc82cb01c8ceef969ccb022231738d813c3e",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/results/runtime-result.json",
+      "newPath": "docs/acceptance/M11/legacy/results/runtime-result.json",
+      "originalSha256": "696d8e809e699c8a7c7ff0bc043b785b957ee5e8214fbf42e80fa5e74ef4b44f",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "696d8e809e699c8a7c7ff0bc043b785b957ee5e8214fbf42e80fa5e74ef4b44f",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/shots/01-designer-workspace.png",
+      "newPath": "docs/acceptance/M11/legacy/shots/01-designer-workspace.png",
+      "originalSha256": "71907f3de972c55344b612cdf85727ec95f541d26c585babda7d121e8588fda4",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "71907f3de972c55344b612cdf85727ec95f541d26c585babda7d121e8588fda4",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/shots/02-designer-created.png",
+      "newPath": "docs/acceptance/M11/legacy/shots/02-designer-created.png",
+      "originalSha256": "f4fd6a3a078cff5ac5e2975f8302df2ffaf5011404ac0014ba7e5be9c4ee7d3a",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "f4fd6a3a078cff5ac5e2975f8302df2ffaf5011404ac0014ba7e5be9c4ee7d3a",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/shots/03-designer-nav.png",
+      "newPath": "docs/acceptance/M11/legacy/shots/03-designer-nav.png",
+      "originalSha256": "31cf4f0f5c44c2ab1fe45d13b036536913559a0c4c242738fe58abea967d44f5",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "31cf4f0f5c44c2ab1fe45d13b036536913559a0c4c242738fe58abea967d44f5",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/shots/04-designer-publish.png",
+      "newPath": "docs/acceptance/M11/legacy/shots/04-designer-publish.png",
+      "originalSha256": "e96bc7112b9b409063674161ae06b562aafb749eeb9dbd21a7a610129af8e08c",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "e96bc7112b9b409063674161ae06b562aafb749eeb9dbd21a7a610129af8e08c",
+      "referenceOnlyChange": false
+    },
+    {
+      "oldPath": "docs/acceptance/shots/05-designer-delete-modal.png",
+      "newPath": "docs/acceptance/M11/legacy/shots/05-designer-delete-modal.png",
+      "originalSha256": "ec2a1fe4d9ca9b34f743e61fc949f9720bb8ef68d1c132a88732b295fcfb6ffa",
+      "metadataStatus": "legacy-unverified",
+      "archivedSha256": "ec2a1fe4d9ca9b34f743e61fc949f9720bb8ef68d1c132a88732b295fcfb6ffa",
+      "referenceOnlyChange": false
+    }
+  ]
+}

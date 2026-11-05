@@ -1,0 +1,15 @@
+M0-M1 架构违规样本验证
+命令: cd schema-platform && mvn -pl bootstrap -am test -Dtest=ArchitectureTest -Dsurefire.failIfNoSpecifiedTests=false
+执行环境: WSL Ubuntu 24.04 / OpenJDK 21.0.12.1 / Maven 3.9.14
+执行时间: 2026-11-02 10:02 (UTC+8)
+
+结果:
+[INFO] Running com.schema.bootstrap.ArchitectureTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 19.63 s -- in com.schema.bootstrap.ArchitectureTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+
+覆盖说明:
+- productionDomainDoesNotDependOnFrameworks: 断言 com.schema.{metadata,data,page,flow,iam,integration,metering} 的 domain 层不依赖 Spring/MyBatis（架构红线）
+- frameworkDependencyIsRejected: 构造 InvalidDomain 违规样本，断言 archunit 抛 AssertionError（"确实能触发失败"的负向验证）
+- 两个测试均通过 => 架构约束既约束合法代码，又能捕获违规样本
