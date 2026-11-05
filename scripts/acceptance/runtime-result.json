@@ -1,0 +1,117 @@
+[
+  {
+    "name": "未登录渲染会话过期占位",
+    "pass": true,
+    "detail": "登录已失效|会话已过期或被登出，页面已停止加载并清除了本地缓存。请重新登录后继续使用。|重新登录"
+  },
+  {
+    "name": "登录成功(普通成员)",
+    "pass": true,
+    "detail": "登录后必须出现导航壳"
+  },
+  {
+    "name": "导航壳渲染菜单",
+    "pass": true,
+    "detail": "报销中心|帮助中心|从左侧菜单选择页面"
+  },
+  {
+    "name": "API 普通成员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "API 导航(过滤)",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "导航树含报销登记页面",
+    "pass": true,
+    "detail": "[{\"id\":\"g1\",\"type\":\"GROUP\",\"label\":\"报销中心\",\"children\":[{\"id\":\"p1\",\"type\":\"PAGE\",\"label\":\"报销登记\",\"refId\":1}]},{\"id\":\"l1\",\"u"
+  },
+  {
+    "name": "页面菜单点击进入",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "表单控件渲染",
+    "pass": true,
+    "detail": "controls=7"
+  },
+  {
+    "name": "字段标签渲染",
+    "pass": true,
+    "detail": "报销事由,金额,报销日期,备注"
+  },
+  {
+    "name": "API 运行时页面读取",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "发布 Schema 含四字段绑定",
+    "pass": true,
+    "detail": "db一致=t"
+  },
+  {
+    "name": "提交触发数据写入接口",
+    "pass": true,
+    "detail": "[\"POST http://127.0.0.1:8090/api/data/1 200\",\"GET http://127.0.0.1:8090/ 200\",\"GET http://127.0.0.1:8090/runtime/assets/index-Zy0IJgyq.js 200\",\"GET http://127.0.0.1:8090/api/apps/1/nav?filtered=true 200\",\"GET http://127.0.0.1:8090/api/runtime/pages/1 304\",\"GET http://127.0.0.1:8090/api/data/1/fields"
+  },
+  {
+    "name": "写入接口返回 200",
+    "pass": true,
+    "detail": "{\"requestId\":\"38044.27\",\"url\":\"http://127.0.0.1:8090/api/data/1\",\"method\":\"POST\",\"postData\":\"{\\\"title\\\":\\\"CDP-mw337rqw\\\",\\\"amount\\\":88,\\\"remark\\\":\\\"自动化验收\\\"}\",\"status\":200,\"done\":true}"
+  },
+  {
+    "name": "写入载荷含唯一标识与金额",
+    "pass": true,
+    "detail": "{\"title\":\"CDP-mw337rqw\",\"amount\":88,\"remark\":\"自动化验收\"}"
+  },
+  {
+    "name": "DB 新增一条业务记录",
+    "pass": true,
+    "detail": "22 → 23"
+  },
+  {
+    "name": "落库精确核对(戳/金额/租户/创建者)",
+    "pass": true,
+    "detail": "[\"1|2|CDP-mw337rqw|88\"]"
+  },
+  {
+    "name": "记录 ID 返回并可用于精确查询",
+    "pass": true,
+    "detail": "3257795022765557397"
+  },
+  {
+    "name": "登出请求成功(200)",
+    "pass": true,
+    "detail": "status=200"
+  },
+  {
+    "name": "登出后 /api/me 401",
+    "pass": true,
+    "detail": "status=401"
+  },
+  {
+    "name": "登出后 refresh 401",
+    "pass": true,
+    "detail": "status=401"
+  },
+  {
+    "name": "登出后回会话过期占位",
+    "pass": true,
+    "detail": "登录已失效|会话已过期或被登出，页面已停止加载并清除了本地缓存。请重新登录后继续使用。|重新登录"
+  },
+  {
+    "name": "发布页 ETag + 304 命中",
+    "pass": true,
+    "detail": "{\"tag\":\"\\\"v17\\\"\",\"first\":200,\"second\":304}"
+  },
+  {
+    "name": "无未捕获 console 错误",
+    "pass": true,
+    "detail": ""
+  }
+]

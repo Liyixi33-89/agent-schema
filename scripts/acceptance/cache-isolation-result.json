@@ -1,0 +1,117 @@
+[
+  {
+    "name": "API 管理员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "运行时读取含 ETag",
+    "pass": true,
+    "detail": "etag=v16 cc=no-store, private, must-revalidate"
+  },
+  {
+    "name": "缓存指令 private must-revalidate",
+    "pass": true,
+    "detail": "no-store, private, must-revalidate"
+  },
+  {
+    "name": "If-None-Match 命中 304",
+    "pass": true,
+    "detail": "HTTP 304"
+  },
+  {
+    "name": "If-None-Match 未命中 200 带全量",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "读取草稿",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "保存草稿",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "草稿保存后正式 ETag 仍 304",
+    "pass": true,
+    "detail": "HTTP 304"
+  },
+  {
+    "name": "正式内容不含草稿改动",
+    "pass": true,
+    "detail": "\"报销登记\""
+  },
+  {
+    "name": "发布成功",
+    "pass": true,
+    "detail": "HTTP 200 {\"releaseVersion\":17}"
+  },
+  {
+    "name": "发布后旧 ETag 失效(200 全量)",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "新 ETag 已轮换",
+    "pass": true,
+    "detail": "v16 → v17"
+  },
+  {
+    "name": "新 ETag 命中 304",
+    "pass": true,
+    "detail": "HTTP 304"
+  },
+  {
+    "name": "签发预览凭证",
+    "pass": true,
+    "detail": "{\"grantId\":\"e8a0da81-6cab-4095-86fa-8d24e4dfc05f\",\"previewUrl\":\"/preview?grant=e8a0da81-6cab-4095-86fa-8d24e4dfc05f\",\"ex"
+  },
+  {
+    "name": "预览凭证兑换短时会话",
+    "pass": true,
+    "detail": "{\"accessToken\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwidGVuYW50IjoxLCJ0eXAiOiJwcmV2aWV3IiwiaWF0IjoxNzkzODU"
+  },
+  {
+    "name": "预览 token 可读指定页面",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "预览限页(其他页面 404/403)",
+    "pass": true,
+    "detail": "HTTP 404"
+  },
+  {
+    "name": "正式通道独立可用",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "预览会话吊销",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "吊销后预览读取被拒",
+    "pass": true,
+    "detail": "HTTP 401"
+  },
+  {
+    "name": "登出",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "登出后 cookie 清空",
+    "pass": true,
+    "detail": "at=false rt=false"
+  },
+  {
+    "name": "登出后运行时读取 401",
+    "pass": true,
+    "detail": "HTTP 401"
+  }
+]

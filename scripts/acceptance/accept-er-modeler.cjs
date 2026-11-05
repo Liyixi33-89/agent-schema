@@ -8,6 +8,8 @@
  * - 模板字符串中 \s 会被求值为 s（吞杠）——正则须写 \\s
  * - fiber 直调 onClick 可绕过 disabled——保存按钮禁用态须显式断言
  * - 画布含历史模型卡片——按钮定位必须按模型卡片 scope
+ * - React Flow 画布（M12 基线对齐后）：节点 = .react-flow__node[data-id]，
+ *   卡片内容在 .er-node 内；选中态节点带 selected class
  */
 const cdp = require('./cdp.cjs');
 const { BASE, ok, record, ApiClient, dbQuery, summary } = require('./accept-lib.cjs');
@@ -84,6 +86,18 @@ async function waitDrawerAnim() {
     await clickTab('模型');
     ok('「模型」页签就绪', await waitText('新建模型', 6000));
     ok('画布展示新建模型卡片', await waitText(`验收模型${stamp}`, 6000));
+    // React Flow 基线断言（10FE §1.2 画布）：视口/节点/缩放控件真实渲染
+    await cdp.waitFor('.react-flow__renderer', 8000);
+    const flowState = await cdp.evalJs(`(() => JSON.stringify({
+      viewport: !!document.querySelector('.react-flow__viewport'),
+      nodes: document.querySelectorAll('.react-flow__node').length,
+      zoom: !!document.querySelector('.react-flow__controls'),
+      minimap: !!document.querySelector('.react-flow__minimap'),
+      pane: !!document.querySelector('.react-flow__pane'),
+    }))()`);
+    const fs1 = JSON.parse(flowState);
+    ok('React Flow 画布渲染（viewport/controls/minimap）',
+      fs1.viewport && fs1.nodes >= 1 && fs1.zoom && fs1.minimap, flowState);
     await cdp.shot('er-canvas');
 
     // ---------- 2. 字段抽屉：新增字段（UI 操作生成 ADD_FIELD） ----------
@@ -158,10 +172,10 @@ async function waitDrawerAnim() {
     await cdp.waitFor('.ant-tabs', 8000);
     await clickTab('模型');
     await waitText(`验收模型${stamp}`, 8000);
-    // 定位本次新建模型的卡片（画布含历史验收模型，不能取第一个编辑字段按钮）
+    // 定位本次新建模型的画布节点（React Flow：.react-flow__node 内 .er-node 卡片含 modelKey）
     const editClick = await cdp.evalJs(`(() => {
-      const nodes = Array.from(document.querySelectorAll('div[style]'));
-      const mine = nodes.find(n => (n.getAttribute('style') || '').includes('absolute') && n.textContent.includes('er_accept_' + '${stamp}'));
+      const nodes = Array.from(document.querySelectorAll('.react-flow__node'));
+      const mine = nodes.find(n => n.textContent.includes('er_accept_' + '${stamp}'));
       const b = mine && Array.from(mine.querySelectorAll('button')).find(x => x.textContent.includes('编辑字段'));
       if (!b) return 'missing';
       b.click();
@@ -276,10 +290,10 @@ async function waitDrawerAnim() {
     await cdp.waitFor('.ant-tabs', 8000);
     await clickTab('模型');
     await waitText(`验收模型${stamp}`, 8000);
-    // 点新建模型卡片选中（懒加载版须先选中——详情就绪后版本时间线按钮才可用）
+    // 点新建模型画布节点选中（详情就绪后版本时间线按钮才可用）
     await cdp.evalJs(`(() => {
-      const nodes = Array.from(document.querySelectorAll('div[style]'));
-      const mine = nodes.find(n => (n.getAttribute('style') || '').includes('absolute') && n.textContent.includes('er_accept_' + '${stamp}'));
+      const nodes = Array.from(document.querySelectorAll('.react-flow__node'));
+      const mine = nodes.find(n => n.textContent.includes('er_accept_' + '${stamp}'));
       if (mine) mine.click();
     })()`);
     // 等详情就绪（选中卡片触发 ensureDetail——按钮从 disabled 转可用）

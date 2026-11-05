@@ -10,12 +10,12 @@
  */
 import React from 'react';
 import {
-  ReactFlow, Background, BackgroundVariant, Controls, MiniMap,
+  ReactFlow, Background, BackgroundVariant, Controls, MiniMap, Handle, Position,
   addEdge, useEdgesState, useNodesState,
   type Connection, type Edge, type Node, type NodeProps, type NodeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Button, Tag, Typography } from 'antd';
+import { Button, Space, Tag, Typography } from 'antd';
 import type { ModelSummary } from './api';
 import { extractRelationEdges, layeredLayout, type ModelField } from '@schema/data-model-designer';
 
@@ -45,18 +45,24 @@ type ModelNodeData = {
 function ModelNodeCard({ data, selected }: NodeProps<Node<ModelNodeData>>): React.ReactElement {
   const { summary, fields, activeCount, onOpenEditor } = data;
   const visible = fields.filter((f) => f.fieldStatus === 'ACTIVE').slice(0, 5);
+  // React Flow 边渲染锚点：无 Handle 则边不绘制（本缺陷曾致 0 边——props 有 19 条边但 DOM 0 条）
+  const handleStyle = { width: 7, height: 7, background: '#1677ff', border: '1px solid #fff' };
   return (
     <div className="er-node" style={{
       width: 300, background: '#fff', borderRadius: 8,
       border: `1px solid ${selected ? '#1677ff' : '#d9d9d9'}`,
       boxShadow: selected ? '0 0 0 2px rgba(22,119,255,.15)' : '0 2px 8px rgba(0,0,0,.06)',
     }}>
+      <Handle type="target" position={Position.Left} style={handleStyle} />
       <div className="er-node-header" style={{
         padding: '8px 12px', borderBottom: '1px solid #f0f0f0', background: selected ? '#e6f4ff' : '#fafafa',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
-        <Typography.Text strong ellipsis style={{ maxWidth: 150 }}>{summary.name}</Typography.Text>
-        <Tag color="blue" style={{ marginInlineEnd: 0 }}>v{summary.currentVersion}</Tag>
+        <Typography.Text strong ellipsis style={{ maxWidth: 96 }}>{summary.name}</Typography.Text>
+        <Space size={4}>
+          <Tag style={{ marginInlineEnd: 0, fontSize: 10 }}>{summary.modelKey}</Tag>
+          <Tag color="blue" style={{ marginInlineEnd: 0 }}>v{summary.currentVersion}</Tag>
+        </Space>
       </div>
       <div className="er-node-body" style={{ padding: '4px 12px 8px' }}>
         {fields.length === 0 ? (
@@ -77,6 +83,7 @@ function ModelNodeCard({ data, selected }: NodeProps<Node<ModelNodeData>>): Reac
           编辑字段
         </Button>
       </div>
+      <Handle type="source" position={Position.Right} style={handleStyle} />
     </div>
   );
 }
@@ -196,9 +203,9 @@ export default function ErCanvas(props: ErCanvasProps): React.ReactElement {
         onNodeClick={(_, n) => { onSelect(n.id); }}
         fitView
         fitViewOptions={{ padding: 0.15 }}
-        minZoom={0.2}
+        minZoom={0.02}
         maxZoom={1.8}
-        deleteKeyCode={null}
+        deleteKeyCode={['Delete', 'Backspace']}
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />

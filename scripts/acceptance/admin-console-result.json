@@ -1,0 +1,117 @@
+[
+  {
+    "name": "API 管理员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "API 健康检查",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "健康含 DB/状态",
+    "pass": true,
+    "detail": "{\"db\":\"UP\",\"status\":\"UP\",\"version\":\"0.1.0\",\"timestamp\":\"2026-11-05T13:04:08.439856386+08:00\"}"
+  },
+  {
+    "name": "API 成员列表",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "成员列表含验收账号",
+    "pass": true,
+    "detail": "[\"accept_admin:app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,app_admin,platform_admin\",\"accept_user:user,app_admin\"]"
+  },
+  {
+    "name": "成员角色真实返回",
+    "pass": true,
+    "detail": "roles[] 结构"
+  },
+  {
+    "name": "API 用量卡片",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "用量卡片结构",
+    "pass": true,
+    "detail": "{\"activeSeats\":2,\"activeSeatsWindow\":\"ROLLING_30D\",\"licensedSeats\":1,\"licensedSeatsBasis\":\"DESIGN_ROLE_AUTHORIZED\"}"
+  },
+  {
+    "name": "API 公告发布",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "生效公告即所发",
+    "pass": true,
+    "detail": "{\"notice\":{\"id\":5,\"title\":\"验收公告-mw32z9xw\",\"content\":\"M11 验收公告内容\",\"level\":\"WARNING\",\"updated_at\":\"2026-11-05T05:04:08.471+00:00\"}}"
+  },
+  {
+    "name": "公告落库核对",
+    "pass": true,
+    "detail": "[\"验收公告-mw32z9xw|WARNING|t\"]"
+  },
+  {
+    "name": "API 公告撤下",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "撤下后无生效公告",
+    "pass": true,
+    "detail": "{\"notice\":{}}"
+  },
+  {
+    "name": "API 普通成员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "普通成员拉成员清单被拒(403)",
+    "pass": true,
+    "detail": "HTTP 403"
+  },
+  {
+    "name": "普通成员发公告被拒(403)",
+    "pass": true,
+    "detail": "HTTP 403"
+  },
+  {
+    "name": "普通成员看公告历史被拒(403)",
+    "pass": true,
+    "detail": "HTTP 403"
+  },
+  {
+    "name": "普通成员可读生效公告(200)",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "API 租户2用户登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true"
+  },
+  {
+    "name": "租户2无权拉成员清单(403)",
+    "pass": true,
+    "detail": "HTTP 403"
+  },
+  {
+    "name": "租户2公告空间独立(200且非租户1公告)",
+    "pass": true,
+    "detail": "{\"notice\":{}}"
+  },
+  {
+    "name": "租户2应用列表隔离",
+    "pass": true,
+    "detail": "{\"list\":[]}"
+  },
+  {
+    "name": "伪造租户头被拒或按 JWT 租户判定",
+    "pass": true,
+    "detail": "HTTP 403 body={\"code\":\"TENANT_MISMATCH\",\"message\":\"????????????\"}"
+  }
+]

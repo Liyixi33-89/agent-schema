@@ -314,7 +314,7 @@
     {
       "id": "M12",
       "title": "ER 建模器与影响面交互",
-      "status": "implemented",
+      "status": "accepted",
       "priority": 8,
       "dependsOn": [
         "M2-M5",

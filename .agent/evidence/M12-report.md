@@ -1,4 +1,4 @@
-# M12 验收报告（2026-11-04 · 基线 83b5d33 → 收口 ee4a356/53cdebd）
+# M12 验收报告（2026-11-04 · 基线 83b5d33 → 收口 ee4a356/53cdebd；2026-11-05 补齐收口见 §六）
 
 ## 一、验收范围与结论
 
@@ -55,3 +55,66 @@ powershell -File scripts/verify.ps1 commit      # 七步 PASS
 
 - `ee4a356` feat(designer): M12 ER 建模器前端收口——缓存一致性/配置补全/确认交互
 - `53cdebd` fix(metadata): M12 建模授权与跨应用越权收口
+
+## 七、2026-11-05 收口补齐（关系边 0 边修复 + 409/异步验收 + 独立审查）
+
+### 7.1 关系画布 0 边根因与修复（场景⑨闭环）
+
+链路实证（DB 19 条 ACTIVE relation → 后端 fieldView 含 relation 配置 → 前端 73 详情全拉通 → props.edges=19 → DOM 0 边）：
+
+| 层 | 实证结论 |
+| --- | --- |
+| DB | 19 条 ACTIVE relation 配置完整（`dbq_rel_check.sh`） |
+| 后端 | `fieldView` 输出含 relation 键（73/73 详情 200） |
+| 前端 props | `ErCanvas` props.details 全满、`extractRelationEdges` 可提 19 条（Fiber 反查实证） |
+| React Flow | **节点卡片无 `<Handle>` 锚点——边渲染前置条件缺失，19 条边全部不绘制**（根因） |
+
+修复链（三处）：
+1. `ModelNodeCard` 补 target/source Handle（0 边直接根因）；
+2. 布局两段式持久化：首载占位坐标不落盘（`layeredLayout(list, [])` 无关系输入退化单行 26280px 宽——落盘会把退化态固化）；`loadAllDetails` 完成后按真实关系边分层重排才持久化（唯一持久化点），旧自实现画布漂移草稿（clientX 数万像素）按 CANVAS_LIMIT=8000 域清理；
+3. 重排后 `key={canvasEpoch}` 重挂载画布（React Flow 全量重建节点时 Handle 测量竞态会让边渲染被永久跳过——重挂载触发全新测量）。
+
+辅助修复：`minZoom 0.2→0.02`（退化布局期间 fitView 卡死）；`deleteKeyCode null→['Delete','Backspace']`（恢复键盘删除，实测输入框聚焦豁免生效）。
+
+### 7.2 补验结果
+
+| 脚本 | 结果 | 覆盖 |
+| --- | --- | --- |
+| accept-m12-closeout.cjs | **18/18 PASS** | A 场景（409 草稿保护全链 13 项）：外部保存制造真实冲突→UI 保存 409→冲突弹层三方差异（本地 draft_field vs 服务端 ext_field）→无偷偷重发（网络断言仅 1 次 POST /schema 且 409）→草稿保留→显式放弃对齐服务端→重编辑用正确版本保存 v4 落库；B 场景：B1 冷启动失败可见（停后端刷新后错误提示非白屏→重启恢复列表）+ 详情 error 态抽屉可见可重试（产品新增）+ B3 快速切换选中态一致 + B4 重复点击仅一次预检、dup_field 落库唯一 |
+| accept-er-nine-scenes.cjs | **33/33 PASS**（原 29/30） | 场景⑨修复后：画布边 20/20 与 DB 一致、连线创建落库、删边落库 |
+| probe-final2.cjs | PASS | 边数=DB 数、关系链 7 层分层、146 Handle 可连线 |
+| probe-delkey.cjs | PASS | 独立审查补测：输入框聚焦 Backspace 不误删节点/边（isInputDOMNode 豁免） |
+
+### 7.3 本轮产品修复清单
+
+| 缺口 | 修复 |
+| --- | --- |
+| React Flow 节点无 Handle → 0 边 | 补 target/source 锚点 |
+| 首载退化布局落盘固化 | 占位不落盘，关系驱动重排才持久化 |
+| 旧自实现画布坐标漂移（x≈26000） | CANVAS_LIMIT 域清理 + 重排兜底 |
+| 重排后 Handle 测量竞态边消失 | canvasEpoch 重挂载 |
+| 详情加载失败抽屉静默不开（open 条件绑 selectedDetail） | error 态也开抽屉：错误文案 + 重试按钮 + 关闭 |
+| 抽屉关闭 DOM 残留（幽灵 DOM 吞点击/误断言） | 两个 Drawer 补 destroyOnClose |
+| runtime 生产部署缺 vite base（asset 根路径命中 designer 目录） | 新增 vite.config.ts（base /runtime/）——与 designer/admin 同款白屏缺口闭环 |
+| 静态代理改写 Host 头致 CSRF Origin 校验 403 | 透传原始 Host（CsrfFilter originOf 按 Host 计算目标源） |
+
+### 7.4 验收环境脚本（重建）
+
+- `serve-acceptance.cjs`：8090 静态代理（三 dist 子路径 + 根路径服务 runtime + /api 反代透传 Host）
+- `wsl-run-accept.sh`：后端 18080 启动（setsid 保活）
+- `wait-backend.sh`：后端就绪轮询（探活口径：任意 HTTP 响应即活——actuator 需鉴权 200 判定会误报）
+
+### 7.5 独立审查结论（2026-11-05）
+
+- 权限：本轮零后端/权限面改动，前端改动均在视图层 ✓
+- 枚举契约：无枚举值变更（上轮 CASCADE_SOFT_DELETE/PERSISTED 修复保持）✓
+- 草稿一致性：`refreshDetail` 与显式放弃两条重建路径的 `_deleted` 标记形态一致（防复活误判）✓
+- 竞态：background 请求 seq=0 不参与请求序号竞争；用户主动路径保留旧响应丢弃；`loadAllDetails` 就地累积绕开 ref 滞后 ✓
+- React Flow 接线：Handle/重挂载/两段式持久化链路自洽；键盘删除豁免实测 ✓
+- 回归：verify[commit] 七步 PASS（74s）；ER 主链 48/48；九场景 33/33；designer 37/37；runtime 23/23；admin 23/23；cache 23/23；协议包单测 39/39（新增 canvas-layout.test.ts 4 项）
+
+### 7.6 遗留边界（登记不阻塞）
+
+- 详情 error 态在「后台批量加载已完成」时不可达（缓存全满）——属产品已知边界，冷启动失败可见性由 B1 覆盖
+- 409 无三方合并（01BE §4.2 口径：刷新重做）；协议包交付草稿保留+差异展示+显式放弃
+- 画布布局对孤立模型仍单行横排（分层算法按关系分层，无关系的 54 个模型天然同层）——交互优化随 M13 统一评估

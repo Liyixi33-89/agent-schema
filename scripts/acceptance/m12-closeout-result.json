@@ -1,0 +1,92 @@
+[
+  {
+    "name": "API 管理员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "API 新建模型（收口补验）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "A1 草稿字段在抽屉（未保存）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A2 外部保存 v3 落库（真实冲突就绪）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A3 409 后冲突弹层出现",
+    "pass": true,
+    "detail": "ready"
+  },
+  {
+    "name": "A4 弹层含本地草稿差异（draft_field）",
+    "pass": true,
+    "detail": "版本冲突 · 收口mw32nce8（他人已保存 v3）你与服务端基于不同版本做了修改。下方为逐字段对比（我的草稿 / 服务端最新）； 选择「放弃我的修改」将以服务端最新覆盖本地草稿；关闭弹层可继续保留草稿查看。单方修改draft_field我的：ADD_FIELD / 服务端：未改单方修改ext_field我的：未改 "
+  },
+  {
+    "name": "A4 弹层含服务端变更（ext_field）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A5 无偷偷重发保存（仅一次 POST /schema）",
+    "pass": true,
+    "detail": "posts=1"
+  },
+  {
+    "name": "A5 保存请求返回 409（版本冲突实测）",
+    "pass": true,
+    "detail": "[409]"
+  },
+  {
+    "name": "A5 冲突期间本地草稿保留（抽屉仍含 draft_field）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A6 放弃后草稿与服务端对齐（draft_field 消失）",
+    "pass": true,
+    "detail": "收口mw32nce8 · 字段编辑新增字段字段标识/类型创建后不可改；删除走软删（保存时强制高规格确认）。金额amountnumber修改删除外部字段ext_fieldtext修改删除"
+  },
+  {
+    "name": "A6 服务端字段可见（ext_field）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A7 重编辑保存用正确版本（v4 落库）",
+    "pass": true,
+    "detail": "msg=true db=4"
+  },
+  {
+    "name": "B3 快速切换后选中态一致",
+    "pass": true,
+    "detail": "{\"has\":true,\"text\":\"收口mw32nce8er_close_mw32nce8v4金额number外部字段text终版字段n\"}"
+  },
+  {
+    "name": "B4 重复点击仅一次预检请求",
+    "pass": true,
+    "detail": "prechecks=1"
+  },
+  {
+    "name": "B4 dup_field 落库唯一（无重复提交副作用）",
+    "pass": true,
+    "detail": "count=1"
+  },
+  {
+    "name": "B1 冷启动加载失败可见（错误提示非白屏）",
+    "pass": true,
+    "detail": "No data暂无应用——点击「新建应用」开始"
+  },
+  {
+    "name": "B1 后端恢复后列表重新加载（画布节点恢复）",
+    "pass": true,
+    "detail": "relisted:87"
+  }
+]

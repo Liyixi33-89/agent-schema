@@ -55,11 +55,16 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DraftField | null>(null);
   const [editingIndex, setEditingIndex] = React.useState(-1);
+  /** 新增场景受控类型（配置表单渲染驱动——fieldForm.getFieldValue 不触发重渲染）。 */
+  const [editingType, setEditingType] = React.useState<string | undefined>(undefined);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [createForm] = Form.useForm();
   const [fieldForm] = Form.useForm();
   // 画布坐标草稿（视图态）
   const [positions, setPositions] = React.useState<Record<string, { x: number; y: number }>>({});
+  /** 画布重挂载纪元（坐标批量重排后递增——React Flow 全量重建节点时 Handle 测量竞态
+   *  会让边渲染被永久跳过，重挂载触发全新测量）。 */
+  const [canvasEpoch, setCanvasEpoch] = React.useState(0);
   const dragRef = React.useRef<{ id: string; dx: number; dy: number } | null>(null);
   const [dragTick, setDragTick] = React.useState(0);
   // 变更集（待保存）
@@ -83,6 +88,8 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
   const [rollbackPre, setRollbackPre] = React.useState<PrecheckResp | null>(null);
 
   const tenantId = localStorage.getItem('schema_tenant') ?? '1';
+  /** 画布坐标合理域上限——超出视为旧草稿退化（单行超宽），自动重排（视图态非业务数据）。 */
+  const CANVAS_LIMIT = 8000;
   // 请求序号（异步一致性）：切换模型/应用后旧响应晚到不得覆盖新选中对象的编辑态
   const reqSeqRef = React.useRef(0);
   const inflightRef = React.useRef(0);
@@ -92,15 +99,17 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
     try {
       const r = await api.listModels(appId);
       setModels(r.list);
-      // 模型详情限并发渐进加载（并发占满浏览器 6 连接会让写请求排队超时）
-      // 关系边来源升级：全部模型详情后台加载（画布全应用关系完整呈现）
+      // 草稿持久化两段式：
+      // 1) 此处仅补「缺失坐标」的内存占位（退化布局，不落盘）——关系数据未加载，
+      //    此时落盘会把退化单行固化，后续关系驱动重排又被「坐标已存在」跳过；
+      // 2) loadAllDetails 完成后按真实关系分层重排才持久化（见 loadAllDetails）。
+      // 旧自实现画布的漂移草稿（clientX 数万像素）同样留给重排兜底按域清理。
       const draft = loadLayoutDraft(tenantId, appId);
       const known = new Set(Object.keys(draft.positions));
       const missing = r.list.filter((m) => !known.has(m.id));
       if (missing.length) {
         const auto = layeredLayout(r.list, []);
         draft.positions = { ...draft.positions, ...Object.fromEntries(Object.entries(auto).filter(([id]) => !(id in draft.positions))) };
-        saveLayoutDraft(tenantId, appId, draft);
       }
       setPositions(draft.positions);
     } catch (e) {
@@ -109,16 +118,27 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
     }
   }, [api, appId, tenantId]);
 
-  /** 强制重拉单个模型详情（保存/回滚/放弃后调用——懒加载缓存必须失效，否则版本号与字段集停留旧态）。 */
-  const refreshDetail = React.useCallback(async (id: string): Promise<ModelDetail | null> => {
-    const seq = ++reqSeqRef.current;
+  /**
+   * 强制重拉单个模型详情（保存/回滚/放弃后调用——懒加载缓存必须失效，否则版本号与字段集停留旧态）。
+   * opts.background=true：批量后台加载路径——不参与请求序号竞争（否则批量请求互相判旧全部丢弃）；
+   * 仅用户主动加载（选中/保存后刷新）记录 seq，用于旧响应晚到时不覆盖新选中对象的编辑态。
+   */
+  const refreshDetail = React.useCallback(async (id: string, opts?: { background?: boolean }): Promise<ModelDetail | null> => {
+    const background = !!opts?.background;
+    const seq = background ? 0 : ++reqSeqRef.current;
     setDetails((prev) => ({ ...prev, [id]: prev[id] ?? 'loading' }));
     try {
       const d = await api.modelDetail(appId, id);
-      if (seq !== reqSeqRef.current && selectedRef.current !== id) return null;   // 旧响应晚到：不覆盖当前编辑对象
+      if (!background && seq !== reqSeqRef.current && selectedRef.current !== id) return null;   // 旧响应晚到：不覆盖当前编辑对象
       setDetails((prev) => ({
         ...prev,
-        [id]: { detail: d, fields: d.fields.map((f: ModelField) => ({ ...f })), baseFields: d.fields },
+        // 服务端 DELETED 字段带 _deleted 标记——否则 diff 会把「保存后刷新带回的已删字段」
+        // 误判为复活（ADD_FIELD 误发，后端 400 FIELD_STATUS 冲突）
+        [id]: {
+          detail: d,
+          fields: d.fields.map((f: ModelField) => ({ ...f, ...(f.fieldStatus === 'DELETED' ? { _deleted: true } : {}) })),
+          baseFields: d.fields,
+        },
       }));
       return d;
     } catch (e) {
@@ -139,22 +159,52 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
     await refreshDetail(id);
   }, [details, refreshDetail]);
 
-  /** 限并发后台加载全部详情（画布全应用关系完整性——LOAD_CONCURRENCY 路连接占用）。 */
+  /** 限并发后台加载全部详情（画布全应用关系完整性——LOAD_CONCURRENCY 路连接占用）。
+   *  加载完成后用真实关系边对「无坐标/退化坐标」节点做一次分层重排（首载时布局
+   *  无关系输入会退化成单行超宽——fitView 被 minZoom 卡死）。 */
   const loadAllDetails = React.useCallback(async (list: ModelSummary[]) => {
     const pending = list.filter((m) => {
       const cur = details[m.id];
       return !cur || cur === 'error';
     }).map((m) => m.id);
+    // 详情就地累积（不读 detailsRef——Promise.all resolve 时 React 可能未 flush 末次 setDetails，ref 滞后会让关系边提取拿到空集）
+    const loaded: ModelDetail[] = [];
     let cursor = 0;
     const worker = async (): Promise<void> => {
       while (cursor < pending.length) {
         const id = pending[cursor++];
         inflightRef.current++;
-        try { await refreshDetail(id); } finally { inflightRef.current--; }
+        try {
+          const d = await refreshDetail(id, { background: true });
+          if (d) loaded.push(d);
+        } finally { inflightRef.current--; }
       }
     };
     await Promise.all(Array.from({ length: Math.min(LOAD_CONCURRENCY, pending.length) }, worker));
-  }, [details, refreshDetail]);
+    // 全部详情就绪 → 关系驱动的布局补齐（缺省/退化坐标节点重排——唯一持久化点）
+    if (list.length && loaded.length) {
+      const draft = loadLayoutDraft(tenantId, appId);
+      const byId = new Map(loaded.map((d) => [d.id, d]));
+      const edges = extractRelationEdges(list
+        .filter((m) => byId.has(m.id))
+        .map((m) => ({ id: m.id, fields: byId.get(m.id)!.fields })));
+      const auto = layeredLayout(list, edges);
+      let changed = false;
+      for (const m of list) {
+        const cur = draft.positions[m.id];
+        // 无坐标或退化坐标（超出画布域）都重排；用户拖过的正常坐标不动
+        if (!cur || Math.abs(cur.x) > CANVAS_LIMIT || Math.abs(cur.y) > CANVAS_LIMIT) {
+          draft.positions[m.id] = auto[m.id] ?? { x: 40, y: 40 };
+          changed = true;
+        }
+      }
+      if (changed) {
+        saveLayoutDraft(tenantId, appId, draft);
+        setPositions({ ...draft.positions });
+        setCanvasEpoch((e) => e + 1);   // 重挂载画布：全新 Handle 测量（修复重排后边渲染竞态）
+      }
+    }
+  }, [details, refreshDetail, tenantId, appId]);
 
   React.useEffect(() => {
     if (models && models.length) void loadAllDetails(models);
@@ -364,15 +414,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
     }
   };
 
-  // ---------- 关系边几何 ----------（边渲染已移入 ErCanvas：此处仅保留详情就绪判定）
-
-  const nodeCenter = (id: string): { x: number; y: number } | null => {
-    const p = positions[id];
-    if (!p) return null;
-    return { x: p.x + 150, y: p.y + 45 };
-  };
-
-  // ---------- 渲染 ----------
+  // ---------- 渲染 ----------（关系边几何已全部移入 ErCanvas）
 
   const severitySorted = React.useMemo(() => {
     if (!precheck) return [];
@@ -395,7 +437,8 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
           setPrecheck(null);
           if (selected) void refreshDetail(selected);
           void loadModels();
-        }}>放弃修改</Button>        {hasDelete && <Tag color="red">含删除操作</Tag>}
+        }}>放弃修改</Button>
+        {hasDelete && <Tag color="red">含删除操作</Tag>}
         <Typography.Text type="secondary">
           画布坐标仅存本地草稿（不入 Schema）；字段标识与类型创建后不可修改。
         </Typography.Text>
@@ -407,6 +450,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
         <Empty description="暂无模型——点击「新建模型」开始 ER 建模" />
       ) : (
         <ErCanvas
+          key={canvasEpoch}
           models={models}
           details={Object.fromEntries(Object.entries(details).filter(([, v]) => v && v !== 'loading' && v !== 'error')
             .map(([k, v]) => [k, { fields: (v as DraftModel).fields }]))}
@@ -425,6 +469,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
             void ensureDetail(sourceId).then(() => {
               setEditing({ placeholder: 'new' } as unknown as DraftField);
               setEditingIndex(-1);
+              setEditingType('relation');   // 受控类型同步（连线预填场景）
               fieldForm.resetFields();
               fieldForm.setFieldsValue({ type: 'relation', relation: { targetModelId: targetId, cardinality: '1:n', cascade: 'FORBID' } });
             });
@@ -465,15 +510,27 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
         </Form>
       </Modal>
 
-      {/* 字段编辑抽屉 */}
-      <Drawer title={`${selectedDetail?.detail.name ?? ''} · 字段编辑`} width={480} open={drawerOpen && !!selectedDetail}
+      {/* 字段编辑抽屉（error 态也开——失败可见可重试，不允许静默「无反应」） */}
+      <Drawer title={`${selectedDetail?.detail.name ?? models?.find((m) => m.id === selected)?.name ?? ''} · 字段编辑`} width={480}
+        open={drawerOpen && (!!selectedDetail || selectedEntry === 'error')}
+        destroyOnClose
         onClose={() => { setDrawerOpen(false); setEditing(null); }}>
+        {selectedEntry === 'error' && (
+          <div style={{ textAlign: 'center', padding: 48 }}>
+            <Typography.Text type="danger">详情加载失败——本地无数据缓存，请重试。</Typography.Text>
+            <div style={{ marginTop: 16 }}>
+              <Button type="primary" onClick={() => { if (selected) void ensureDetail(selected); }}>重试加载</Button>
+              <Button style={{ marginLeft: 8 }} onClick={() => { setDrawerOpen(false); }}>关闭</Button>
+            </div>
+          </div>
+        )}
         {selectedDetail && (
           <>
             <Space style={{ marginBottom: 12 }}>
               <Button size="small" onClick={() => {
                 setEditing(null);
                 setEditingIndex(-1);
+                setEditingType(undefined);
                 fieldForm.resetFields();
                 setEditing({ placeholder: 'new' } as unknown as DraftField);
               }}>新增字段</Button>
@@ -499,10 +556,11 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                       <Form.Item name="type" label="字段类型（12 种冻结枚举）" rules={[{ required: true }]}>
                         <Select options={TYPE_OPTIONS} onChange={(newType) => {
                           // 类型切换清理：不适用配置的旧表单值必须清除（防残留误发——后端 FIELD_CONFIG_INVALID 兜底）
-                          const prev = fieldForm.getFieldValue('type') as string | undefined;
+                          const prev = editingType;
                           if (prev && prev !== newType) {
                             fieldForm.setFieldsValue({ enumOptionsStr: undefined, relation: undefined, computed: undefined });
                           }
+                          setEditingType(newType as string);   // 受控驱动配置表单渲染（getFieldValue 不触发重渲染——配置表单永不出现的缺陷）
                         }} />
                       </Form.Item>
                     </>
@@ -525,7 +583,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                   </Form.Item>
                   {/* 类型相关配置（01BE §4.2 步骤 4：enum→enumOptions / relation→目标+基数+级联 / computed→表达式+依赖） */}
                   {(() => {
-                    const curType = editingIndex >= 0 ? selectedDetail.fields[editingIndex].type : fieldForm.getFieldValue('type') as string | undefined;
+                    const curType = editingIndex >= 0 ? selectedDetail.fields[editingIndex].type : editingType;
                     if (!curType) return null;
                     if (curType === 'enum') {
                       return (
@@ -658,7 +716,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                     setEditing(null);
                     setEditingIndex(-1);
                   }}>应用</Button>
-                  <Button size="small" onClick={() => { setEditing(null); setEditingIndex(-1); }}>取消</Button>
+                  <Button size="small" onClick={() => { setEditing(null); setEditingIndex(-1); setEditingType(undefined); }}>取消</Button>
                 </Space>
               </div>
             )}
@@ -673,6 +731,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
                       onClick={() => {
                         setEditingIndex(i);
                         setEditing(f);
+                        setEditingType(f.type);   // 受控类型同步（修改场景——配置表单按字段类型渲染）
                         fieldForm.setFieldsValue({
                           label: f.label, required: f.required,
                           ...(f.type === 'enum' && f.enumOptions ? {
@@ -754,13 +813,15 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
           )} />
         <Space style={{ marginTop: 16 }}>
           <Button danger onClick={() => {
-            // 显式放弃：adoptServerDraft 以服务端态重建草稿（用户主动动作，非静默覆盖）
+            // 显式放弃：以服务端态重建草稿（DELETED 字段带 _deleted——同 refreshDetail 形态，防复活误判）
             if (!conflictServer || !selected) return;
             setDetails((prev) => ({
               ...prev,
               [selected]: {
                 detail: conflictServer,
-                fields: adoptServerDraft(conflictServer.fields).map((f) => ({ ...f })) as DraftField[],
+                fields: adoptServerDraft(conflictServer.fields).map((f) => ({
+                  ...f, ...(f.fieldStatus === 'DELETED' ? { _deleted: true } : {}),
+                })) as DraftField[],
                 baseFields: conflictServer.fields,
               },
             }));
@@ -863,6 +924,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
 
       {/* 版本时间线与回滚 */}
       <Drawer title={`版本时间线 · ${selectedDetail?.detail.name ?? ''}`} width={440} open={versionsOpen}
+        destroyOnClose
         onClose={() => { setVersionsOpen(false); setRollbackTarget(null); }}>
         {versions === null ? (
           <div style={{ textAlign: 'center', padding: 48 }}><Spin /></div>
