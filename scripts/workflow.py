@@ -154,11 +154,42 @@ def audit(task):
     return issues
 
 
+def check_references():
+    """检查归档目录与台账引用；历史材料仅核对存在，不升级历史结论。"""
+    issues = []
+    base = ROOT / 'docs' / 'acceptance'
+    for package in base.iterdir():
+        if not package.is_dir():
+            continue
+        for run in package.iterdir():
+            if run.is_dir() and run.name != 'legacy' and not (run / 'manifest.json').is_file():
+                issues.append(f'Missing manifest: {run.relative_to(ROOT)}')
+    for task in load()['tasks']:
+        records = [c.get('evidence') or c for c in task['acceptance']]
+        records.append(task.get('review') or {})
+        for record in records:
+            if not record.get('report'):
+                continue
+            report = (ROOT / record['report']).resolve()
+            if not report.is_relative_to(base.resolve()) or not report.is_file():
+                issues.append(f"{task['id']}: invalid report reference")
+            elif 'legacy' not in report.relative_to(base).parts:
+                issues += verify_commit(record, 'review' if 'reviewer' in record else 'reference', task['id'])
+    return issues
+
+
 def main():
     parser = argparse.ArgumentParser(description='MVP evidence-based workflow')
-    parser.add_argument('action', choices=('status', 'next', 'start', 'implemented', 'check', 'accept', 'reopen'))
+    parser.add_argument('action', choices=('status', 'next', 'start', 'implemented', 'check', 'accept', 'reopen', 'references'))
     parser.add_argument('task', nargs='?')
     args = parser.parse_args()
+    if args.action == 'references':
+        issues = check_references()
+        if issues:
+            print('\n'.join(issues))
+            raise SystemExit(1)
+        print('Archive directories and ledger references passed; legacy status unchanged')
+        return
     data = load()
     tasks = {t['id']: t for t in data['tasks']}
     if args.action == 'status':

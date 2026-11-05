@@ -249,6 +249,34 @@ test('P0：套件缺实际命令拒绝', sandbox(async (tmp, dirs) => {
 const { spawnSync } = require('child_process');
 const EVIDENCE_CLI = path.join(__dirname, 'evidence.cjs');
 
+test('真实并发创建独立运行且无输出日志存在', cliSandbox(async (tmp) => {
+  const { spawn } = require('child_process');
+  const run = () => new Promise((resolve, reject) => {
+    const p = spawn(process.execPath, [EVIDENCE_CLI, 'run', 'WP', 'quiet', '--', process.execPath, '-e', '0'], {
+      env: { ...process.env, ACCEPT_EVIDENCE_OUT: path.join(tmp, 'out') },
+    });
+    let text = ''; p.stdout.on('data', (d) => { text += d; });
+    p.on('error', reject); p.on('close', (code) => code === 0 ? resolve(/run=(\S+) exit=/.exec(text)[1]) : reject(new Error(text)));
+  });
+  const ids = await Promise.all(Array.from({ length: 4 }, run));
+  assert.strictEqual(new Set(ids).size, 4);
+  for (const id of ids) assert.ok(fs.existsSync(path.join(tmp, 'out', id, 'logs', 'quiet-output.txt')));
+}));
+
+test('复用拒绝跨包跨提交且不存在可执行文件不会回退 shell', cliSandbox(async (tmp, cli) => {
+  const first = cli('run', 'WP', 's1', '--', process.execPath, '-e', '0');
+  const id = /run=(\S+) exit=/.exec(first.stdout)[1];
+  assert.notStrictEqual(cli('run', 'OTHER', 's2', '--reuse-run-id', id, '--', process.execPath, '-e', '0').status, 0);
+  const file = path.join(tmp, 'out', id, 'run.json');
+  const m = JSON.parse(fs.readFileSync(file)); m.sourceCommit = 'f'.repeat(40);
+  fs.writeFileSync(file, JSON.stringify(m));
+  assert.notStrictEqual(cli('run', 'WP', 's2', '--reuse-run-id', id, '--', process.execPath, '-e', '0').status, 0);
+  const missing = cli('run', 'WP', 'missing', '--', 'nonexistent-evidence-executable');
+  assert.notStrictEqual(missing.status, 0);
+  const mid = /run=(\S+) exit=/.exec(missing.stdout)[1];
+  assert.ok(!fs.readFileSync(path.join(tmp, 'out', mid, 'logs', 'missing-output.txt'), 'utf8').includes('回退'));
+}));
+
 function cliSandbox(fn) {
   return async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ev-cli-'));

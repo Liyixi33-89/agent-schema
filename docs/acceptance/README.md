@@ -63,16 +63,20 @@ docs/acceptance/<work-package>/<run-id>/
 
 已实现的工具门禁（`scripts/acceptance/evidence.cjs`，零依赖）：
 
-- **run**：`node scripts/acceptance/evidence.cjs run <工作包> <套件名> [--reuse-run-id <runId>] -- <命令...>`——原子创建 run-id（mkdir 独占，无检查-创建竞态），同秒冲突自动加序号；多套件同轮用 `--reuse-run-id` 追加，重复套件名拒绝；子进程参数数组直传（不经 shell 拼接），经 `ACCEPT_RUN_DIR/ACCEPT_RUN_ID/ACCEPT_SUITE` 隔离输出；stdout/stderr 落 `logs/<suite>-output.txt`；失败退出码如实记录；计数由验收脚本写入，父进程回写读盘合并——不会覆盖子进程计数。
+- **run**：`node scripts/acceptance/evidence.cjs run <工作包> <套件名> [--reuse-run-id <runId>] -- <命令...>`——原子创建 run-id（mkdir 独占，无检查-创建竞态），同秒冲突自动加序号；`--reuse-run-id` 复用要求工作包、源码提交、run-id 三者一致，否则拒绝（防止跨包/跨提交挪用同一轮材料）；重复套件名拒绝覆盖；子进程参数数组直传（不经 shell 拼接），可执行文件不存在时如实失败、**不回退 shell**（避免参数被重新解释）；经 `ACCEPT_RUN_DIR/ACCEPT_RUN_ID/ACCEPT_SUITE` 隔离输出；stdout/stderr 落 `logs/<suite>-output.txt`（即使无输出也生成空文件）；失败退出码如实记录；**计数由父进程读取套件结果文件统计**（子进程只产出断言数组，不直接改写 run.json），消除双写竞态；结果数组含失败断言时父进程强制非零退出，不依赖子进程自律。
 - **archive**：`node scripts/acceptance/evidence.cjs archive <工作包> <runId> --files <相对路径...>`——生成 manifest.json（sourceCommit/环境/套件/SHA256 清单）；拒绝覆盖、路径逃逸（绝对路径/盘符/父目录/符号链接）、禁入类型（浏览器 profile、临时查询脚本、cookie/env）、敏感内容（归档前置脱敏扫描，与 check 双防线）；先全量校验再写临时目录、原子改名发布，失败清理不留半成品。
 - **check**：`node scripts/acceptance/evidence.cjs check <归档相对路径>`——校验 manifest 结构（未知键拒绝、计数/退出码类型严格校验、与归档路径绑定）、材料存在与哈希、归档内未登记文件拒绝（防夹带）、结果文件与清单计数交叉核对（手改 manifest 冒充通过会被抓）、敏感内容兜底扫描；FAIL 非零退出。
 
-台账接线（`scripts/workflow.py`）：验收项与独立评审引用 `docs/acceptance/<工作包>/<run-id>/` 下带 manifest 的 report；`commit` 须为完整 SHA 且是 HEAD 祖先，须等于 manifest `sourceCommit`；报告必须被 manifest.files 哈希清单覆盖、归属于目标工作包；验收项绑定具体套件（`suite` 键），核对命令一致、exitCode=0、failed=0、skipped=0、passed>0——失败/跳过套件不能支撑验收；`review.approved` 必须显式 true；Git 命令任何失败都拒绝验收；`ACCEPT_EVIDENCE_*` 环境变量在正式验收时被剥离（禁止改道归档根）；`legacy` 目录材料不得用于新验收；sourceCommit→HEAD 之间实现/测试路径（schema-frontend、schema-platform、scripts、contract、sql）变更则证据失效须重验（仅证据提交不误失效）。
+材料隔离：验收脚本公共库（`accept-lib.cjs`）只写各自套件的结果文件，不再直接改写 `run.json`（避免与父进程统计竞态）；数据库查询临时脚本、浏览器 profile 均按 `<run-id>/private/<suite>/` 隔离，不同套件/不同轮次互不覆盖。
 
-工具自测（`scripts/acceptance/evidence.test.cjs`，node:test，19 用例：结构拒绝 16 + 真实 CLI 子进程 3）纳入 verify quick 门禁 `evidence-gate-test`；台账门禁真实测试（`scripts/workflow_gate_test.py`，14 用例，临时 Git 仓库 + 真实 CLI 全链）纳入 quick 门禁 `workflow-gate-test`；commit 级含 `acceptance-archives` 步骤（每个带 manifest 的正式归档必须过 check；暂无新协议归档时 SKIP，首个 run-id 归档后自动生效）。
+台账接线（`scripts/workflow.py`）：验收项与独立评审引用 `docs/acceptance/<工作包>/<run-id>/` 下带 manifest 的 report；`commit` 须为完整 SHA 且是 HEAD 祖先，须等于 manifest `sourceCommit`；报告必须被 manifest.files 哈希清单覆盖、归属于目标工作包；验收项绑定具体套件（`suite` 键），核对命令一致、exitCode=0、failed=0、skipped=0、passed>0——失败/跳过套件（包括全部 skipped、无 passed）不能支撑验收；`review.approved` 必须显式 true；Git 命令任何失败都拒绝验收；`ACCEPT_EVIDENCE_*` 环境变量在正式验收路径下被剥离并实测验证（伪造归档根指向空目录不影响正式校验结果）；`legacy` 目录材料不得用于新验收；sourceCommit→HEAD 之间实现/测试路径（schema-frontend、schema-platform、scripts、contract、sql）变更则证据失效须重验（仅证据提交不误失效）。
 
-覆盖的拒绝路径：并发运行不覆盖、失败退出码保留、计数与结果文件交叉核对（伪装通过拒绝）、路径逃逸全形态、敏感内容双防线、归档夹带未登记文件、挪用他工作包材料、无效/非祖先源码提交、源码漂移证据失效、独立评审未批准、legacy 报告、报告不在哈希清单内。
+正式管线新增 `scripts/workflow.py references`：扫描 `docs/acceptance/<工作包>/` 下每个非 `legacy` 的 run-id 目录，缺 `manifest.json` 即拒绝（防止新归档漏生成清单）；逐条核对台账验收项与评审引用的 report 路径合法且落在归档根内，非 legacy 引用额外跑一次 `verify_commit`；`legacy` 子目录只核对路径存在、不要求 manifest、不改变历史 accepted 状态。`verify.ps1` 的 `acceptance-archives` 完整性检查同时覆盖 `commit` 与 `ci` 两档（此前只在 `commit` 执行）；暂无新协议归档时 SKIP，首个 run-id 归档后自动生效。
 
-测试与 CI 可用 `ACCEPT_EVIDENCE_OUT` / `ACCEPT_EVIDENCE_ARCHIVE` 覆盖目录根；`SCHEMA_EVIDENCE_ROOT` / `SCHEMA_WORKFLOW_ROOT` 指向临时 Git 仓库（仅测试注入用，正式验收剥离 `ACCEPT_EVIDENCE_*`，仓库根默认真实仓库）。
+工具自测（`scripts/acceptance/evidence.test.cjs`，node:test，21 用例：结构拒绝 16 + 真实 CLI/并发/复用拒绝 5）纳入 verify quick 门禁 `evidence-gate-test`；台账门禁真实测试（`scripts/workflow_gate_test.py`，20 用例，临时 Git 仓库 + 真实 CLI 全链）纳入 quick 门禁 `workflow-gate-test`；新增覆盖：真实并发创建互不冲突、跨工作包/跨源码提交复用拒绝、不存在可执行文件不回退 shell、正式校验忽略 `ACCEPT_EVIDENCE_*` 改道、新目录缺 manifest 拒绝、legacy 目录豁免、报告路径越界拒绝、全 skipped 套件不能支撑验收。
 
-尚未实现（不得宣称为自动门禁）：临时输出 30 天自动清理脚本、外部大体积材料 CI artifact 地址登记。
+覆盖的拒绝路径：并发运行不覆盖、跨包/跨提交复用拒绝、失败退出码保留、计数与结果文件交叉核对（伪装通过拒绝）、路径逃逸全形态、敏感内容双防线、归档夹带未登记文件、挪用他工作包材料、无效/非祖先源码提交、源码漂移证据失效、独立评审未批准、legacy 报告、报告不在哈希清单内、正式检查根改道、新归档漏清单、全 skipped 冒充通过。
+
+测试与 CI 可用 `ACCEPT_EVIDENCE_OUT` / `ACCEPT_EVIDENCE_ARCHIVE` 覆盖目录根（仅测试注入，正式校验路径已实测验证不受其影响）；`SCHEMA_EVIDENCE_ROOT` / `SCHEMA_WORKFLOW_ROOT` 指向临时 Git 仓库（仅测试注入用，仓库根默认真实仓库）。
+
+尚未实现（不得宣称为自动门禁）：临时输出 30 天自动清理脚本、外部大体积材料 CI artifact 地址登记、上传数据的运行间物理隔离复核（当前约定落盘路径按 `<run-id>` 天然隔离，未专项补测）。

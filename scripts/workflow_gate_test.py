@@ -38,8 +38,11 @@ def node_cli(*args, cwd, env=None, check=False):
     return sh('node', str(EVIDENCE_CLI), *[str(a) for a in args], cwd=cwd, check=check, env=env)
 
 
-def git_commit_all(repo, msg):
-    sh('git', 'add', '-A', cwd=repo)
+def git_commit_all(repo, msg, paths=('.',)):
+    """提交指定路径（默认全部）。测试需要局部提交时显式传 paths，
+    避免把未跟踪的 .agent/workflow.json 误带入提交——后续 reset --hard
+    到更早提交会把该文件当作「该提交才引入」而被整体删除。"""
+    sh('git', 'add', *paths, cwd=repo)
     sh('git', '-c', 'user.name=test', '-c', 'user.email=t@t', 'commit', '-m', msg, cwd=repo)
     return sh('git', 'rev-parse', 'HEAD', cwd=repo).stdout.strip()
 
@@ -83,10 +86,26 @@ class GateFixture:
         assert arc.returncode == 0, arc.stderr
         # 归档即提交——后续用例的 git reset --hard 不得波及证据目录
         git_commit_all(self.repo, 'archive evidence')
-        self.head_with_evidence = sh('git', 'rev-parse', 'HEAD', cwd=self.repo).stdout.strip()
         self.archive_dir = self.repo / 'docs' / 'acceptance' / 'WPX' / self.run_id
         manifest = json.loads((self.archive_dir / 'manifest.json').read_text(encoding='utf-8'))
         self.command = manifest['suites']['s1']['command']
+        # 台账文件须先于 head_with_evidence 捕获落盘并提交——否则「仅证据提交」等用例
+        # 的 reset --hard 会把它当「晚于基线才引入」而整体删除，污染后续依赖它的用例。
+        self.write_ledger()
+        self.head_with_evidence = sh('git', 'rev-parse', 'HEAD', cwd=self.repo).stdout.strip()
+
+    def write_ledger(self, **task_override):
+        task = {'id': 'WPX', 'title': 'WPX', 'status': 'accepted', 'priority': 0, 'dependsOn': [],
+                'spec': 'x', 'acceptance': [{'id': 'crit', 'evidence': self.evidence()}],
+                'review': self.review()}
+        task.update(task_override)
+        ledger = {'schemaVersion': 1, 'tasks': [task]}
+        (self.repo / '.agent' / 'workflow.json').write_text(json.dumps(ledger, indent=2), encoding='utf-8')
+        # 立即单独提交：避免后续测试用 `git add -A` 把它意外纳入其他提交，
+        # 导致 reset --hard 到更早提交时把它当「该提交才引入」而整体删除。
+        sh('git', 'add', '.agent/workflow.json', cwd=self.repo)
+        sh('git', '-c', 'user.name=test', '-c', 'user.email=t@t', 'commit', '-m', 'ledger',
+          '--allow-empty', cwd=self.repo, check=False)
 
     def evidence(self, **over):
         base = {'commit': self.source_commit, 'command': self.command,
@@ -247,6 +266,90 @@ class WorkflowGateTest(unittest.TestCase):
         issues = self.call_audit(task)
         self.assertTrue(any('missing successful command record' in i for i in issues),
                         issues)
+
+    # ---------- 正式检查边界：环境变量不得改道正式入口 ----------
+
+    def test_official_check_ignores_accept_evidence_env_override(self):
+        # 正式校验必须命中仓库内真实归档；伪造的 ACCEPT_EVIDENCE_ARCHIVE 指向空目录不得被采用
+        bogus = self.fx.tmp / 'bogus-archive'
+        bogus.mkdir(exist_ok=True)
+        os.environ['ACCEPT_EVIDENCE_ARCHIVE'] = str(bogus)
+        os.environ['ACCEPT_EVIDENCE_OUT'] = str(bogus)
+        try:
+            issues = self.workflow.verify_commit(self.fx.evidence(), 'crit', 'WPX')
+            self.assertEqual(issues, [], issues)
+        finally:
+            os.environ.pop('ACCEPT_EVIDENCE_ARCHIVE', None)
+            os.environ.pop('ACCEPT_EVIDENCE_OUT', None)
+
+    # ---------- 正式管线：归档完整性 + 台账引用检查 ----------
+
+    def test_references_rejects_new_directory_missing_manifest(self):
+        # 台账文件不受 git 版本控制（write_ledger 只写盘）；早先用例的 git reset --hard
+        # 会把它当未跟踪产物一并清掉——每个依赖它的用例必须自行重建，不能假设仍存在。
+        self.fx.write_ledger()
+        ghost = self.fx.repo / 'docs' / 'acceptance' / 'WPX' / 'ghost-run'
+        ghost.mkdir(parents=True)
+        (ghost / 'notes.txt').write_text('no manifest here', encoding='utf-8')
+        try:
+            issues = self.workflow.check_references()
+            self.assertTrue(any('Missing manifest' in i and 'ghost-run' in i for i in issues), issues)
+        finally:
+            shutil.rmtree(ghost, ignore_errors=True)
+
+    def test_references_skips_legacy_directory(self):
+        legacy = self.fx.repo / 'docs' / 'acceptance' / 'WPX' / 'legacy'
+        legacy.mkdir(parents=True, exist_ok=True)
+        (legacy / 'old.txt').write_text('no manifest, by design', encoding='utf-8')
+        try:
+            issues = self.workflow.check_references()
+            self.assertFalse(any('legacy' in i for i in issues), issues)
+        finally:
+            shutil.rmtree(legacy, ignore_errors=True)
+
+    def test_references_passes_for_legitimate_ledger(self):
+        issues = self.workflow.check_references()
+        self.assertEqual(issues, [], issues)
+
+    def test_references_rejects_invalid_report_path(self):
+        self.fx.write_ledger(acceptance=[{'id': 'crit', 'evidence': self.fx.evidence(report='../escape.md')}])
+        try:
+            issues = self.workflow.check_references()
+            self.assertTrue(any('invalid report reference' in i for i in issues), issues)
+        finally:
+            self.fx.write_ledger()
+
+    # ---------- 材料隔离：skipped 口径不得单独放行验收 ----------
+
+    def test_fully_skipped_suite_cannot_certify(self):
+        skip_run = node_cli('run', 'WPZ', 'sskip', '--', sys.executable, '-c', '0',
+                            cwd=self.fx.repo, env=self.fx.env)
+        self.assertEqual(skip_run.returncode, 0, skip_run.stderr)
+        run_id = skip_run.stdout.strip().split('run=')[1].split()[0]
+        run_dir = self.fx.tmp / 'out' / run_id
+        (run_dir / 'sskip-result.json').write_text(
+            json.dumps([{'name': 'n/a', 'pass': True, 'skipped': True}]), encoding='utf-8')
+        # 父进程统计口径：全 skipped 时 passed 应为 0——重新触发一次统计写入由 CLI 自身完成，
+        # 这里直接校验 manifest 落盘后的计数语义，避免重复实现统计逻辑。
+        rerun = node_cli('run', 'WPZ', 'sskip2', '--reuse-run-id', run_id, '--', sys.executable, '-c',
+                         "import json,os;rd=os.environ['ACCEPT_RUN_DIR'];s=os.environ['ACCEPT_SUITE'];"
+                         "open(rd+'/'+s+'-result.json','w').write(json.dumps([{'name':'n/a','pass':True,'skipped':True}]))",
+                         cwd=self.fx.repo, env=self.fx.env)
+        self.assertEqual(rerun.returncode, 0, rerun.stderr)
+        (run_dir / 'report.md').write_text('# skip', encoding='utf-8')
+        arc = node_cli('archive', 'WPZ', run_id, '--files', 'sskip2-result.json', 'report.md',
+                       cwd=self.fx.repo, env=self.fx.env)
+        self.assertEqual(arc.returncode, 0, arc.stderr)
+        manifest = json.loads((self.fx.repo / 'docs' / 'acceptance' / 'WPZ' / run_id / 'manifest.json')
+                               .read_text(encoding='utf-8'))
+        suite_stat = manifest['suites']['sskip2']
+        self.assertEqual(suite_stat['passed'], 0, suite_stat)
+        self.assertEqual(suite_stat['skipped'], 1, suite_stat)
+        ev = self.fx.evidence(suite='sskip2', command=suite_stat['command'],
+                              report=f'docs/acceptance/WPZ/{run_id}/report.md')
+        issues = self.workflow.verify_commit(ev, 'crit', 'WPZ')
+        self.assertTrue(any('failed/skipped suite' in i for i in issues), issues)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

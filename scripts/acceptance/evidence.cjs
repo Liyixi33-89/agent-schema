@@ -91,12 +91,13 @@ function loadOrCreateRun(workPackage, reuseRunId) {
   if (!head) throw new Error('不在 git 仓库内，无法生成 run-id');
   if (reuseRunId) {
     // 显式复用：同轮多套件共享 run-id；套件冲突由 suite() 拒绝，不覆盖
-    const runDir = path.join(outRoot(), reuseRunId);
+    const runDir = safeJoin(outRoot(), reuseRunId);
     const runFile = path.join(runDir, 'run.json');
-    if (fs.existsSync(runFile)) return { run: JSON.parse(fs.readFileSync(runFile, 'utf8')), runDir, reused: true };
-    fs.mkdirSync(path.join(runDir, 'shots'), { recursive: true });
-    const run = freshRun(workPackage, head, reuseRunId);
-    fs.writeFileSync(runFile, JSON.stringify(run, null, 2));
+    if (!fs.existsSync(runFile)) throw new Error('复用运行不存在，必须先创建运行');
+    const run = JSON.parse(fs.readFileSync(runFile, 'utf8'));
+    if (run.workPackage !== workPackage || run.sourceCommit !== head || run.runId !== reuseRunId) {
+      throw new Error('复用运行工作包、源码提交或标识不一致');
+    }
     return { run, runDir, reused: true };
   }
   let base = `${timestamp()}-${head.slice(0, 7)}`;
@@ -177,18 +178,22 @@ function runCommand(workPackage, suiteName, cmd, { reuseRunId } = {}) {
     cwd: ROOT, shell: false,
     env: { ...process.env, ACCEPT_RUN_DIR: ctx.runDir, ACCEPT_RUN_ID: ctx.runId, ACCEPT_SUITE: suiteName },
   });
-  if (result.error && result.error.code === 'ENOENT') {
-    result = spawnSync(cmd.join(' '), {
-      cwd: ROOT, shell: true,
-      env: { ...process.env, ACCEPT_RUN_DIR: ctx.runDir, ACCEPT_RUN_ID: ctx.runId, ACCEPT_SUITE: suiteName },
-    });
-    fs.appendFileSync(logFile, '\n[evidence] 直连可执行失败已回退 shell 模式\n');
-  }
-  if (result.stdout) fs.appendFileSync(logFile, result.stdout);
-  if (result.stderr) fs.appendFileSync(logFile, result.stderr);
+  // 不回退 shell：可执行文件不存在时如实失败，避免参数被重新解释。
+
+  fs.writeFileSync(logFile, Buffer.concat([result.stdout || Buffer.alloc(0), result.stderr || Buffer.alloc(0)]));
   let exitCode = typeof result.status === 'number' ? result.status : 1;
   if (result.error && exitCode === 1) {
     fs.appendFileSync(logFile, `\n[evidence] 启动失败: ${result.error.message}\n`);
+  }
+  if (fs.existsSync(ctx.resultFile)) {
+    const rows = JSON.parse(fs.readFileSync(ctx.resultFile, 'utf8'));
+    if (!Array.isArray(rows) || rows.some((r) => !r || typeof r.pass !== 'boolean')) {
+      throw new Error('套件结果必须为含布尔 pass 的断言数组');
+    }
+    const skipped = rows.filter((r) => r.skipped === true).length;
+    const failed = rows.filter((r) => r.skipped !== true && r.pass === false).length;
+    ctx.count(rows.length - failed - skipped, failed, skipped);
+    if (failed && exitCode === 0) exitCode = 1;
   }
   ctx.exit(exitCode);
   return { runId: ctx.runId, runDir, exitCode };
@@ -196,7 +201,7 @@ function runCommand(workPackage, suiteName, cmd, { reuseRunId } = {}) {
 
 /** 归档：run.json → manifest.json；复制指定材料；生成 SHA256 清单；拒绝覆盖与禁入文件；原子发布。 */
 function archive(workPackage, runId, files) {
-  const runDir = path.join(outRoot(), runId);
+  const runDir = safeJoin(outRoot(), runId);
   const runFile = path.join(runDir, 'run.json');
   if (!fs.existsSync(runFile)) throw new Error(`运行目录不存在: ${runId}`);
   const run = JSON.parse(fs.readFileSync(runFile, 'utf8'));

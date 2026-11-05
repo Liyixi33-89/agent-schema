@@ -296,9 +296,9 @@ if ($script:failedCount -eq 0) {
         }
 }
 
-if ($Level -eq 'commit') {
+if ($Level -in @('commit', 'ci')) {
     # ============================================================
-    # commit 级（附加）：正式归档完整性——每个带 manifest 的归档必须过 check
+    # commit/ci：正式归档完整性——每个带 manifest 的归档必须过 check
     # 历史 legacy 目录无 manifest（规范：不补造），不在本步骤范围
     # ============================================================
     $archRoot = Join-Path $root 'docs\acceptance'
@@ -315,7 +315,7 @@ if ($Level -eq 'commit') {
             Write-Host ("归档完整性: {0} 个 manifest 全部 PASS" -f $manifests.Count)
         }
     }
-    Finish -Level $Level -swTotal $swTotal
+    if ($Level -eq 'commit') { Finish -Level $Level -swTotal $swTotal }
 }
 
 # ============================================================

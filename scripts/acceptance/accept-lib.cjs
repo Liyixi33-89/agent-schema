@@ -115,7 +115,9 @@ function dbQuery(sql) {
 export PGPASSWORD=schema_local_only
 psql -h localhost -U schema_dev -d schema_accept -tAc "${sql.replace(/"/g, '\\"')}"
 `;
-  const tmp = path.join(__dirname, 'dbq_exec.sh'); // 一次性查询脚本（运行产物，已 ignore）
+  const queryDir = path.join(RUN_DIR, 'private', process.env.ACCEPT_SUITE || 'direct');
+  fs.mkdirSync(queryDir, { recursive: true });
+  const tmp = path.join(queryDir, 'dbq_exec.sh');
   fs.writeFileSync(tmp, script.replace(/\r/g, ''));
   const wslPath = tmp.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (m) => `/mnt/${m[0].toLowerCase()}`);
   try {
@@ -133,16 +135,10 @@ function outPath(name) { fs.mkdirSync(RUN_DIR, { recursive: true }); return path
 function summary(suite) {
   const failed = results.filter((r) => !r.pass);
   console.log(`\n=== ${suite} 验收: ${results.length - failed.length}/${results.length} PASS ===`);
-  fs.writeFileSync(outPath(`${suite}-result.json`), JSON.stringify(results, null, 2));
+  fs.writeFileSync(outPath(`${process.env.ACCEPT_SUITE || suite}-result.json`), JSON.stringify(results, null, 2));
   if (failed.length) process.exitCode = 1;
-  if (RUN_ID) { // evidence.cjs run 入口下同步套件计数与退出码到 run.json
-    try {
-      const runFile = path.join(RUN_DIR, 'run.json');
-      const run = JSON.parse(fs.readFileSync(runFile, 'utf8'));
-      run.suites[suite] = { ...(run.suites[suite] || {}), passed: results.length - failed.length, failed: failed.length, skipped: 0 };
-      fs.writeFileSync(runFile, JSON.stringify(run, null, 2));
-    } catch { /* run.json 缺失时只写结果文件，不阻断验收 */ }
-  }
+  // 清单只由父进程维护；子进程仅产出断言结果。
+
 }
 
 module.exports = { BASE, ok, record, request, ApiClient, dbQuery, summary, results };

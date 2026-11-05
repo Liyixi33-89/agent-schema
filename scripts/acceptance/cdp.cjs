@@ -30,7 +30,7 @@ function httpGet(url) {
 
 async function launch(url = 'about:blank') {
   // 每轮独立 profile：时间戳目录，close 时删除（同轮内 goto 保持同一上下文）
-  profileDir = path.join(OUT_DIR, `chrome-profile-${Date.now()}`); // 临时 profile 不归档
+  profileDir = path.join(OUT_DIR, 'private', process.env.ACCEPT_SUITE || 'direct', `chrome-profile-${Date.now()}`);
   fs.mkdirSync(profileDir, { recursive: true });
   browser = spawn(CHROME, [
     `--remote-debugging-port=${PORT}`,
