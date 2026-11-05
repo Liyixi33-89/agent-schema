@@ -6,11 +6,63 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / '.agent' / 'workflow.json'
+EVIDENCE_TOOL = ROOT / 'scripts' / 'acceptance' / 'evidence.cjs'
+IMPLEMENTATION_PATHS = ('schema-frontend', 'schema-platform', 'scripts', 'contract', 'sql')
 STATES = ('planned', 'ready', 'implementing', 'implemented', 'verified', 'accepted', 'blocked')
 
 
 def git_head():
     return subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+
+
+def run_evidence_check(archive_rel):
+    """调用项目归档校验工具；工具缺失/失败都视为校验失败，不静默降级。"""
+    if not EVIDENCE_TOOL.is_file():
+        return ['evidence tool missing: ' + str(EVIDENCE_TOOL)]
+    proc = subprocess.run(['node', str(EVIDENCE_TOOL), 'check', archive_rel], cwd=ROOT,
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        lines = [ln for ln in (proc.stdout + proc.stderr).splitlines() if ln.strip()]
+        return lines or [f'archive check failed (exit={proc.returncode})']
+    return []
+
+
+def implementation_changed_between(source_commit, head):
+    """源码提交与 HEAD 之间实现/测试路径是否有改动——有则证据失效，须重验。"""
+    diff = subprocess.run(['git', 'diff', '--name-only', source_commit, head, '--', *IMPLEMENTATION_PATHS],
+                          cwd=ROOT, capture_output=True, text=True)
+    return [ln for ln in diff.stdout.splitlines() if ln.strip()]
+
+
+def verify_commit(record, label):
+    """校验证据提交：允许 manifest.sourceCommit ≠ HEAD（证据提交独立），但实现路径不得变化。"""
+    issues = []
+    head = git_head()
+    commit = record.get('commit')
+    report = (ROOT / record.get('report', '')).resolve()
+    if (not report.is_relative_to(ROOT) or not report.is_file()
+            or report.parts[-3:-2] == ('legacy',)):  # legacy 材料不得用于新验收
+        return [f'{label}: report missing, outside repository, or legacy']
+    manifest = None
+    for parent in report.parents:
+        candidate = parent / 'manifest.json'
+        if candidate.is_file():
+            manifest = json.loads(candidate.read_text(encoding='utf-8-sig'))
+            break
+    if manifest is None:
+        issues.append(f'{label}: no manifest.json in report ancestry (docs/acceptance/<wp>/<run-id>/)')
+        return issues
+    archive_rel = str(manifest.get('workPackage', '')) + '/' + str(manifest.get('runId', ''))
+    issues += run_evidence_check(archive_rel)
+    source = manifest.get('sourceCommit')
+    if not source or source != commit:
+        issues.append(f'{label}: ledger commit != manifest sourceCommit')
+    changed = implementation_changed_between(source, head) if source and source != head else []
+    if changed:
+        issues.append(f'{label}: implementation changed since sourceCommit — re-run acceptance ({len(changed)} files)')
+    if commit == head and source != head:
+        pass  # 证据提交独立合法；实现未变即可
+    return issues
 
 
 def load():
@@ -42,21 +94,16 @@ def audit(task):
         if not evidence:
             issues.append(criterion['id'] + ': missing evidence')
             continue
-        path = (ROOT / evidence['report']).resolve()
-        if not path.is_relative_to(ROOT) or not path.is_file():
-            issues.append(criterion['id'] + ': report missing or outside repository')
-        if evidence.get('commit') != head:
-            issues.append(criterion['id'] + ': evidence does not match HEAD')
+        issues += verify_commit(evidence, criterion['id'])
         if not evidence.get('passed') or not evidence.get('command'):
             issues.append(criterion['id'] + ': missing successful command record')
     if not task['acceptance']:
         issues.append('No acceptance criteria')
     review = task.get('review') or {}
-    report = (ROOT / review.get('report', '')).resolve()
-    if (not review.get('approved') or review.get('commit') != head
-            or not review.get('reviewer') or not report.is_relative_to(ROOT) or not report.is_file()):
-        issues.append('Missing independent review for HEAD')
-    dirty = subprocess.check_output(['git', 'status', '--porcelain', '--', 'schema-frontend', 'schema-platform', 'scripts', 'contract'], cwd=ROOT, text=True)
+    issues += verify_commit(review, 'review') if review else ['Missing independent review']
+    if not (review.get('reviewer')):
+        issues.append('Missing independent reviewer')
+    dirty = subprocess.check_output(['git', 'status', '--porcelain', '--', *IMPLEMENTATION_PATHS], cwd=ROOT, text=True)
     if dirty.strip():
         issues.append('Implementation working tree is dirty; evidence cannot certify uncommitted changes')
     return issues

@@ -214,6 +214,17 @@ if (Test-Path $contractDir) {
     }
 } else { Skip 'contract-diff' 'contract/ 尚未导出（spec-001 T6 落地后生效）' }
 
+# ============================================================
+# quick 级（附加）：证据工具自测 —— run-id 隔离/归档/校验门禁自身必须可复验
+# ============================================================
+$evidenceTest = Join-Path $root 'scripts\acceptance\evidence.test.cjs'
+if (Test-Path $evidenceTest) {
+    Step 'evidence-gate-test' {
+        node --test $evidenceTest
+        if ($LASTEXITCODE -ne 0) { throw "evidence 自测退出码 $LASTEXITCODE" }
+    }
+} else { Skip 'evidence-gate-test' 'evidence.test.cjs 不存在' }
+
 if ($Level -eq 'quick') { Finish -Level $Level -swTotal $swTotal }
 
 # ============================================================
