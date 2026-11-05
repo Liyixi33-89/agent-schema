@@ -225,6 +225,21 @@ if (Test-Path $evidenceTest) {
     }
 } else { Skip 'evidence-gate-test' 'evidence.test.cjs 不存在' }
 
+# 台账门禁真实测试（临时 Git 仓库 + 真实 CLI）：verify_commit/audit 拒绝路径
+# 注意：python 把进度写 stderr（PowerShell 已知误报源），退出码必须从 $global:LASTEXITCODE 取
+$workflowGateTest = Join-Path $root 'scripts\workflow_gate_test.py'
+if (Test-Path $workflowGateTest) {
+    Step 'workflow-gate-test' {
+        # PS5.1 + $ErrorActionPreference=Stop 会把 python 的 stderr 行升级为管道中断
+        # （Exit code 2 + 输出截断）——用 cmd /c 包装把整段输出收进单一字符串
+        $raw = & cmd /c "python `"$workflowGateTest`" 2>&1"
+        $code = $global:LASTEXITCODE
+        $hasOk = ($raw -split "`r?`n" | Where-Object { $_ -match '^(OK|FAILED\b)' }) -join '; '
+        if ($code -ne 0 -or $hasOk -notmatch 'OK') { throw "workflow 门禁测试未通过 (exit=$code) :: $hasOk" }
+        Write-Host ("台账门禁测试: {0}" -f $hasOk)
+    }
+} else { Skip 'workflow-gate-test' 'workflow_gate_test.py 不存在' }
+
 if ($Level -eq 'quick') { Finish -Level $Level -swTotal $swTotal }
 
 # ============================================================
@@ -281,7 +296,27 @@ if ($script:failedCount -eq 0) {
         }
 }
 
-if ($Level -eq 'commit') { Finish -Level $Level -swTotal $swTotal }
+if ($Level -eq 'commit') {
+    # ============================================================
+    # commit 级（附加）：正式归档完整性——每个带 manifest 的归档必须过 check
+    # 历史 legacy 目录无 manifest（规范：不补造），不在本步骤范围
+    # ============================================================
+    $archRoot = Join-Path $root 'docs\acceptance'
+    $manifests = @(Get-ChildItem $archRoot -Recurse -Filter 'manifest.json' -ErrorAction SilentlyContinue)
+    if ($manifests.Count -eq 0) {
+        Skip 'acceptance-archives' '暂无新协议归档（全是历史 legacy；首个 run-id 归档后本步骤自动生效）'
+    } else {
+        Step 'acceptance-archives' {
+            foreach ($m in $manifests) {
+                $rel = [IO.Path]::GetRelativePath($archRoot, $m.DirectoryName)
+                node (Join-Path $root 'scripts\acceptance\evidence.cjs') check $rel
+                if ($LASTEXITCODE -ne 0) { throw "归档校验 FAIL: $rel" }
+            }
+            Write-Host ("归档完整性: {0} 个 manifest 全部 PASS" -f $manifests.Count)
+        }
+    }
+    Finish -Level $Level -swTotal $swTotal
+}
 
 # ============================================================
 # ci 级
