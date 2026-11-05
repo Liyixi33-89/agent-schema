@@ -15,7 +15,7 @@
           "evidence": {
             "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
-            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+            "report": "docs/acceptance/FIX-M8M9M10/legacy/FIX-M8M9M10-it-report.txt",
             "passed": true
           }
         },
@@ -25,7 +25,7 @@
           "evidence": {
             "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
-            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+            "report": "docs/acceptance/FIX-M8M9M10/legacy/FIX-M8M9M10-it-report.txt",
             "passed": true
           }
         }
@@ -34,7 +34,7 @@
         "approved": true,
         "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
         "reviewer": "independent-reviewer",
-        "report": ".agent/evidence/review-M8M9M10.md"
+        "report": "docs/acceptance/FIX-M8M9M10/legacy/review-M8M9M10.md"
       }
     },
     {
@@ -51,7 +51,7 @@
           "evidence": {
             "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
-            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+            "report": "docs/acceptance/FIX-M8M9M10/legacy/FIX-M8M9M10-it-report.txt",
             "passed": true
           }
         },
@@ -61,7 +61,7 @@
           "evidence": {
             "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
-            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+            "report": "docs/acceptance/FIX-M8M9M10/legacy/FIX-M8M9M10-it-report.txt",
             "passed": true
           }
         }
@@ -70,7 +70,7 @@
         "approved": true,
         "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
         "reviewer": "independent-reviewer",
-        "report": ".agent/evidence/review-M8M9M10.md"
+        "report": "docs/acceptance/FIX-M8M9M10/legacy/review-M8M9M10.md"
       }
     },
     {
@@ -87,7 +87,7 @@
           "evidence": {
             "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
-            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+            "report": "docs/acceptance/FIX-M8M9M10/legacy/FIX-M8M9M10-it-report.txt",
             "passed": true
           }
         },
@@ -97,7 +97,7 @@
           "evidence": {
             "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MeteringIT,FileServiceIT,NotificationIT -Dsurefire.failIfNoSpecifiedTests=false",
-            "report": ".agent/evidence/FIX-M8M9M10-it-report.txt",
+            "report": "docs/acceptance/FIX-M8M9M10/legacy/FIX-M8M9M10-it-report.txt",
             "passed": true
           }
         }
@@ -106,7 +106,7 @@
         "approved": true,
         "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
         "reviewer": "independent-reviewer",
-        "report": ".agent/evidence/review-M8M9M10.md"
+        "report": "docs/acceptance/FIX-M8M9M10/legacy/review-M8M9M10.md"
       }
     },
     {
@@ -123,7 +123,7 @@
           "evidence": {
             "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
             "command": "cd schema-platform && mvn -pl schema-protocol test -Dtest=ExprVectorTest,EnumContractTest,SchemaContractTest,ProtocolDtoTest && cd schema-frontend && pnpm vitest run test/vectors.test.ts test/schema-contract.test.ts test/protocol.test.ts && pnpm vitest run tests/architecture.test.ts",
-            "report": ".agent/evidence/M0M1-backend-contract.txt",
+            "report": "docs/acceptance/M0M1/legacy/M0M1-backend-contract.txt",
             "passed": true
           }
         }
@@ -132,7 +132,7 @@
         "approved": true,
         "commit": "f9eb82b34b516f351c8469dcbe77b56c8bb32dac",
         "reviewer": "independent-reviewer",
-        "report": ".agent/evidence/review-M0M1.md"
+        "report": "docs/acceptance/M0M1/legacy/review-M0M1.md"
       }
     },
     {
@@ -151,7 +151,7 @@
           "evidence": {
             "commit": "591a8935dc67da7a392ce459ede36c63865db723",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=DataEngineIT,DataEngineSecurityIT,WriteConstraintsIT,MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT -Dsurefire.failIfNoSpecifiedTests=false",
-            "report": ".agent/evidence/M2M5-report.md",
+            "report": "docs/acceptance/M2M5/legacy/M2M5-report.md",
             "passed": true
           }
         },
@@ -161,7 +161,7 @@
           "evidence": {
             "commit": "591a8935dc67da7a392ce459ede36c63865db723",
             "command": "manual-approval: 分期决策见 spec-002 待办清单（Redis ACK/DataLoader 拼装/computed 重算三项登记，消费方 M6-M7 已交付）",
-            "report": ".agent/evidence/M2M5-report.md",
+            "report": "docs/acceptance/M2M5/legacy/M2M5-report.md",
             "passed": true
           }
         }
@@ -170,7 +170,7 @@
         "approved": true,
         "commit": "591a8935dc67da7a392ce459ede36c63865db723",
         "reviewer": "independent-reviewer",
-        "report": ".agent/evidence/review-M2M5.md"
+        "report": "docs/acceptance/M2M5/legacy/review-M2M5.md"
       }
     },
     {
@@ -190,7 +190,7 @@
           "evidence": {
             "commit": "591a8935dc67da7a392ce459ede36c63865db723",
             "command": "cd schema-frontend && pnpm exec vitest run && pnpm exec turbo run build --filter=@schema/runtime",
-            "report": ".agent/evidence/M6M7-report.md",
+            "report": "docs/acceptance/M6M7/legacy/M6M7-report.md",
             "passed": true
           }
         }
@@ -199,7 +199,7 @@
         "approved": true,
         "commit": "591a8935dc67da7a392ce459ede36c63865db723",
         "reviewer": "independent-reviewer",
-        "report": ".agent/evidence/review-M6M7.md"
+        "report": "docs/acceptance/M6M7/legacy/review-M6M7.md"
       }
     },
     {
@@ -220,7 +220,7 @@
           "evidence": {
             "commit": "d436ba4cac4784e426836708f2e0938b9bd6b428",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT,ObjectStorageContractIT -Dsurefire.failIfNoSpecifiedTests=false",
-            "report": ".agent/evidence/M8M10-it-report.md",
+            "report": "docs/acceptance/M8M10/legacy/M8M10-it-report.md",
             "passed": true
           }
         }
@@ -229,7 +229,7 @@
         "approved": true,
         "commit": "d436ba4cac4784e426836708f2e0938b9bd6b428",
         "reviewer": "independent-reviewer",
-        "report": ".agent/evidence/review-M8M10.md"
+        "report": "docs/acceptance/M8M10/legacy/review-M8M10.md"
       }
     },
     {
@@ -248,7 +248,7 @@
           "evidence": {
             "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "node scripts/acceptance/accept-designer.cjs && node scripts/acceptance/accept-runtime.cjs（浏览器 CDP 真实事件；schema_accept 库）",
-            "report": ".agent/evidence/M11-report.md",
+            "report": "docs/acceptance/M11/legacy/M11-report.md",
             "passed": true
           }
         },
@@ -258,7 +258,7 @@
           "evidence": {
             "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "node scripts/acceptance/accept-admin.cjs（成员/用量/健康/公告全链 + 普通成员越权 403 + 跨租户隔离）",
-            "report": ".agent/evidence/M11-report.md",
+            "report": "docs/acceptance/M11/legacy/M11-report.md",
             "passed": true
           }
         },
@@ -268,7 +268,7 @@
           "evidence": {
             "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=AppServiceIT,AppHttpSecurityIT -Dsurefire.failIfNoSpecifiedTests=false（WSL PG 全绿）",
-            "report": ".agent/evidence/M11-report.md",
+            "report": "docs/acceptance/M11/legacy/M11-report.md",
             "passed": true
           }
         },
@@ -278,7 +278,7 @@
           "evidence": {
             "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "node scripts/acceptance/accept-cache.cjs（23/23 PASS）",
-            "report": ".agent/evidence/M11-report.md",
+            "report": "docs/acceptance/M11/legacy/M11-report.md",
             "passed": true
           }
         },
@@ -288,7 +288,7 @@
           "evidence": {
             "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "node scripts/acceptance/accept-runtime.cjs（CDP 网络域捕获 POST /api/data/1 → 200 → DB 行 1|2|<唯一戳>|88；此前暂跳过项已恢复）",
-            "report": ".agent/evidence/M11-report.md",
+            "report": "docs/acceptance/M11/legacy/M11-report.md",
             "passed": true
           }
         },
@@ -298,7 +298,7 @@
           "evidence": {
             "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
             "command": "cd schema-platform && mvn -pl bootstrap -am test -Dtest=CookieSessionIT -Dsurefire.failIfNoSpecifiedTests=false（12/12 含 logoutRevokesAccessTokenToo）",
-            "report": ".agent/evidence/M11-report.md",
+            "report": "docs/acceptance/M11/legacy/M11-report.md",
             "passed": true
           }
         }
@@ -307,7 +307,7 @@
         "approved": true,
         "commit": "d55a7af97feb919b1075ff6ee2a3af2d376aa0df",
         "reviewer": "independent-reviewer",
-        "report": ".agent/evidence/review-M11.md",
+        "report": "docs/acceptance/M11/legacy/review-M11.md",
         "note": "2026-11-04 收口：四套件浏览器验收全绿（designer 37 / runtime 真实提交 23 / admin 23 / cache 23）；验收实证两个产品级安全缺陷并修复（登出 at 断链 6a9f283、预览吊销死锁 e664dc5）；恒真断言清除（56ecd98）；完整门禁 verify[commit] 七步绿。独立审查报告见 review-M11.md。"
       }
     },
@@ -325,7 +325,7 @@
         {
           "id": "model-designer",
           "requirement": "画布建模、两段式保存、影响面确认、版本回滚浏览器闭环",
-          "report": ".agent/evidence/M12-report.md",
+          "report": "docs/acceptance/M12/legacy/M12-report.md",
           "passed": true,
           "note": "2026-11-04 收口：er-modeler 浏览器验收 48/48（建模→两段式保存→token 一次性→409 冲突→删除确认→版本回滚复活→越权负例）；普通成员建模 403（DesignGate + PERM_DENIED→403 映射修复）；跨应用越权同判 404（loadForTenant 应用域绑定）；缓存一致性收口（保存/回滚/409 后强制刷新详情）。回归四套全绿（designer 37/runtime 23/admin 23/cache 23）；verify[commit] 七步绿。基线偏离：自实现卡片+SVG 画布（非 React Flow）——网格布局+关系边提取已单测覆盖。"
         }

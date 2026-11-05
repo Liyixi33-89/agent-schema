@@ -16,6 +16,12 @@ python scripts/workflow.py reopen FIX-M9
 
 用户可直接派发：「继续下一个可执行任务，按证据验收推进」。这是会话执行约定，不是无人值守后台服务。
 
+## 证据目录规则
+
+验收任务先读 `docs/acceptance/README.md`。新正式证据使用 `docs/acceptance/<work-package>/<run-id>/`，运行输出使用 `scripts/acceptance/out/`；历史证据已集中到 `docs/acceptance/<工作包>/legacy/`，旧 `.agent/evidence/` 不再作为输出或读取入口。目录迁移必须同步引用，不改变验收状态。
+
+下方证据 commit 与 HEAD 的严格校验仍为现有工具行为。源码提交与证据归档提交的区分须经工具及测试升级后才能用于状态转换，不能用目录规则绕过 check。
+
 ## 真源与范围
 
 - `docs/MVP开发任务依赖顺序图.md`：需求与依赖基线，不由此工具修改。
@@ -39,13 +45,13 @@ python scripts/workflow.py reopen FIX-M9
 证据格式（写入对应验收项，不包含凭证或真实用户数据）：
 
 ```json
-{"commit":"完整提交 SHA","command":"实际运行命令","report":".agent/evidence/任务/报告.txt","passed":true}
+{"commit":"完整提交 SHA","command":"实际运行命令","report":"docs/acceptance/工作包/运行标识/报告.txt","passed":true}
 ```
 
 独立审查格式：
 
 ```json
-{"approved":true,"commit":"完整提交 SHA","reviewer":"审查者标识","report":".agent/evidence/任务/review.md"}
+{"approved":true,"commit":"完整提交 SHA","reviewer":"审查者标识","report":"docs/acceptance/工作包/运行标识/review.md"}
 ```
 
 报告应包含执行时刻、真实退出码、测试数量和结果，不得通过管道吞掉原命令退出码。证据对应当前 HEAD；代码推进后如需再次验收必须重跑，避免把旧测试用于新代码。
