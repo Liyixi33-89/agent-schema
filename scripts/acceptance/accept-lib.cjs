@@ -126,14 +126,23 @@ psql -h localhost -U schema_dev -d schema_accept -tAc "${sql.replace(/"/g, '\\"'
   }
 }
 
-const OUT_DIR = path.join(__dirname, 'out');
-function outPath(name) { fs.mkdirSync(OUT_DIR, { recursive: true }); return path.join(OUT_DIR, name); }
+const RUN_DIR = process.env.ACCEPT_RUN_DIR || path.join(__dirname, 'out');
+const RUN_ID = process.env.ACCEPT_RUN_ID || null;
+function outPath(name) { fs.mkdirSync(RUN_DIR, { recursive: true }); return path.join(RUN_DIR, name); }
 
 function summary(suite) {
   const failed = results.filter((r) => !r.pass);
   console.log(`\n=== ${suite} 验收: ${results.length - failed.length}/${results.length} PASS ===`);
   fs.writeFileSync(outPath(`${suite}-result.json`), JSON.stringify(results, null, 2));
   if (failed.length) process.exitCode = 1;
+  if (RUN_ID) { // evidence.cjs run 入口下同步套件计数与退出码到 run.json
+    try {
+      const runFile = path.join(RUN_DIR, 'run.json');
+      const run = JSON.parse(fs.readFileSync(runFile, 'utf8'));
+      run.suites[suite] = { ...(run.suites[suite] || {}), passed: results.length - failed.length, failed: failed.length, skipped: 0 };
+      fs.writeFileSync(runFile, JSON.stringify(run, null, 2));
+    } catch { /* run.json 缺失时只写结果文件，不阻断验收 */ }
+  }
 }
 
 module.exports = { BASE, ok, record, request, ApiClient, dbQuery, summary, results };
