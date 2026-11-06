@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 class RuntimeBuildControllerTest {
     @Test
     void uninstrumentedBuildCannotClaimVerifiedSource() {
-        RuntimeBuildController controller = new RuntimeBuildController();
+        RuntimeBuildController controller = new RuntimeBuildController(null);
         var first = controller.identity();
         var second = controller.identity();
         assertEquals(503, first.getStatusCode().value());
