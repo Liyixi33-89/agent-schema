@@ -147,7 +147,11 @@ importers:
 
   packages/flow-designer: {}
 
-  packages/page-designer: {}
+  packages/page-designer:
+    dependencies:
+      '@schema/schema-protocol':
+        specifier: workspace:*
+        version: link:../schema-protocol
 
   packages/request-sdk: {}
 

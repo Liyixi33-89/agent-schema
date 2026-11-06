@@ -26,7 +26,7 @@ export class FieldMissingError extends Error {
 const KEYWORDS = new Set(['true', 'false', 'null']);
 const BINARY_PRECEDENCE: Record<string, number> = {
   '||': 1, '&&': 2,
-  '==': 3, '!=': 3,
+  '===': 3, '!==': 3, '==': 3, '!=': 3,
   '>': 4, '>=': 4, '<': 4, '<=': 4,
   '+': 5, '-': 5,
   '*': 6, '/': 6, '%': 6,
