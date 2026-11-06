@@ -335,13 +335,13 @@
     {
       "id": "M13",
       "title": "页面设计器与预览",
-      "status": "planned",
+      "status": "implementing",
       "priority": 9,
       "dependsOn": [
         "M6-M7",
         "M11"
       ],
-      "spec": ".agent/workflow.md",
+      "spec": ".agent/specs/013-page-designer.md",
       "acceptance": [
         {
           "id": "page-designer",
