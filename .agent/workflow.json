@@ -335,7 +335,7 @@
     {
       "id": "M13",
       "title": "页面设计器与预览",
-      "status": "accepted",
+      "status": "implemented",
       "priority": 9,
       "dependsOn": [
         "M6-M7",
@@ -355,13 +355,131 @@
           }
         }
       ],
-      "review": {
-        "reviewer": "independent-reviewer",
-        "approved": true,
-        "report": "docs/acceptance/M13/20261106-152504-6d8257e/review.md",
-        "commit": "6d8257e6305ecd9d30b0c91b8e6936ebc14f84b4",
-        "notes": "六维审查通过: P0 修复实证、双端 ===/!== 契约同判(评审中补跨类型向量 3 条双端复跑)、后端发布快照与 preview guard 口径修正(安全边界未扩大)、编辑内核失败命令不污染历史栈/dirty 基线深比较、验收断言真实性抽查无假断言、证据链 run-id 合规。遗留登记 5 项不阻塞: 409 差异摘要粒度、大纲排序入口级验收、手势级 DnD 未直测、preview guard IT 待补、B7-2 flake 窗口。"
-      }
+      "review": null,
+      "gateVersion": 2,
+      "implementedBy": "implementation-session-f42b4e21",
+      "requirements": [
+        {
+          "id": "M13-SAVE",
+          "source": ".agent/specs/013-page-designer.md",
+          "condition": "保存期间继续编辑不会误清 dirty，重复触发不并发提交",
+          "risk": "high",
+          "status": "pending",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [],
+          "tests": [],
+          "negativeTests": [],
+          "checks": [
+            "page-designer"
+          ]
+        },
+        {
+          "id": "M13-CONFLICT",
+          "source": ".agent/specs/013-page-designer.md",
+          "condition": "显示基线、本地、服务端差异，保留后可显式解决并保存",
+          "risk": "high",
+          "status": "pending",
+          "verification": "browser",
+          "userInteraction": true,
+          "implementation": [],
+          "tests": [],
+          "negativeTests": [],
+          "checks": [
+            "page-designer"
+          ]
+        },
+        {
+          "id": "M13-DRAG",
+          "source": ".agent/specs/013-page-designer.md",
+          "condition": "原生鼠标完成容器嵌套、排序、删除并持久化",
+          "risk": "high",
+          "status": "pending",
+          "verification": "browser",
+          "userInteraction": true,
+          "implementation": [],
+          "tests": [],
+          "negativeTests": [],
+          "checks": [
+            "page-designer"
+          ]
+        },
+        {
+          "id": "M13-WIZARD",
+          "source": ".agent/specs/013-page-designer.md",
+          "condition": "向导绑定真实模型生成默认页并重开验证",
+          "risk": "high",
+          "status": "pending",
+          "verification": "browser",
+          "userInteraction": true,
+          "implementation": [],
+          "tests": [],
+          "negativeTests": [],
+          "checks": [
+            "page-designer"
+          ]
+        },
+        {
+          "id": "M13-PREVIEW",
+          "source": ".agent/specs/013-page-designer.md",
+          "condition": "UI 发布预览中字段绑定与输入结果一致",
+          "risk": "high",
+          "status": "pending",
+          "verification": "browser",
+          "userInteraction": true,
+          "implementation": [],
+          "tests": [],
+          "negativeTests": [],
+          "checks": [
+            "page-designer"
+          ]
+        },
+        {
+          "id": "M13-EXPR",
+          "source": ".agent/specs/013-page-designer.md",
+          "condition": "错误表达式阻断手动、自动、预览全部保存路径",
+          "risk": "high",
+          "status": "pending",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [],
+          "tests": [],
+          "negativeTests": [],
+          "checks": [
+            "page-designer"
+          ]
+        },
+        {
+          "id": "M13-HISTORY",
+          "source": ".agent/specs/013-page-designer.md",
+          "condition": "历史栈满容量失败命令不丢历史，撤销回初始和保存基线正确",
+          "risk": "high",
+          "status": "pending",
+          "verification": "unit",
+          "userInteraction": false,
+          "implementation": [],
+          "tests": [],
+          "negativeTests": [],
+          "checks": [
+            "page-designer"
+          ]
+        },
+        {
+          "id": "M13-SCOPE",
+          "source": ".agent/specs/013-page-designer.md",
+          "condition": "核对编辑锁和页面复制原要求，延期须明确审批和承接",
+          "risk": "high",
+          "status": "pending",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [],
+          "tests": [],
+          "negativeTests": [],
+          "checks": [
+            "page-designer"
+          ]
+        }
+      ]
     },
     {
       "id": "M14",
