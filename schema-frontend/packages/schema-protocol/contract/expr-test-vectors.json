@@ -25,6 +25,15 @@
   { "id": "SHORT-CIRCUIT-OR", "category": "短路求值", "source": "true || (1/0)", "scope": {}, "expect": { "value": true } },
   { "id": "NOT-OPERATOR", "category": "短路求值", "source": "!flag", "scope": { "flag": false }, "expect": { "value": true } },
 
+  { "id": "STRICT-EQ-TRUE", "category": "严格相等", "source": "status === 'draft'", "scope": { "status": "draft" }, "expect": { "value": true } },
+  { "id": "STRICT-EQ-FALSE", "category": "严格相等", "source": "status === 'published'", "scope": { "status": "draft" }, "expect": { "value": false } },
+  { "id": "STRICT-EQ-NUM", "category": "严格相等", "source": "amount === 100", "scope": { "amount": 100 }, "expect": { "value": true } },
+  { "id": "STRICT-NEQ-TRUE", "category": "严格相等", "source": "status !== 'draft'", "scope": { "status": "published" }, "expect": { "value": true } },
+  { "id": "STRICT-EQ-NULL", "category": "严格相等", "source": "missing === null", "scope": { "missing": null }, "expect": { "value": true } },
+  { "id": "STRICT-NEQ-NULL", "category": "严格相等", "source": "missing !== null", "scope": { "missing": null }, "expect": { "value": false } },
+  { "id": "STRICT-EQ-BOOL", "category": "严格相等", "source": "flag === true", "scope": { "flag": true }, "expect": { "value": true } },
+  { "id": "STRICT-EQ-PRECEDENCE", "category": "严格相等", "source": "amount > 10 && status === 'draft'", "scope": { "amount": 20, "status": "draft" }, "expect": { "value": true } },
+
   { "id": "INCLUDES-HIT", "category": "类型转换", "source": "INCLUDES(tags,'a')", "scope": { "tags": ["a", "b"] }, "expect": { "value": true } },
   { "id": "INCLUDES-NULL-LIST", "category": "类型转换", "source": "INCLUDES(missing,'a')", "scope": { "missing": null }, "expect": { "value": false } },
   { "id": "LENGTH-NULL", "category": "类型转换", "source": "LENGTH(null)", "scope": {}, "expect": { "value": 0 } },

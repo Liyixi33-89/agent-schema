@@ -140,6 +140,8 @@ export class DesignerStore {
   private history: HistoryEntry[] = [];
   private future: HistoryEntry[] = [];
   private _dirty = false;
+  /** 保存基线快照（markSaved 时记录——undo/redo 后与当前 doc 比对判定 dirty）。 */
+  private savedBaseline: PageSchema | null = null;
   private listeners = new Set<() => void>();
 
   constructor(private doc: PageSchema) {}
@@ -156,21 +158,37 @@ export class DesignerStore {
 
   private emit(): void { for (const fn of this.listeners) fn(); }
 
+  /** dirty 重算：当前 doc 与保存基线（或装载态）深比较。 */
+  private recomputeDirty(): void {
+    const baseline = this.savedBaseline ?? null;
+    this._dirty = baseline === null ? this.history.length > 0 || this._dirty
+      : JSON.stringify(this.doc) !== JSON.stringify(baseline);
+  }
+
   /** 用新文档整体替换（外部草稿装载——不进撤销栈，重置历史）。 */
   load(doc: PageSchema): void {
     this.doc = doc;
     this.history = [];
     this.future = [];
     this._dirty = false;
+    this.savedBaseline = null;
     this.emit();
   }
 
-  /** 执行命令（可撤销唯一入口）。 */
+  /** 执行命令（可撤销唯一入口）。apply 抛异常时回滚历史栈压入——失败命令不得污染撤销栈。 */
   execute(cmd: DesignerCommand, label?: string): void {
-    this.history.push({ snapshot: clone(this.doc), label: label ?? cmd.type });
+    const entry: HistoryEntry = { snapshot: clone(this.doc), label: label ?? cmd.type };
+    this.history.push(entry);
     if (this.history.length > HISTORY_LIMIT) this.history.shift();
+    try {
+      this.apply(cmd, this.doc);
+    } catch (e) {
+      // 失败命令：恢复栈顶（弹出刚压入的快照）并原样抛出——doc 未被改动
+      const idx = this.history.indexOf(entry);
+      if (idx >= 0) this.history.splice(idx, 1);
+      throw e;
+    }
     this.future = [];
-    this.apply(cmd, this.doc);
     this._dirty = true;
     this.emit();
   }
@@ -180,7 +198,7 @@ export class DesignerStore {
     if (!entry) return false;
     this.future.push({ snapshot: this.doc, label: entry.label });
     this.doc = entry.snapshot;
-    this._dirty = true;
+    this.recomputeDirty();
     this.emit();
     return true;
   }
@@ -190,13 +208,14 @@ export class DesignerStore {
     if (!entry) return false;
     this.history.push({ snapshot: this.doc, label: entry.label });
     this.doc = entry.snapshot;
-    this._dirty = true;
+    this.recomputeDirty();
     this.emit();
     return true;
   }
 
   /** 保存成功回执：清 dirty（04FE §3「保存前后状态一致才清 dirty」——调用方须在确认落库后调用）。 */
   markSaved(): void {
+    this.savedBaseline = clone(this.doc);
     this._dirty = false;
     this.emit();
   }
@@ -226,6 +245,12 @@ export class DesignerStore {
         if (!hit) throw new Error(`节点不存在: ${cmd.nodeId}`);
         for (const [k, v] of Object.entries(cmd.patch)) {
           if (v === undefined) continue;
+          if (k === 'fieldRef') {
+            // 字段绑定写协议字段（LayoutNode.fieldRef——渲染/校验真源），不进 props
+            if (v === '' || v === null) delete hit.node.fieldRef;
+            else hit.node.fieldRef = String(v);
+            continue;
+          }
           hit.node.props = { ...hit.node.props, [k]: v };
         }
         break;

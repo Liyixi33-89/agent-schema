@@ -172,6 +172,16 @@ public final class ExprEngine {
                 column += pos - start;
                 continue;
             }
+            // 三字符操作符优先（=== / !==——与前端 tokenize 正则同序，防 == + = 误切）
+            if (pos + 2 < src.length()) {
+                String three = src.substring(pos, pos + 3);
+                if (three.equals("===") || three.equals("!==")) {
+                    tokens.add(new Token("punct", three, line, column));
+                    pos += 3;
+                    column += 3;
+                    continue;
+                }
+            }
             String two = pos + 1 < src.length() ? src.substring(pos, pos + 2) : "";
             if (two.equals("==") || two.equals("!=") || two.equals(">=") || two.equals("<=")
                     || two.equals("&&") || two.equals("||")) {
@@ -209,6 +219,8 @@ public final class ExprEngine {
             m.put("&&", 2);
             m.put("==", 3);
             m.put("!=", 3);
+            m.put("===", 3);
+            m.put("!==", 3);
             m.put(">", 4);
             m.put(">=", 4);
             m.put("<", 4);
@@ -457,10 +469,10 @@ public final class ExprEngine {
         Object l = evalNode(b.left(), ctx);
         Object r = evalNode(b.right(), ctx);
         if (l == null || r == null) {
-            if (op.equals("==")) {
+            if (op.equals("==") || op.equals("===")) {
                 return l == r;
             }
-            if (op.equals("!=")) {
+            if (op.equals("!=") || op.equals("!==")) {
                 return l != r;
             }
             return null;
@@ -483,6 +495,11 @@ public final class ExprEngine {
                 return deepEquals(l, r);
             case "!=":
                 return !deepEquals(l, r);
+            case "===":
+                // 与前端 === 同判：无隐式类型转换（数字 1 与字符串 '1' 判 false）
+                return strictEquals(l, r);
+            case "!==":
+                return !strictEquals(l, r);
             case ">":
             case ">=":
             case "<":
@@ -498,6 +515,19 @@ public final class ExprEngine {
             return ln.doubleValue() == rn.doubleValue();
         }
         return l.equals(r);
+    }
+
+    /** 严格相等（前端 === 语义）：类型不同直接 false——不做数字/字符串隐式转换。 */
+    private static boolean strictEquals(Object l, Object r) {
+        if (l instanceof Number ln && r instanceof Number rn) {
+            return ln.doubleValue() == rn.doubleValue();
+        }
+        // Number 子类型互比视为同类型；其余跨类型（如 Long vs String）判 false
+        if ((l instanceof Number) != (r instanceof Number)) return false;
+        if (l instanceof Boolean || r instanceof Boolean) {
+            return l instanceof Boolean && r instanceof Boolean && l.equals(r);
+        }
+        return l.getClass().equals(r.getClass()) && l.equals(r);
     }
 
     @SuppressWarnings("unchecked")

@@ -322,8 +322,8 @@ function evalBinary(node: Extract<ExprNode, { type: 'binary' }>, ctx: EvalContex
   const l = evalNode(node.left, ctx);
   const r = evalNode(node.right, ctx);
   if (l === null || r === null) {
-    if (op === '==' ) return l === r;
-    if (op === '!=') return l !== r;
+    if (op === '==' || op === '===') return l === r;
+    if (op === '!=' || op === '!==') return l !== r;
     return null;
   }
   switch (op) {
@@ -336,6 +336,8 @@ function evalBinary(node: Extract<ExprNode, { type: 'binary' }>, ctx: EvalContex
     case '%': return (l as number) % (r as number);
     case '==': return l === r;
     case '!=': return l !== r;
+    case '===': return l === r;
+    case '!==': return l !== r;
     case '>': case '>=': case '<': case '<=':
       if (typeof l !== typeof r) throw new Error(`类型不匹配: ${typeof l} ${op} ${typeof r}`);
       if (typeof l === 'string' || typeof l === 'number') {

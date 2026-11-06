@@ -68,7 +68,13 @@ public class PreviewDataGuard {
         }
     }
 
-    /** 页面可访问模型集：绑定模型 + 发布快照 modelRefs；未发布页退化 draft.modelId。 */
+    /**
+     * 页面可访问模型集（2026-11-06 修正口径）：
+     * pages.model_id 列 ∪ published 页面 schema 内 modelId ∪ 应用发布快照 modelRefs。
+     * - published 列存的是「页面 schema」（04BE §A.2 draft→published 拷贝），本身无 modelRefs 键；
+     * - 设计器保存时可绑定模型（schema.modelId 字段，创建向导未传 modelId 的页面常见）——
+     *   该绑定发布后落在 published schema 内，须计入放行集，否则限页预览读字段元数据被拒 403。
+     */
     private Set<Long> pageBoundModels(long tenantId, long pageId) {
         Set<Long> models = new HashSet<>();
         List<String> rows = jdbc.query(
@@ -83,9 +89,30 @@ public class PreviewDataGuard {
                 }, pageId, tenantId);
         String publishedText = rows.isEmpty() ? null : rows.get(0);
         if (publishedText != null && !publishedText.isBlank()) {
+            collectPublishedModelId(publishedText, models);
             collectModelRefs(publishedText, models);
         }
         return models;
+    }
+
+    /** 从 published 页面 schema 提取顶层 modelId（页面绑定模型——设计器保存链路写入）。 */
+    private void collectPublishedModelId(String schemaJson, Set<Long> sink) {
+        try {
+            var obj = com.schema.platform.common.json.Json.parseObject(schemaJson);
+            if (obj == null || obj.isJsonNull()) {
+                return;
+            }
+            var mid = obj.get("modelId");
+            if (mid != null && !mid.isJsonNull()) {
+                try {
+                    sink.add(mid.getAsLong());
+                } catch (NumberFormatException | ClassCastException | IllegalStateException ignored) {
+                    // 非数值 modelId 跳过
+                }
+            }
+        } catch (Exception ignored) {
+            // 结构异常：保守不放行（走既有绑定列）
+        }
     }
 
     /** 从发布快照 JSON 中提取 modelRefs 数组（快照自包含，含应用内全部页面模型引用）。 */

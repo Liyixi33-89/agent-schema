@@ -363,6 +363,266 @@ async function canvasNodeCount() {
     })()`);
     ok('A9-1 未绑模型页字段绑定入口（数据绑定组渲染，下拉提示未绑模型）', bindShown === 'has-bind-group', String(bindShown).slice(0, 60));
 
+    // ========== B 系列：绑定真实模型全链路（本轮补验收——修复回归实证） ==========
+    // B0 准备：新建测试模型（text/number/date/enum 字段）——M12 两段式 API 契约
+    const modelStamp = `md_${stamp}`;
+    const modelResp = await admin.call('POST', '/api/models',
+      { modelKey: modelStamp, name: `验收模型${stamp}` }, { 'X-App-Id': '1' });
+    const modelId = modelResp.json.id ?? modelResp.json.data?.id;
+    ok('B0-1 测试模型创建', !!modelId, 'modelId=' + modelId);
+
+    const fieldDefs = [
+      { op: 'ADD_FIELD', fieldKey: 'expense_title', field: { label: '报销事项', type: 'text', required: true } },
+      { op: 'ADD_FIELD', fieldKey: 'amount', field: { label: '金额', type: 'number', required: true } },
+      { op: 'ADD_FIELD', fieldKey: 'expense_date', field: { label: '报销日期', type: 'date', required: false } },
+      { op: 'ADD_FIELD', fieldKey: 'expense_type', field: { label: '费用类型', type: 'enum', required: false,
+        enumOptions: [{ value: 'travel', label: '差旅', status: 'ACTIVE' }, { value: 'meal', label: '餐饮', status: 'ACTIVE' }] } },
+    ];
+    const pre = await admin.call('POST', `/api/models/${modelId}/precheck`,
+      { changes: fieldDefs }, { 'X-App-Id': '1' });
+    const preToken = pre.json.confirmToken;
+    ok('B0-2 模型字段 precheck 签发 token', !!preToken, '');
+
+    const saved = await admin.call('POST', `/api/models/${modelId}/schema`,
+      { changes: fieldDefs, baseVersion: 1, confirmToken: preToken }, { 'X-App-Id': '1' });
+    ok('B0-3 模型字段保存（4 字段落库）', saved.status === 200 || saved.status === 201, 'HTTP ' + saved.status);
+
+    // B1 创建绑定页（向导暂不选模型——B2-2 走 API 绑定后再验证字段绑定）
+    await clickButton('返回列表');
+    await waitText('新建页面', 8000);
+    const bindKey = `pd_bind_${stamp}`;
+    await createPageViaUI(bindKey, '验收绑定页');
+    ok('B1-1 绑定页创建', await waitText(bindKey, 8000), bindKey);
+
+    // 用 API 直查草稿——向导生成默认布局后 layout 应含 FormItem 骨架
+    const bindListed = await admin.call('GET', '/api/pages?appId=1');
+    const bindPage = (bindListed.json.list || bindListed.json.data?.list || []).find((p) => p.pageKey === bindKey);
+    ok('B1-2 绑定页落库', !!bindPage, '');
+
+    // B2 打开设计器：先拖入 TextInput（未绑模型状态），再 API 绑定模型后重开验证字段绑定
+    await openDesign(bindKey);
+    await waitText('拖拽左侧物料到此处开始搭建页面', 6000);
+
+    // B2-0 先 API 绑定模型（在拖入前——避免后续覆盖保存丢节点）
+    const bindDraft0 = await admin.call('GET', `/api/pages/${bindPage.id}/draft`);
+    const bindSchema0 = bindDraft0.json.schema ?? bindDraft0.json.data?.schema;
+    const bindVer0 = bindDraft0.json.draftVersion ?? bindDraft0.json.data?.draftVersion;
+    bindSchema0.modelId = String(modelId);
+    await admin.expect('B2-0 API 绑定模型（草稿写入 modelId）', 'PUT', `/api/pages/${bindPage.id}/draft`, 200,
+      { schema: bindSchema0, baseDraftVersion: bindVer0 });
+
+    // 重开设计器（加载字段元数据）再拖入
+    await clickButton('返回列表');
+    await waitText(bindKey, 8000);
+    await openDesign(bindKey);
+    await waitText('拖拽左侧物料到此处开始搭建页面', 6000);
+    const dragT = await dragMaterial('TextInput');
+    await sleep(700);
+    ok('B2-1 拖入 TextInput', dragT === 'dropped', dragT);
+
+    // 选中新节点 → 数据绑定组出现（绑定模型后 ACTIVE 字段可选）
+    await cdp.evalJs(`(() => {
+      const nodes = Array.from(document.querySelectorAll('.ant-card[style*="flex: 1"] [data-node-id]'));
+      const target = nodes[nodes.length - 1] || nodes[0];
+      target?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    })()`);
+    await sleep(900);
+    const bindOptions = await cdp.evalJs(`(() => {
+      const card = ${PROP_PANEL};
+      if (!card) return 'no-panel';
+      const group = Array.from(card.querySelectorAll('.ant-form-item')).find(f => f.textContent.includes('绑定字段'));
+      const input = group?.querySelector('input');
+      return group && input ? 'has-fieldref-widget' : 'no-widget';
+    })()`);
+    ok('B2-3 字段绑定下拉渲染（绑定模型后）', bindOptions === 'has-fieldref-widget', bindOptions);
+
+    // B2-4 打开下拉并选 amount——antd Select 须点 .ant-select-selector 触发展开(坑14/15)
+    await cdp.evalJs(`(() => {
+      const card = ${PROP_PANEL};
+      const group = Array.from(card.querySelectorAll('.ant-form-item')).find(f => f.textContent.includes('绑定字段'));
+      const sel = group?.querySelector('.ant-select-selector') || group?.querySelector('.ant-select');
+      if (!sel) return 'no-select';
+      sel.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      sel.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return 'opened';
+    })()`);
+    await sleep(900);
+    const dropState = await cdp.evalJs(`(() => {
+      const drops = Array.from(document.querySelectorAll('.ant-select-dropdown'))
+        .filter(d => d.offsetParent !== null || getComputedStyle(d).display !== 'none');
+      const opts = drops.flatMap(d => Array.from(d.querySelectorAll('.ant-select-item-option')));
+      const hit = opts.find(o => o.textContent.replace(/\\s+/g, '').includes('金额(amount)'));
+      if (hit) { hit.click(); return 'picked'; }
+      return 'no-option(total=' + opts.length + ' drops=' + drops.length + ')';
+    })()`);
+    ok('B2-4 下拉选项可见并选中 amount', dropState === 'picked', String(dropState));
+    await sleep(700);
+
+    // 保存 → 落库核对 fieldRef 在协议字段（非 props）
+    await clickToolbar('保存');
+    ok('B3-1 保存成功', await waitText('已保存', 10000));
+    const savedDraft = await admin.call('GET', `/api/pages/${bindPage.id}/draft`);
+    const savedSchema = JSON.stringify(savedDraft.json.schema ?? savedDraft.json.data?.schema ?? {});
+    const hasFieldRef = savedSchema.includes('"fieldRef":"amount"');
+    const inProps = /"props":\{[^}]*"fieldRef"/.test(savedSchema);
+    ok('B3-2 fieldRef 落协议字段', hasFieldRef && !inProps, 'protocol=' + hasFieldRef + ' props=' + inProps);
+
+    // B4 容器嵌套: 拖入 SectionCard 后, 同框 fiber dragover(容器落点)+drop(TextInput)
+    const nestedVerRef = { v: Number((await admin.call('GET', `/api/pages/${bindPage.id}/draft`)).json.draftVersion ?? 0) };
+    const dragCard = await dragMaterial('SectionCard');
+    await sleep(700);
+    ok('B4-0 拖入 SectionCard', dragCard === 'dropped', dragCard);
+    const nestState = await cdp.evalJs(`(() => {
+      const nodes = Array.from(document.querySelectorAll('.ant-card[style*="flex: 1"] [data-node-id]'));
+      const sec = nodes.find(n => n.textContent.includes('卡片'));
+      if (!sec) return 'no-section nodes=' + nodes.length;
+      const fk = Object.keys(sec).find(k => k.startsWith('__reactProps$'));
+      if (!fk || !sec[fk].onDragOver) return 'no-dragover';
+      sec[fk].onDragOver(new DragEvent('dragover', { bubbles: true }));
+      const canvas = document.querySelector('.ant-card[style*="flex: 1"]');
+      const stack = canvas ? [canvas] : [];
+      let dropHost = null;
+      while (stack.length) {
+        const el = stack.pop();
+        const k = Object.keys(el).find(x => x.startsWith('__reactProps$'));
+        if (k && el[k].onDrop) { dropHost = el; break; }
+        for (const c of el.children) stack.push(c);
+      }
+      if (!dropHost) return 'no-drop-host';
+      const kf = Object.keys(dropHost).find(x => x.startsWith('__reactProps$'));
+      const dt = new DataTransfer();
+      dt.setData('application/x-schema-material', 'TextInput');
+      dropHost[kf].onDrop(new DragEvent('drop', { bubbles: true, dataTransfer: dt }));
+      return 'nested-dropped';
+    })()`);
+    ok('B4-1 容器落点捕获 + 嵌套拖入', nestState === 'nested-dropped', String(nestState));
+    await sleep(900);
+
+    // 大纲嵌套可见: 缩进行(14px 缩进)应 >= 1
+    const indent = await cdp.evalJs(`(() => {
+      const card = Array.from(document.querySelectorAll('.ant-card')).find(c => {
+        const h = c.querySelector('.ant-card-head');
+        return h && h.textContent.trim() === '物料';
+      });
+      if (!card) return 'no-outline';
+      const rows = Array.from(card.querySelectorAll('div[style*="padding"]'));
+      const indented = rows.filter(x => (x.getAttribute('style') || '').includes('14px'));
+      return 'indented=' + indented.length;
+    })()`);
+    ok('B4-2 大纲嵌套缩进可见', indent === 'indented=1' || indent === 'indented=2', indent);
+
+    // 嵌套结构落库: 保存后 TextInput 应在 SectionCard children 内
+    const preVer = nestedVerRef.v;
+    await clickToolbar('保存');
+    // 轮询等待 draftVersion 递增(保存请求在途时草稿仍是旧版——waitText 可能命中残留提示)
+    let nestedDraft = null;
+    for (let t = 0; t < 20; t++) {
+      await sleep(500);
+      nestedDraft = await admin.call('GET', `/api/pages/${bindPage.id}/draft`);
+      const v = nestedDraft.json.draftVersion ?? nestedDraft.json.data?.draftVersion ?? 0;
+      if (v > preVer) { nestedVerRef.v = v; break; }
+    }
+    // 树结构递归检查(不依赖 JSON 键序——children 可能排在 componentName 前)
+    const nestedSchemaObj = nestedDraft.json.schema ?? nestedDraft.json.data?.schema ?? {};
+    const findNested = (nodes) => {
+      for (const n of nodes || []) {
+        if (n.componentName === 'SectionCard'
+          && (n.children || []).some((c) => c.componentName === 'TextInput')) return true;
+        if (findNested(n.children)) return true;
+      }
+      return false;
+    };
+    ok('B4-3 嵌套结构落库: TextInput 在 SectionCard children 内',
+      findNested(nestedSchemaObj.layout), 'ver=' + (nestedDraft.json.draftVersion ?? nestedDraft.json.data?.draftVersion));
+
+
+    // B5 大纲排序：上移/下移/删除入口可见
+    const outlineOps = await cdp.evalJs(`(() => {
+      const card = Array.from(document.querySelectorAll('.ant-card')).find(c => {
+        const h = c.querySelector('.ant-card-head');
+        return h && h.textContent.trim() === '物料';
+      });
+      if (!card) return 'no-panel';
+      const links = card.querySelectorAll('a');
+      return links.length >= 3 ? 'has-ops(' + links.length + ')' : 'ops=' + links.length;
+    })()`);
+    ok('B5-1 大纲含上移/下移/删除操作', String(outlineOps).startsWith('has-ops'), outlineOps);
+
+    // B6 409 差异摘要：外部保存推版本 → 本地保存 → 弹层含差异表
+    const conflictDraft = await admin.call('GET', `/api/pages/${bindPage.id}/draft`);
+    const cSchema = conflictDraft.json.schema ?? conflictDraft.json.data?.schema;
+    const cVer = conflictDraft.json.draftVersion ?? conflictDraft.json.data?.draftVersion;
+    await admin.expect('B6-1 外部保存推高版本', 'PUT', `/api/pages/${bindPage.id}/draft`, 200,
+      { schema: cSchema, baseDraftVersion: cVer });
+    // 本地改一下再保存
+    await cdp.evalJs(`(() => {
+      const card = ${PROP_PANEL};
+      const input = card?.querySelector('.ant-form-item input');
+      if (!input) return 'no-input';
+      const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      s.call(input, '差异测试');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await sleep(400);
+    await clickToolbar('保存');
+    ok('B6-2 409 弹层出现', await waitText('草稿版本冲突', 10000));
+    ok('B6-3 差异摘要渲染（三方差异表）', (await bodyText()).includes('三方差异摘要'));
+    ok('B6-4 差异含节点数维度', (await bodyText()).includes('节点数'));
+    // 放弃对齐服务器
+    await clickButton('放弃我的修改', 'document.querySelector(".ant-modal")');
+    ok('B6-5 放弃后对齐', await waitText('已放弃本地修改', 10000));
+
+    // B7 发布 + 预览渲染绑定表单（设计态与运行态一致性）
+    await clickToolbar('保存');
+    await waitText('已保存', 10000);
+    await admin.expect('B7-1 发布', 'POST', '/api/apps/1/publish', 200, { changelog: 'M13 绑定页验收发布' });
+    const bGrant = await admin.call('POST', '/api/apps/1/preview-grants', { pageId: Number(bindPage.id) });
+    const bGrantId = bGrant.json.grantId ?? bGrant.json.data?.grantId;
+    await cdp.goto(`${BASE}/runtime/#/preview?grant=${bGrantId}`);
+    await sleep(3500);
+    const bPreviewText = await bodyText();
+    ok('B7-2 预览路由渲染', bPreviewText.includes('预览模式'), bPreviewText.slice(0, 120));
+    // 绑定模型页面应渲染表单字段（而非「页面未绑定数据模型」）
+    ok('B7-3 预览渲染绑定表单（不再提示未绑模型）', !bPreviewText.includes('页面未绑定数据模型'), '');
+
+    // B8 差异检测：删除模型字段 → 设计器标黄
+    await cdp.goto(`${BASE}/designer/`);
+    await cdp.waitFor('.ant-layout-header', 10000);
+    await cdp.evalJs(`(() => { const cards = Array.from(document.querySelectorAll('.ant-card')); const c = cards.find(x => x.textContent.includes('报销管理')); (c?.querySelector('button') || c)?.click(); })()`);
+    await cdp.waitFor('.ant-tabs', 8000);
+    await clickTab('页面');
+    await waitText(bindKey, 8000);
+
+    // API 删模型字段(两段式)——删除 amount(被 B2-4 绑定引用, 删后设计器应标黄); 当前版本查 DB
+    const curVer = dbQuery(`SELECT current_version FROM meta_model WHERE id=${modelId}`)[0];
+    const delPre = await admin.call('POST', `/api/models/${modelId}/precheck`,
+      { changes: [{ op: 'DELETE_FIELD', fieldKey: 'amount' }] }, { 'X-App-Id': '1' });
+    const delToken = delPre.json.confirmToken;
+    const delSaved = await admin.call('POST', `/api/models/${modelId}/schema`,
+      { changes: [{ op: 'DELETE_FIELD', fieldKey: 'amount' }],
+        baseVersion: Number(curVer), confirmToken: delToken }, { 'X-App-Id': '1' });
+    ok('B8-1 模型删除字段保存(amount)', delSaved.status === 200 || delSaved.status === 201, 'HTTP ' + delSaved.status);
+
+    // 重开设计器 → 引用已删字段(amount)的节点标黄: 画布 dashed #faad14 outline 或大纲行警示色
+    await openDesign(bindKey);
+    await sleep(2500);
+    const warnState = await cdp.evalJs(`(() => {
+      const nodes = Array.from(document.querySelectorAll('.ant-card[style*="flex: 1"] [data-node-id]'));
+      const dashed = nodes.filter(n => {
+        const s = n.getAttribute('style') || '';
+        return s.includes('#faad14') || s.includes('dashed');
+      });
+      const outlineCard = Array.from(document.querySelectorAll('.ant-card')).find(c => {
+        const h = c.querySelector('.ant-card-head');
+        return h && h.textContent.trim() === '物料';
+      });
+      const warnRows = outlineCard ? Array.from(outlineCard.querySelectorAll('div[style*="padding"]'))
+        .filter(r => (r.getAttribute('style') || '').includes('#d46b08')).length : -1;
+      return { total: nodes.length, dashed: dashed.length, warnRows };
+    })()`);
+    ok('B8-2 差异检测标黄(引用已删字段的节点)',
+      warnState.dashed >= 1 || warnState.warnRows >= 1, JSON.stringify(warnState));
+
     summary('page-designer');
   } finally {
     await cdp.close();

@@ -3,7 +3,7 @@ spec_id: 013-page-designer
 status: active
 milestone: M13               # 依赖图 §3.4；前置 M6-M7（accepted）、M11（accepted）
 created: 2026-11-06
-last_verified_at: null
+last_verified_at: 2026-11-06
 owner: human-lead
 ---
 

@@ -3,7 +3,7 @@ spec_id: 002-metadata-service
 status: active
 milestone: M2                # 依赖图 §3.3 元数据服务（关键路径）
 created: 2026-10-28
-last_verified_at: 2026-11-05
+last_verified_at: 2026-11-06
 owner: 待定
 ---
 

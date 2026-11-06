@@ -79,6 +79,43 @@ describe('DesignerStore 命令系统（A1）', () => {
     expect(store.dirty).toBe(false);
   });
 
+  it('保存后修改再 undo 回基线：dirty 应为 false（回到保存基线）', () => {
+    const store = new DesignerStore(page());
+    store.execute({ type: 'insert', parentId: null, index: 0, node: node('a') });
+    store.markSaved();
+    store.execute({ type: 'insert', parentId: null, index: 1, node: node('b') });
+    expect(store.dirty).toBe(true);
+    store.undo();
+    expect(store.dirty).toBe(false);
+    // 基线前的历史（insert a）仍可撤销，但撤销后 dirty 回 true（偏离基线）
+    expect(store.undo()).toBe(true);
+    expect(store.dirty).toBe(true);
+  });
+
+  it('失败命令不污染历史栈且 doc 不变', () => {
+    const doc = page();
+    const store = new DesignerStore(doc);
+    const before = JSON.stringify(store.document);
+    expect(() => store.execute({ type: 'updateProps', nodeId: 'not-exist', patch: { a: 1 } })).toThrow();
+    expect(JSON.stringify(store.document)).toBe(before);
+    expect(store.canUndo).toBe(false);
+    expect(store.dirty).toBe(false);
+  });
+
+  it('updateProps fieldRef 写协议字段而非 props；清空移除键', () => {
+    const doc = page();
+    doc.layout = [node('inp')];
+    const store = new DesignerStore(doc);
+    store.execute({ type: 'updateProps', nodeId: 'inp', patch: { fieldRef: 'amount' } });
+    expect(store.document.layout[0].fieldRef).toBe('amount');
+    expect(store.document.layout[0].props.fieldRef).toBeUndefined();
+    store.undo();
+    expect(store.document.layout[0].fieldRef).toBeUndefined();
+    store.execute({ type: 'updateProps', nodeId: 'inp', patch: { fieldRef: 'x' } });
+    store.execute({ type: 'updateProps', nodeId: 'inp', patch: { fieldRef: '' } });
+    expect(store.document.layout[0].fieldRef).toBeUndefined();
+  });
+
   it('moveWithin 同数组重排且可撤销', () => {
     const doc = page();
     doc.layout = [node('a'), node('b'), node('c')];

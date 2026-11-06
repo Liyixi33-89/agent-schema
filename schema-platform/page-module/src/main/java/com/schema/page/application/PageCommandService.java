@@ -197,12 +197,13 @@ public class PageCommandService {
             // 发布时全量重扫登记（04BE §1.4：保存/发布时执行）
             syncFieldReferences(tenant, page, schema);
 
+            String snapshotModelId = snapshotModelRef(page, schema);
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("pageId", Long.toString(pageId));
             entry.put("pageVersionRef", targetVersion);
             entry.put("schemaVersion", schema.get("schemaVersion"));
             entry.put("contentHash", page.artifactHash());
-            entry.put("modelId", page.modelId() == null ? null : Long.toString(page.modelId()));
+            entry.put("modelId", snapshotModelId);
             pageEntries.add(entry);
         }
 
@@ -313,7 +314,7 @@ public class PageCommandService {
                 rebuilt.put("pageVersionRef", targetVersion);
                 rebuilt.put("schemaVersion", schemaMap.get("schemaVersion"));
                 rebuilt.put("contentHash", artifactHash instanceof String ah ? ah : null);
-                rebuilt.put("modelId", page.modelId() == null ? null : Long.toString(page.modelId()));
+                rebuilt.put("modelId", snapshotModelRef(page, schemaMap));
                 rebuiltEntries.add(rebuilt);
             }
         }
@@ -337,6 +338,26 @@ public class PageCommandService {
     }
 
     // ---------- 运行时读取（§A.4 ETag 协议） ----------
+
+    /**
+     * 发布快照 modelRef 口径（2026-11-06 修正）：pages.model_id 列优先，缺失回退草稿 schema.modelId。
+     * 设计器保存时可绑定模型（schema 内字段）；创建向导未传 modelId 的页面在设计器绑定模型后
+     * 须进入快照 modelRefs——否则限页预览守卫（PreviewDataGuard.pageBoundModels）
+     * 会拒绝该页的字段元数据/数据面读取（PREVIEW_SCOPE_DENIED 403）。
+     */
+    private static String snapshotModelRef(PageAggregate page, Map<String, Object> schema) {
+        if (page.modelId() != null) {
+            return Long.toString(page.modelId());
+        }
+        Object schemaModelId = schema.get("modelId");
+        if (schemaModelId instanceof Number n) {
+            return Long.toString(n.longValue());
+        }
+        if (schemaModelId instanceof String s && s.matches("\\d+")) {
+            return s;
+        }
+        return null;
+    }
 
     /**
      * 运行时读取（04BE §A.4）：If-None-Match 命中返回 null（304 由接口层写）；
