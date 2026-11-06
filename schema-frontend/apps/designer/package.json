@@ -10,9 +10,14 @@
   },
   "dependencies": {
     "@schema/auth-sdk": "workspace:*",
+    "@schema/component-materials": "workspace:*",
     "@schema/data-model-designer": "workspace:*",
+    "@schema/page-designer": "workspace:*",
+    "@schema/schema-protocol": "workspace:*",
+    "@schema/schema-renderer": "workspace:*",
     "@xyflow/react": "^12.12.1",
     "antd": "5.25.4",
+    "nanoid": "^5.0.9",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },

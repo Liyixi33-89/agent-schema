@@ -123,6 +123,35 @@ export class ApiClient {
     return this.req('POST', `/api/apps/${appId}/publish`, { changelog });
   }
 
+  // ---------- 页面设计器（04BE §A.1 草稿面 + §A.7 预览凭证） ----------
+
+  createPage(appId: number, body: {
+    pageKey: string; name: string; type: 'FORM' | 'LIST' | 'DETAIL' | 'DASHBOARD'; modelId?: string; path: string;
+  }): Promise<{ id: string; draftVersion: number }> {
+    return this.req('POST', '/api/pages', { appId, ...body }) as Promise<{ id: string; draftVersion: number }>;
+  }
+
+  getPageDraft(pageId: string | number): Promise<{ schema: unknown; draftVersion: number }> {
+    return this.req('GET', `/api/pages/${pageId}/draft`) as Promise<{ schema: unknown; draftVersion: number }>;
+  }
+
+  savePageDraft(pageId: string | number, schema: unknown, baseDraftVersion: number): Promise<{ draftVersion: number }> {
+    return this.req('PUT', `/api/pages/${pageId}/draft`, { schema, baseDraftVersion }) as Promise<{ draftVersion: number }>;
+  }
+
+  deletePage(pageId: string | number): Promise<null> {
+    return this.req('DELETE', `/api/pages/${pageId}`) as Promise<null>;
+  }
+
+  updatePagePath(pageId: string | number, path: string, name?: string): Promise<null> {
+    return this.req('PUT', `/api/pages/${pageId}/path`, { path, name }) as Promise<null>;
+  }
+
+  /** 预览凭证签发（04BE §A.7：5min 单次 grant）。 */
+  issuePreviewGrant(appId: number, pageId: string | number): Promise<{ grantId: string; previewUrl?: string }> {
+    return this.req('POST', `/api/apps/${appId}/preview-grants`, { pageId: Number(pageId) }) as Promise<{ grantId: string; previewUrl?: string }>;
+  }
+
   // ---------- 模型与元数据（01BE §A.1-A.3；X-App-Id 路由应用域） ----------
 
   private async reqApp(appId: number, method: string, path: string, body?: unknown): Promise<unknown> {

@@ -13,6 +13,7 @@ import {
 import { broadcastLogout, logout as sdkLogout, watchAuthChannel } from '@schema/auth-sdk';
 import { ApiClient, ApiError, type AppCard, type MemberRow, type NavNode, type ReleaseRow } from './api';
 import ModelTab from './ModelTab';
+import PageDesignerTab from './PageDesignerTab';
 
 const api = new ApiClient();
 
@@ -193,6 +194,7 @@ function AppSettings({ app, onBack }: { app: AppCard; onBack: () => void }): Rea
         <Tabs
           items={[
             { key: 'models', label: '模型', children: <ModelTab api={api} appId={app.id} /> },
+            { key: 'pages', label: '页面', children: <PageDesignerTab api={api} app={app} /> },
             { key: 'members', label: '成员', children: <MembersTab appId={app.id} /> },
             { key: 'nav', label: '导航', children: <NavTab appId={app.id} /> },
             { key: 'theme', label: '主题', children: <ThemeTab app={app} onBack={onBack} /> },
