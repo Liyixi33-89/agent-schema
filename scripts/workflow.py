@@ -129,15 +129,203 @@ def ready(task, tasks):
     return all(tasks[d]['status'] == 'accepted' for d in task['dependsOn'])
 
 
+def verify_scenarios(record, criterion):
+    """V2 将需求映射到归档真实断言；产物来源是记录，不替代运行环境证明。"""
+    report = (ROOT / record.get('report', '')).resolve()
+    archive = next((p for p in report.parents if (p / 'manifest.json').is_file()), None)
+    if archive is None:
+        return ['Missing scenario archive']
+    manifest = json.loads((archive / 'manifest.json').read_text(encoding='utf-8-sig'))
+    suite = record.get('suite', '')
+    result_path = suite + '-result.json'
+    files = {f['path'].replace('\\', '/'): f for f in manifest.get('files', [])}
+    if result_path not in files:
+        return ['Missing archived scenario results: ' + result_path]
+    results = json.loads((archive / result_path).read_text(encoding='utf-8-sig'))
+    if not isinstance(results, list):
+        return ['Invalid scenario results']
+    names = [r.get('id') or r.get('name') for r in results]
+    if len(names) != len(set(names)) or any(not n for n in names):
+        return ['Duplicate or missing scenario IDs']
+    by_id = dict(zip(names, results))
+    expected = criterion.get('scenarios') or []
+    issues = []
+    if not expected or any(i not in by_id or by_id[i].get('pass') is not True for i in expected):
+        issues.append('Required scenarios missing or failed: ' + criterion['id'])
+    provenance_path = record.get('provenance')
+    if provenance_path not in files:
+        return issues + ['Missing hash-covered product provenance']
+    provenance = json.loads((archive / provenance_path).read_text(encoding='utf-8-sig'))
+    if provenance.get('sourceCommit') != manifest.get('sourceCommit'):
+        issues.append('Product provenance source SHA mismatch')
+    stability_path = record.get('stability')
+    if stability_path not in files:
+        issues.append('Missing hash-covered before/after product check')
+    else:
+        stability = json.loads((archive / stability_path).read_text(encoding='utf-8-sig'))
+        if stability.get('unchanged') is not True or stability.get('sourceCommit') != manifest.get('sourceCommit'):
+            issues.append('Product changed during acceptance or stability source mismatch')
+    deployment_path = record.get('deployment')
+    if deployment_path not in files:
+        issues.append('Missing hash-covered deployment probe')
+    else:
+        deployment = json.loads((archive / deployment_path).read_text(encoding='utf-8-sig'))
+        if (deployment.get('unchanged') is not True
+                or deployment.get('sourceCommit') != manifest.get('sourceCommit')
+                or not deployment.get('targets')):
+            issues.append('Deployment version changed or probe missing')
+        for target in deployment.get('targets', []):
+            if (target.get('before') != target.get('after')
+                    or target.get('before') != target.get('expected')
+                    or target.get('method') not in ('http-response-sha256', 'backend-build-identity')
+                    or not re.fullmatch(r'[0-9a-f]{40}' if target.get('method') == 'backend-build-identity'
+                                        else r'[0-9a-f]{64}', str(target.get('expected', '')))
+                    or (target.get('method') == 'backend-build-identity'
+                        and (target.get('expected') != manifest.get('sourceCommit')
+                             or not target.get('instanceBefore')
+                             or target.get('instanceBefore') != target.get('instanceAfter')))):
+                issues.append('Deployment response differs from tested artifact')
+    products = provenance.get('products')
+    if stability_path in files:
+        stability_products = stability.get('products')
+        if (not isinstance(stability_products, list) or not stability_products
+                or not isinstance(products, list)
+                or {(p.get('name'), p.get('sha256')) for p in stability_products}
+                   != {(p.get('name'), p.get('sha256')) for p in products}):
+            issues.append('Stability record does not cover tested product hashes')
+    if not isinstance(products, list) or not products:
+        return issues + ['Missing tested products']
+    for product in products:
+        if (not product.get('name') or not product.get('runtimeVersion')
+                or not re.fullmatch(r'[0-9a-f]{64}', str(product.get('sha256', '')))
+                or product.get('sourceCommit') != manifest.get('sourceCommit')):
+            issues.append('Invalid tested product provenance')
+    return issues
+
+
+def github_approval_issues(task, fetch_json=None):
+    """从 GitHub API 获取当前 PR 审批；不可用则失败关闭，不信任手写批准。"""
+    review = task.get('review') or {}
+    github = review.get('github') or {}
+    repository = github.get('repository', '')
+    number = github.get('pullRequest')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository) or not isinstance(number, int) or number <= 0:
+        return ['Missing valid GitHub repository/pull request']
+    if fetch_json is None:
+        from urllib.request import Request, urlopen
+        def fetch_json(route):
+            headers = {'Accept': 'application/vnd.github+json', 'User-Agent': 'schema-workflow-gate',
+                       'X-GitHub-Api-Version': '2022-11-28'}
+            token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
+            if token:
+                headers['Authorization'] = 'Bearer ' + token
+            with urlopen(Request('https://api.github.com/repos/' + repository + route, headers=headers), timeout=15) as response:
+                return json.load(response)
+    try:
+        pr = fetch_json('/pulls/' + str(number))
+        sha = pr['head']['sha']
+        if sha != review.get('commit') or pr.get('draft') is True:
+            return ['GitHub approval does not cover reviewed source SHA or PR is draft']
+        reviews = fetch_json('/pulls/' + str(number) + '/reviews?per_page=100')
+        latest = {}
+        for item in reviews:
+            login = item.get('user', {}).get('login')
+            if item.get('state') in ('APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'):
+                latest[login] = item
+        author = pr.get('user', {}).get('login')
+        approver = review.get('reviewer')
+        approval = latest.get(approver, {})
+        permission = fetch_json('/collaborators/' + str(approver) + '/permission').get('permission')
+        if permission not in ('admin', 'maintain', 'write'):
+            return ['GitHub reviewer lacks repository approval permission']
+        if (approver == author or approval.get('state') != 'APPROVED'
+                or approval.get('commit_id') != sha):
+            return ['Missing independent GitHub approval for current PR HEAD']
+        if any(r.get('state') == 'CHANGES_REQUESTED' for r in latest.values()):
+            return ['GitHub change requests remain unresolved']
+        required = github.get('requiredChecks')
+        if not isinstance(required, list) or not required:
+            return ['Missing required GitHub checks']
+        checks = fetch_json('/commits/' + sha + '/check-runs?per_page=100').get('check_runs', [])
+        for name in required:
+            matches = sorted((c for c in checks if c.get('name') == name),
+                             key=lambda c: c.get('id', 0), reverse=True)
+            if not matches or matches[0].get('status') != 'completed' or matches[0].get('conclusion') != 'success':
+                return ['Required GitHub check is not successful: ' + name]
+        if len(reviews) >= 100 or len(checks) >= 100:
+            return ['GitHub pagination limit reached; complete review/check data required']
+    except Exception as error:
+        return ['GitHub approval verification unavailable: ' + type(error).__name__]
+    return []
+
+
+def coverage_issues(task):
+    """V2 结构门禁；不能证明清单完整或审批身份真实，仍需独立审查。"""
+    issues = []
+    matrix = task.get('requirements')
+    if not isinstance(matrix, list) or not matrix:
+        return ['Missing requirements matrix']
+    ids = [r.get('id') for r in matrix if isinstance(r, dict)]
+    if len(ids) != len(matrix) or any(not i for i in ids) or len(ids) != len(set(ids)):
+        return ['Invalid or duplicate requirement IDs']
+    criteria = {c['id']: c for c in task['acceptance']}
+    for r in matrix:
+        label = str(r['id'])
+        if not r.get('source') or not r.get('condition'):
+            issues.append(label + ': missing baseline source or observable condition')
+        if r.get('status') == 'deferred':
+            approval = r.get('deferral') or {}
+            if not all(approval.get(k) for k in ('approvedBy', 'reference', 'owner', 'workPackage')):
+                issues.append(label + ': missing explicit deferral approval or owner')
+            continue
+        if r.get('status') != 'passed':
+            issues.append(label + ': requirement not verified')
+        if not r.get('implementation') or not r.get('tests'):
+            issues.append(label + ': missing implementation or tests')
+        checks = r.get('checks') or []
+        if not checks or any(c not in criteria for c in checks):
+            issues.append(label + ': missing acceptance mapping')
+        level = r.get('verification')
+        if level not in ('unit', 'integration', 'browser'):
+            issues.append(label + ': invalid verification level')
+        if r.get('userInteraction') is True and level != 'browser':
+            issues.append(label + ': user interaction requires real browser verification')
+        if level == 'browser' and r.get('interaction') != 'native':
+            issues.append(label + ': simulated handlers cannot certify browser interaction')
+        if r.get('risk') not in ('low', 'high'):
+            issues.append(label + ': missing risk classification')
+        if r.get('risk') == 'high' and not r.get('negativeTests'):
+            issues.append(label + ': high-risk requirement needs negative tests')
+    review = task.get('review') or {}
+    author = task.get('implementedBy')
+    if not author or not review.get('reviewer') or author == review.get('reviewer'):
+        issues.append('Independent reviewer must differ from implementer')
+    if review.get('kind') not in ('human', 'independent-session'):
+        issues.append('Self-review cannot certify independent approval')
+    if not review.get('approvalReference'):
+        issues.append('Missing independently verifiable approval reference')
+    if review.get('scope') != ['requirements', 'code', 'tests', 'evidence']:
+        issues.append('Review must cover requirements, code, tests and evidence')
+    findings = review.get('findings')
+    if not isinstance(findings, list):
+        issues.append('Missing review findings record')
+    elif any(f.get('blocking') is True and f.get('status') != 'resolved' for f in findings):
+        issues.append('Unresolved blocking review findings')
+    return issues
+
+
 def audit(task):
     head = git_head()
-    issues = []
+    issues = coverage_issues(task) if task.get('gateVersion', 1) >= 2 else []
     for criterion in task['acceptance']:
         evidence = criterion.get('evidence')
         if not evidence:
             issues.append(criterion['id'] + ': missing evidence')
             continue
-        issues += verify_commit(evidence, criterion['id'], task['id'])
+        evidence_issues = verify_commit(evidence, criterion['id'], task['id'])
+        issues += evidence_issues
+        if task.get('gateVersion', 1) >= 2 and not evidence_issues:
+            issues += verify_scenarios(evidence, criterion)
         if evidence.get('passed') is not True or not evidence.get('command'):
             issues.append(criterion['id'] + ': missing successful command record')
     if not task['acceptance']:
@@ -216,7 +404,11 @@ def main():
             raise ValueError('Task must be implementing')
         t['status'] = 'implemented'
     elif args.action in ('check', 'accept'):
+        if args.action == 'accept':
+            t['gateVersion'] = 2
         issues = audit(t)
+        if args.action == 'accept' and not issues:
+            issues += github_approval_issues(t)
         if not ready(t, tasks):
             issues.append('Dependencies are not accepted')
         if issues:

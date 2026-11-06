@@ -351,5 +351,147 @@ class WorkflowGateTest(unittest.TestCase):
         self.assertTrue(any('failed/skipped suite' in i for i in issues), issues)
 
 
+class GitHubApprovalTest(unittest.TestCase):
+    def test_live_response_validation(self):
+        import workflow
+        sha = 'a' * 40
+        task = {'review': {'commit': sha, 'reviewer': 'reviewer', 'github': {
+            'repository': 'owner/repo', 'pullRequest': 1, 'requiredChecks': ['verify']}}}
+        responses = {
+            '/collaborators/reviewer/permission': {'permission': 'write'},
+            '/pulls/1': {'head': {'sha': sha}, 'user': {'login': 'author'}, 'draft': False},
+            '/pulls/1/reviews?per_page=100': [{'user': {'login': 'reviewer'},
+                'state': 'APPROVED', 'commit_id': sha}],
+            '/commits/' + sha + '/check-runs?per_page=100': {'check_runs': [
+                {'name': 'verify', 'status': 'completed', 'conclusion': 'success'}]},
+        }
+        fetch = lambda route: responses[route]
+        self.assertEqual(workflow.github_approval_issues(task, fetch), [])
+        responses['/collaborators/reviewer/permission']['permission'] = 'read'
+        self.assertTrue(workflow.github_approval_issues(task, fetch))
+        responses['/collaborators/reviewer/permission']['permission'] = 'write'
+        responses['/pulls/1']['user']['login'] = 'reviewer'
+        self.assertTrue(workflow.github_approval_issues(task, fetch))
+        responses['/pulls/1']['user']['login'] = 'author'
+        responses['/pulls/1/reviews?per_page=100'][0]['commit_id'] = 'b' * 40
+        self.assertTrue(workflow.github_approval_issues(task, fetch))
+        responses['/pulls/1/reviews?per_page=100'][0]['commit_id'] = sha
+        responses['/commits/' + sha + '/check-runs?per_page=100']['check_runs'][0]['conclusion'] = 'failure'
+        self.assertTrue(workflow.github_approval_issues(task, fetch))
+
+    def test_api_failure_closed(self):
+        import workflow
+        task = {'review': {'github': {'repository': 'owner/repo', 'pullRequest': 1}}}
+        def unavailable(route):
+            raise TimeoutError()
+        self.assertTrue(workflow.github_approval_issues(task, unavailable))
+
+
+class RequirementGateTest(unittest.TestCase):
+    def task(self):
+        return {
+            'implementedBy': 'author-session',
+            'acceptance': [{'id': 'save'}],
+            'requirements': [{
+                'id': 'R1', 'source': 'spec §1', 'condition': '保存期间编辑仍保持 dirty',
+                'status': 'passed', 'implementation': ['store.ts'], 'tests': ['race-test'],
+                'checks': ['save'], 'verification': 'browser', 'interaction': 'native',
+                'userInteraction': True, 'risk': 'high', 'negativeTests': ['late-edit'],
+            }],
+            'review': {
+                'reviewer': 'review-session', 'kind': 'independent-session',
+                'approvalReference': 'review-session/run-id',
+                'scope': ['requirements', 'code', 'tests', 'evidence'], 'findings': [],
+            },
+        }
+
+    def issues(self, task):
+        import workflow
+        return workflow.coverage_issues(task)
+
+    def test_scenario_and_product_provenance(self):
+        import workflow
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / 'docs' / 'acceptance' / 'WP' / 'run'
+            archive.mkdir(parents=True)
+            (archive / 'report.md').write_text('report', encoding='utf-8')
+            sha = 'a' * 40
+            manifest = {'sourceCommit': sha, 'files': [
+                {'path': 's-result.json'}, {'path': 'products.json'},
+                {'path': 'stability.json'}, {'path': 'deployment.json'}]}
+            (archive / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+            (archive / 's-result.json').write_text(json.dumps([
+                {'id': 'SAVE-RACE', 'pass': True}]), encoding='utf-8')
+            product = {'name': 'backend', 'sha256': 'b' * 64,
+                       'runtimeVersion': sha, 'sourceCommit': sha}
+            provenance = {'sourceCommit': sha, 'products': [product]}
+            product_file = archive / 'products.json'
+            product_file.write_text(json.dumps(provenance), encoding='utf-8')
+            record = {'report': 'docs/acceptance/WP/run/report.md',
+                      'suite': 's', 'provenance': 'products.json'}
+            record.update(stability='stability.json', deployment='deployment.json')
+            (archive / 'stability.json').write_text(json.dumps({
+                'sourceCommit': sha, 'unchanged': True, 'products': [product]}), encoding='utf-8')
+            (archive / 'deployment.json').write_text(json.dumps({
+                'sourceCommit': sha, 'unchanged': True, 'targets': [{
+                    'method': 'http-response-sha256', 'expected': 'b' * 64,
+                    'before': 'b' * 64, 'after': 'b' * 64}]}), encoding='utf-8')
+            criterion = {'id': 'save', 'scenarios': ['SAVE-RACE']}
+            with patch.object(workflow, 'ROOT', root):
+                self.assertEqual(workflow.verify_scenarios(record, criterion), [])
+                criterion['scenarios'] = ['NOT-RUN']
+                self.assertTrue(workflow.verify_scenarios(record, criterion))
+                criterion['scenarios'] = ['SAVE-RACE']
+                product['sourceCommit'] = 'c' * 40
+                product_file.write_text(json.dumps(provenance), encoding='utf-8')
+                self.assertTrue(workflow.verify_scenarios(record, criterion))
+                product['sourceCommit'] = sha
+                product['sha256'] = 'invalid'
+                product_file.write_text(json.dumps(provenance), encoding='utf-8')
+                self.assertTrue(workflow.verify_scenarios(record, criterion))
+                record['provenance'] = '../outside.json'
+                self.assertTrue(workflow.verify_scenarios(record, criterion))
+
+    def test_complete_matrix(self):
+        self.assertEqual(self.issues(self.task()), [])
+
+    def test_missing_matrix(self):
+        t = self.task()
+        del t['requirements']
+        self.assertTrue(self.issues(t))
+
+    def test_simulated_drag_rejected(self):
+        t = self.task()
+        t['requirements'][0]['interaction'] = 'handler'
+        self.assertTrue(self.issues(t))
+
+    def test_unverified_requirement_rejected(self):
+        t = self.task()
+        t['requirements'][0]['status'] = 'pending'
+        self.assertTrue(self.issues(t))
+
+    def test_high_risk_without_negative_test_rejected(self):
+        t = self.task()
+        t['requirements'][0]['negativeTests'] = []
+        self.assertTrue(self.issues(t))
+
+    def test_self_review_rejected(self):
+        t = self.task()
+        t['review']['reviewer'] = t['implementedBy']
+        self.assertTrue(self.issues(t))
+
+    def test_unapproved_deferral_rejected(self):
+        t = self.task()
+        t['requirements'][0]['status'] = 'deferred'
+        self.assertTrue(self.issues(t))
+
+    def test_unresolved_blocker_rejected(self):
+        t = self.task()
+        t['review']['findings'] = [{'blocking': True, 'status': 'open'}]
+        self.assertTrue(self.issues(t))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
