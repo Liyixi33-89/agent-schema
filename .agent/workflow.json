@@ -345,15 +345,23 @@
       "acceptance": [
         {
           "id": "page-designer",
-          "requirement": "拖拽、propsSchema 属性面板、字段绑定、发布预览真实交互",
+          "requirement": "拖拽/撤销重做、propsSchema 属性面板、字段绑定落协议字段(fieldRef)、容器嵌套/大纲排序/删除、表达式错误阻断全部保存路径(手动/自动/预览)、409 三方差异保护、发布预览隔离、绑定真实模型全链路(两段式建模→绑定→嵌套落库→发布→预览渲染可用表单→删字段标黄)。54/54 PASS exit=0(run-id 20261106-142603-532775a, sourceCommit 532775a); page-designer 单测 27/27; schema-protocol 向量 96/96 + Java 向量 18/18(双端 ===/!== 同判)",
           "evidence": {
-            "command": "node scripts/acceptance/accept-page-designer.cjs（新建向导→拖拽/撤销重做→属性面板→表达式阻断→保存→409 冲突保护→发布→grant/exchange 预览→字段绑定入口；28/28 PASS）+ page-designer 单测 24/24",
-            "report": "docs/acceptance/M13/page-designer-report.md",
+            "command": "node scripts\\acceptance\\accept-page-designer.cjs",
+            "report": "docs/acceptance/M13/20261106-142603-532775a/report.md",
+            "commit": "532775a9526674ccb2f82d1a73056477eef88115",
+            "suite": "page-designer",
             "passed": true
           }
         }
       ],
-      "review": null
+      "review": {
+        "reviewer": "independent-reviewer",
+        "approved": true,
+        "report": "docs/acceptance/M13/20261106-142603-532775a/review.md",
+        "commit": "532775a9526674ccb2f82d1a73056477eef88115",
+        "notes": "六维审查通过: P0 修复实证(fieldRef 落协议/表达式全路径阻断/自动保存并发保护)、双端 ===/!== 契约同判(评审中补跨类型向量 3 条双端复跑)、后端发布快照与 preview guard 口径修正(安全边界未扩大)、编辑内核失败命令不污染历史栈/dirty 基线深比较、验收断言真实性抽查无假断言、证据链 run-id 合规。遗留登记 5 项不阻塞: 409 差异摘要粒度、大纲排序仅入口验收、手势级 DnD 未直测、preview guard IT 待补、B7-2 截图 flake 窗口。"
+      }
     },
     {
       "id": "M14",

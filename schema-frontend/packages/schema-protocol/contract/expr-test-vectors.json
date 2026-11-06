@@ -32,6 +32,9 @@
   { "id": "STRICT-EQ-NULL", "category": "严格相等", "source": "missing === null", "scope": { "missing": null }, "expect": { "value": true } },
   { "id": "STRICT-NEQ-NULL", "category": "严格相等", "source": "missing !== null", "scope": { "missing": null }, "expect": { "value": false } },
   { "id": "STRICT-EQ-BOOL", "category": "严格相等", "source": "flag === true", "scope": { "flag": true }, "expect": { "value": true } },
+  { "id": "STRICT-EQ-CROSS-TYPE", "category": "严格相等", "source": "amount === '100'", "scope": { "amount": 100 }, "expect": { "value": false } },
+  { "id": "STRICT-NEQ-CROSS-TYPE", "category": "严格相等", "source": "amount !== '100'", "scope": { "amount": 100 }, "expect": { "value": true } },
+  { "id": "STRICT-EQ-BOOL-NUM", "category": "严格相等", "source": "flag === 1", "scope": { "flag": true }, "expect": { "value": false } },
   { "id": "STRICT-EQ-PRECEDENCE", "category": "严格相等", "source": "amount > 10 && status === 'draft'", "scope": { "amount": 20, "status": "draft" }, "expect": { "value": true } },
 
   { "id": "INCLUDES-HIT", "category": "类型转换", "source": "INCLUDES(tags,'a')", "scope": { "tags": ["a", "b"] }, "expect": { "value": true } },

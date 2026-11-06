@@ -1,0 +1,42 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M13",
+  "runId": "20261106-142603-532775a",
+  "startedAt": "2026-11-06T06:26:03.293Z",
+  "finishedAt": "2026-11-06T07:19:07.877Z",
+  "sourceCommit": "532775a9526674ccb2f82d1a73056477eef88115",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "win32",
+    "node": "v24.14.1"
+  },
+  "suites": {
+    "page-designer": {
+      "command": "node scripts\\acceptance\\accept-page-designer.cjs",
+      "startedAt": "2026-11-06T06:26:03.419Z",
+      "passed": 54,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-06T06:26:55.838Z"
+    }
+  },
+  "files": [
+    {
+      "path": "report.md",
+      "sha256": "72f74c308eccb76de4f50f48174119783e61e42cba02c5f90fca5a7f5d76b9f5"
+    },
+    {
+      "path": "review.md",
+      "sha256": "43c45abd47bbb777a22a799e0bff5adf2e8873fbc0f509343620636f52d2609f"
+    },
+    {
+      "path": "page-designer-result.json",
+      "sha256": "c653d9430798bd13047c41bb08e680dee5795a4582e0e511f311c82fddd58987"
+    },
+    {
+      "path": "logs/page-designer-output.txt",
+      "sha256": "78a76327ae232c6db65a64c0d5d3498557c6ac3c0d681f3740e161a73a41cf9e"
+    }
+  ]
+}
