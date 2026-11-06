@@ -3,6 +3,7 @@
  * - #/app/:appId                → 应用导航壳（过滤菜单 + 页面路由）
  * - #/app/:appId/page/:pageId   → 壳内页面（导航壳选中态）
  * - #/page/:pageId[/:recordId]  → 裸页面（预览凭证通道，保持隔离）
+ * - #/preview?grant=xxx         → 预览凭证兑换（M13：grant → exchange → 内存 Bearer 只读渲染）
  * 装载：发布 PageSchema + 字段元数据 → FormPageHost 装配；Schema ETag 缓存（localStorage，按租户失效）。
  */
 import React from 'react';
@@ -34,10 +35,11 @@ document.addEventListener('visibilitychange', () => {
 });
 
 interface RouteInfo {
-  kind: 'app' | 'page';
+  kind: 'app' | 'page' | 'preview';
   appId?: string;
   pageId?: string;
   recordId?: string;
+  grantId?: string;
 }
 
 function parseHash(): RouteInfo | null {
@@ -46,6 +48,10 @@ function parseHash(): RouteInfo | null {
     return appMatch[2]
       ? { kind: 'app', appId: appMatch[1], pageId: appMatch[2] }
       : { kind: 'app', appId: appMatch[1] };
+  }
+  const previewMatch = location.hash.match(/^#\/preview\?grant=([A-Za-z0-9-]+)/);
+  if (previewMatch) {
+    return { kind: 'preview', grantId: previewMatch[1] };
   }
   const m = location.hash.match(/^#\/page\/(\d+)(?:\/(\d+))?/);
   if (!m) return null;
@@ -135,7 +141,66 @@ function App(): React.ReactElement {
       </AppShell>
     );
   }
+  if (route.kind === 'preview' && route.grantId) {
+    return <PreviewPage grantId={route.grantId} />;
+  }
   return pageHost(route.pageId!, route.recordId);
+}
+
+// ---------- 预览凭证兑换（M13：designer 签发 grant → 此处 exchange 换 15min 会话渲染） ----------
+
+function PreviewPage({ grantId }: { grantId: string }): React.ReactElement {
+  const [state, setState] = React.useState<{ phase: 'loading' } | { phase: 'error'; message: string } | {
+    phase: 'ready'; token: string; pageId: string; tenantId: string | null;
+  }>({ phase: 'loading' });
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch('/api/preview/exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ grantId }),
+        });
+        if (!resp.ok) {
+          const body = (await resp.json().catch(() => ({}))) as { message?: string; code?: string };
+          throw new Error(body.message ?? (body.code === 'GRANT_CONSUMED' ? '预览凭证已使用或过期' : `兑换失败 (${resp.status})`));
+        }
+        const body = (await resp.json()) as { previewToken: string; pageId?: number | string; tenantId?: string };
+        if (!cancelled) {
+          setState({
+            phase: 'ready',
+            token: body.previewToken,
+            pageId: String(body.pageId ?? ''),
+            tenantId: body.tenantId ?? null,
+          });
+        }
+      } catch (e) {
+        if (!cancelled) setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [grantId]);
+
+  if (state.phase === 'loading') return <Typography.Paragraph style={{ padding: 24 }}>预览凭证兑换中…</Typography.Paragraph>;
+  if (state.phase === 'error') {
+    return <Typography.Paragraph type="danger" style={{ padding: 24 }}>预览失败：{state.message}</Typography.Paragraph>;
+  }
+  // 预览专用客户端：内存 Bearer + credentials:'omit'（禁止回落正式会话——03BE 双通道隔离）
+  const previewClient = new RequestClient({
+    baseUrl: import.meta.env.VITE_API_BASE ?? '',
+    getToken: () => state.token,
+    getTenantId: () => state.tenantId,
+  });
+  return (
+    <div>
+      <Typography.Paragraph type="secondary" style={{ padding: '12px 24px 0' }}>
+        预览模式（短时会话只读渲染；凭证 15 分钟有效）
+      </Typography.Paragraph>
+      <FormPageHost client={previewClient} pageId={state.pageId} />
+    </div>
+  );
 }
 
 createRoot(document.getElementById('root')!).render(
