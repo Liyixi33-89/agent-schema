@@ -11,6 +11,129 @@ const os = require('os');
 
 const ev = require('./evidence.cjs');
 
+test('认证后端探测：旧源码、实例替换、缺凭证拒绝且凭证不归档', async () => {
+  const http = require('http');
+  const { execFileSync } = require('child_process');
+  const tmp = fs.mkdtempSync(path.join(ev.ROOT, '.session_tmps', 'identity-test-'));
+  const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ev.ROOT, encoding: 'utf8' }).trim();
+  let identity = { verifiable: true, sourceCommit: sha, instanceId: 'instance-one' };
+  const cookie = 'test_session=fixture-only';
+  const server = http.createServer((req, res) => {
+    if (req.headers.cookie !== cookie) { res.writeHead(401); res.end(); return; }
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(identity));
+  });
+  const savedOut = process.env.ACCEPT_EVIDENCE_OUT;
+  const savedCookie = process.env.TEST_IDENTITY_COOKIE;
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    process.env.ACCEPT_EVIDENCE_OUT = path.join(tmp, 'out');
+    const config = path.join(tmp, 'probe.json');
+    fs.writeFileSync(config, JSON.stringify({ targets: [{ name: 'backend', kind: 'backend-identity',
+      cookieEnv: 'TEST_IDENTITY_COOKIE', url: 'http://127.0.0.1:' + server.address().port + '/api/system/build-identity' }] }));
+    const rel = path.relative(ev.ROOT, config);
+    delete process.env.TEST_IDENTITY_COOKIE;
+    await assert.rejects(ev.probeDeployment(rel, 'missing.json'), /环境变量/);
+    process.env.TEST_IDENTITY_COOKIE = cookie;
+    await ev.probeDeployment(rel, 'before.json');
+    await ev.probeDeployment(rel, 'after.json', 'before.json');
+    const text = fs.readFileSync(path.join(tmp, 'out', 'after.json'), 'utf8');
+    assert.equal(text.includes(cookie), false);
+    assert.equal(JSON.parse(text).targets[0].instanceAfter, 'instance-one');
+    identity.instanceId = 'instance-two';
+    await assert.rejects(ev.probeDeployment(rel, 'restarted.json', 'before.json'), /实例变化/);
+    identity.sourceCommit = 'b'.repeat(40);
+    await assert.rejects(ev.probeDeployment(rel, 'old.json'), /不匹配/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (savedOut === undefined) delete process.env.ACCEPT_EVIDENCE_OUT;
+    else process.env.ACCEPT_EVIDENCE_OUT = savedOut;
+    if (savedCookie === undefined) delete process.env.TEST_IDENTITY_COOKIE;
+    else process.env.TEST_IDENTITY_COOKIE = savedCookie;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('部署探测：真实 HTTP 前后稳定通过，换包拒绝', async () => {
+  const http = require('http');
+  const tmp = fs.mkdtempSync(path.join(ev.ROOT, '.session_tmps', 'deployment-test-'));
+  let content = 'version-one';
+  const server = http.createServer((req, res) => { res.end(content); });
+  const savedOut = process.env.ACCEPT_EVIDENCE_OUT;
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    process.env.ACCEPT_EVIDENCE_OUT = path.join(tmp, 'out');
+    const artifact = path.join(tmp, 'bundle.js');
+    fs.writeFileSync(artifact, content);
+    const config = path.join(tmp, 'deployment.json');
+    fs.writeFileSync(config, JSON.stringify({ targets: [{ name: 'frontend',
+      url: 'http://127.0.0.1:' + server.address().port + '/bundle.js',
+      artifact: path.relative(ev.ROOT, artifact) }] }));
+    const rel = path.relative(ev.ROOT, config);
+    await ev.probeDeployment(rel, 'before.json');
+    await ev.probeDeployment(rel, 'after.json', 'before.json');
+    const after = JSON.parse(fs.readFileSync(path.join(tmp, 'out', 'after.json'), 'utf8'));
+    assert.equal(after.unchanged, true);
+    assert.equal(after.targets[0].before, after.targets[0].after);
+    content = 'version-two';
+    await assert.rejects(ev.probeDeployment(rel, 'changed.json', 'before.json'), /不同/);
+    assert.equal(fs.existsSync(path.join(tmp, 'out', 'changed.json')), false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (savedOut === undefined) delete process.env.ACCEPT_EVIDENCE_OUT;
+    else process.env.ACCEPT_EVIDENCE_OUT = savedOut;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('构建快照：真实哈希一致通过，测试期间替换产物拒绝', () => {
+  const tmp = fs.mkdtempSync(path.join(ev.ROOT, '.session_tmps', 'build-snapshot-'));
+  const { execFileSync } = require('child_process');
+  try {
+    const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ev.ROOT, encoding: 'utf8' }).trim();
+    const file = path.join(tmp, 'bundle.js');
+    fs.writeFileSync(file, 'before');
+    const record = path.join(tmp, 'build.json');
+    fs.writeFileSync(record, JSON.stringify({ exitCode: 0, sourceCommit, products: [{
+      name: 'frontend', path: path.relative(ev.ROOT, file), sourceCommit, sha256: ev.sha256(file),
+    }] }));
+    assert.equal(ev.productSnapshot(record)[0].sha256, ev.sha256(file));
+    fs.writeFileSync(file, 'after');
+    assert.throws(() => ev.productSnapshot(record), /产物已变化/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('产物采集：真实文件哈希、来源漂移、路径逃逸与覆盖拒绝', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'product-test-'));
+  const { spawnSync } = require('child_process');
+  try {
+    fs.mkdirSync(path.join(tmp, 'out', 'run'), { recursive: true });
+    const sha = 'a'.repeat(40);
+    fs.writeFileSync(path.join(tmp, 'out', 'run', 'run.json'), JSON.stringify({ sourceCommit: sha }));
+    fs.writeFileSync(path.join(tmp, 'bundle.js'), 'actual product');
+    const config = path.join(tmp, 'config.json');
+    const invoke = (product) => {
+      fs.writeFileSync(config, JSON.stringify({ products: [product] }));
+      return spawnSync(process.execPath, [path.join(__dirname, 'evidence.cjs'), 'products', 'run', 'config.json'], {
+        env: { ...process.env, SCHEMA_EVIDENCE_ROOT: tmp, ACCEPT_EVIDENCE_OUT: path.join(tmp, 'out') },
+        encoding: 'utf8',
+      });
+    };
+    const product = { name: 'frontend', path: 'bundle.js', sourceCommit: sha, runtimeVersion: sha };
+    assert.notEqual(invoke({ ...product, path: '../escape' }).status, 0);
+    assert.notEqual(invoke({ ...product, sourceCommit: 'b'.repeat(40) }).status, 0);
+    assert.equal(invoke(product).status, 0);
+    const result = JSON.parse(fs.readFileSync(path.join(tmp, 'out', 'run', 'products.json'), 'utf8'));
+    assert.equal(result.products[0].sha256, ev.sha256(path.join(tmp, 'bundle.js')));
+    assert.equal(result.products[0].bytes, Buffer.byteLength('actual product'));
+    assert.notEqual(invoke(product).status, 0);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 /** 每个测试独立沙箱：环境变量注入 + 结束清理。 */
 function sandbox(fn) {
   return async () => {

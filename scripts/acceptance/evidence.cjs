@@ -169,6 +169,12 @@ function runCommand(workPackage, suiteName, cmd, { reuseRunId } = {}) {
   if (!cmd.length) throw new Error('命令为空');
   const { run, runDir } = loadOrCreateRun(workPackage, reuseRunId);
   const ctx = suite(runDir, suiteName, cmd.join(' '));
+  const buildRecord = process.env.ACCEPT_BUILD_RECORD;
+  const before = buildRecord ? productSnapshot(buildRecord) : null;
+  if (before) {
+    fs.writeFileSync(path.join(runDir, 'products.json'), JSON.stringify({ sourceCommit: run.sourceCommit,
+      products: before.map((p) => ({ ...p, localBuildVersion: p.sourceCommit })) }, null, 2), { flag: 'wx' });
+  }
   fs.mkdirSync(ctx.shotDir, { recursive: true });
   const { spawnSync } = require('child_process');
   const logFile = path.join(runDir, 'logs', `${suiteName}-output.txt`);
@@ -194,6 +200,17 @@ function runCommand(workPackage, suiteName, cmd, { reuseRunId } = {}) {
     const failed = rows.filter((r) => r.skipped !== true && r.pass === false).length;
     ctx.count(rows.length - failed - skipped, failed, skipped);
     if (failed && exitCode === 0) exitCode = 1;
+  }
+  if (before) {
+    try {
+      const after = productSnapshot(buildRecord);
+      if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('验收期间产物变化');
+      fs.writeFileSync(path.join(runDir, suiteName + '-product-check.json'), JSON.stringify({
+        sourceCommit: run.sourceCommit, unchanged: true, checkedAt: isoNow(), products: after }, null, 2));
+    } catch (e) {
+      exitCode = 1;
+      fs.appendFileSync(logFile, '\n[evidence] ' + e.message + '\n');
+    }
   }
   ctx.exit(exitCode);
   return { runId: ctx.runId, runDir, exitCode };
@@ -338,18 +355,208 @@ function parseRunArgs(rest) {
   return opts;
 }
 
-/** CLI 统一入口：run / archive / check。 */
-function main() {
+/** HTTP 部署探测：读取实际响应字节，不记录凭证或响应正文。 */
+async function probeDeployment(configRel, outputRel, previousRel = null) {
+  const config = JSON.parse(fs.readFileSync(safeJoin(ROOT, configRel), 'utf8'));
+  if (!Array.isArray(config.targets) || !config.targets.length) throw new Error('缺部署探测目标');
+  const sourceCommit = gitHead();
+  const sample = async (target) => {
+    const url = new URL(target.url);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search) {
+      throw new Error('部署探测 URL 不允许凭证或查询参数');
+    }
+    const headers = { 'Cache-Control': 'no-cache' };
+    if (target.cookieEnv) {
+      if (target.kind !== 'backend-identity'
+          || url.pathname !== '/api/system/build-identity'
+          || (url.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) {
+        throw new Error('认证探测仅允许 HTTPS 身份接口或本机 HTTP 身份接口');
+      }
+      if (!/^[A-Z][A-Z0-9_]*$/.test(target.cookieEnv) || !process.env[target.cookieEnv]) {
+        throw new Error('缺少认证 cookie 环境变量');
+      }
+      headers.Cookie = process.env[target.cookieEnv];
+    }
+    const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(10000), headers });
+    if (!response.ok) throw new Error('部署探测失败: HTTP ' + response.status);
+    if (target.kind === 'backend-identity') {
+      const identity = await response.json();
+      if (identity.verifiable !== true || identity.sourceCommit !== sourceCommit
+          || typeof identity.instanceId !== 'string' || !identity.instanceId) {
+        throw new Error('运行后端构建身份不匹配或不可验证');
+      }
+      return identity;
+    }
+    return require('crypto').createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex');
+  };
+  const targets = [];
+  for (const target of config.targets) {
+    if (target.kind === 'backend-identity') {
+      const identity = await sample(target);
+      targets.push({ name: target.name, url: target.url, expected: sourceCommit,
+        before: identity.sourceCommit, instanceBefore: identity.instanceId, method: 'backend-build-identity' });
+      continue;
+    }
+    const expected = sha256(safeJoin(ROOT, target.artifact));
+    const before = await sample(target);
+    if (before !== expected) throw new Error('部署资源与本地产物不同: ' + target.name);
+    targets.push({ name: target.name, url: target.url, expected, before, method: 'http-response-sha256' });
+  }
+  let unchanged = false;
+  if (previousRel) {
+    const previous = JSON.parse(fs.readFileSync(safeJoin(outRoot(), previousRel), 'utf8'));
+    if (previous.sourceCommit !== sourceCommit || previous.targets.length !== targets.length) {
+      throw new Error('部署前后来源或目标数变化');
+    }
+    for (let i = 0; i < targets.length; i++) {
+      const before = previous.targets[i];
+      const after = targets[i];
+      if (before.url !== after.url || before.name !== after.name || before.expected !== after.expected
+          || before.before !== after.before) throw new Error('验收期间部署资源变化');
+      if (before.method !== after.method || before.instanceBefore !== after.instanceBefore) {
+        throw new Error('验收期间后端实例变化');
+      }
+      after.after = after.before;
+      after.before = before.before;
+      if (after.method === 'backend-build-identity') after.instanceAfter = after.instanceBefore;
+    }
+    unchanged = true;
+  }
+  const output = safeJoin(outRoot(), outputRel);
+  if (fs.existsSync(output)) throw new Error('部署证据已存在，拒绝覆盖');
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, JSON.stringify({ sourceCommit, unchanged, sampledAt: isoNow(), targets }, null, 2), { flag: 'wx' });
+  return output;
+}
+
+/** 受控构建：真实执行命令并绑定构建前后 Git 状态与产物。 */
+function buildProducts(configRel, cmd) {
+  if (!cmd.length || !gitHead() || !workingTreeClean()) throw new Error('构建必须从干净 Git 源码开始');
+  const config = JSON.parse(fs.readFileSync(safeJoin(ROOT, configRel), 'utf8'));
+  if (!Array.isArray(config.products) || !config.products.length) throw new Error('缺产物配置');
+  const sourceCommit = gitHead();
+  const startedAt = isoNow();
+  const identity = path.join(ROOT, 'schema-platform', 'bootstrap', 'src', 'main', 'resources', 'build-source.txt');
+  if (config.backendIdentity === true) {
+    if (fs.existsSync(identity)) throw new Error('构建身份资源已存在，拒绝覆盖');
+    fs.mkdirSync(path.dirname(identity), { recursive: true });
+    fs.writeFileSync(identity, sourceCommit + '\n', { flag: 'wx' });
+  }
+  let result;
+  try {
+    result = require('child_process').spawnSync(cmd[0], cmd.slice(1), { cwd: ROOT, shell: false, stdio: 'inherit' });
+  } finally {
+    if (config.backendIdentity === true) fs.unlinkSync(identity);
+  }
+  if (result.status !== 0) throw new Error('构建失败，退出码: ' + result.status);
+  if (gitHead() !== sourceCommit || !workingTreeClean()) throw new Error('构建期间源码变化');
+  const products = config.products.map((p) => {
+    const file = safeJoin(ROOT, p.path);
+    if (!p.name || !fs.statSync(file).isFile()) throw new Error('产物非法');
+    if (config.backendIdentity === true && /\.jar$/i.test(file)) {
+      const check = require('child_process').spawnSync('python', ['-c',
+        "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); value=z.read('BOOT-INF/classes/build-source.txt').decode('utf-8').strip(); sys.exit(0 if value==sys.argv[2] else 1)",
+        file, sourceCommit], { cwd: ROOT, shell: false, encoding: 'utf8' });
+      if (check.status !== 0) throw new Error('JAR 内构建身份缺失或不匹配');
+    }
+    return { name: p.name, path: p.path, sourceCommit, sha256: sha256(file), bytes: fs.statSync(file).size };
+  });
+  const buildId = timestamp() + '-' + sourceCommit.slice(0, 7);
+  const output = safeJoin(outRoot(), 'builds/' + buildId + '.json');
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, JSON.stringify({ buildId, sourceCommit, startedAt, finishedAt: isoNow(),
+    command: cmd, exitCode: 0, products }, null, 2) + '\n', { flag: 'wx' });
+  return output;
+}
+
+/** 从构建记录采集验收快照；重新计算哈希，不信任配置提供的哈希。 */
+function productSnapshot(buildRecord) {
+  const record = JSON.parse(fs.readFileSync(buildRecord, 'utf8'));
+  if (record.exitCode !== 0 || record.sourceCommit !== gitHead() || !record.products?.length) {
+    throw new Error('构建记录失败或来源不符');
+  }
+  return record.products.map((p) => {
+    const file = safeJoin(ROOT, p.path);
+    const hash = sha256(file);
+    if (hash !== p.sha256 || p.sourceCommit !== record.sourceCommit) throw new Error('产物已变化: ' + p.name);
+    return { ...p, sha256: hash };
+  });
+}
+
+/** 从实际本地产物采集 SHA256；不推断部署版本，不读取工作区外文件。 */
+function collectProducts(runId, configRel) {
+  const runDir = safeJoin(outRoot(), runId);
+  const run = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
+  const config = JSON.parse(fs.readFileSync(safeJoin(ROOT, configRel), 'utf8'));
+  if (!Array.isArray(config.products) || !config.products.length) throw new Error('缺产物配置');
+  const names = new Set();
+  const products = config.products.map((p) => {
+    if (!p.name || names.has(p.name)) throw new Error('产物名称缺失或重复');
+    names.add(p.name);
+    if (p.sourceCommit !== run.sourceCommit || !p.runtimeVersion) throw new Error('产物来源或运行版本缺失/不符');
+    const file = safeJoin(ROOT, p.path);
+    const real = fs.realpathSync(file);
+    const rel = path.relative(fs.realpathSync(ROOT), real);
+    if (rel.startsWith('..') || path.isAbsolute(rel) || !fs.statSync(real).isFile()) throw new Error('产物路径逃逸或非文件');
+    if (FORBIDDEN_NAMES.some((re) => re.test(path.basename(real)))) throw new Error('敏感类型不得作为产物');
+    return { name: p.name, sourceCommit: p.sourceCommit, runtimeVersion: p.runtimeVersion,
+      path: p.path, sha256: sha256(real), bytes: fs.statSync(real).size,
+      collectedAt: isoNow(), method: 'local-file-sha256' };
+  });
+  const output = path.join(runDir, 'products.json');
+  if (fs.existsSync(output)) throw new Error('产物记录已存在，拒绝覆盖');
+  fs.writeFileSync(output, JSON.stringify({ sourceCommit: run.sourceCommit, products }, null, 2) + '\n', { flag: 'wx' });
+  return output;
+}
+
+/** CLI 统一入口：run / archive / check / products。 */
+async function main() {
   const [action, ...rest] = process.argv.slice(2);
+  if (action === 'deployment') {
+    if (rest.length !== 2) throw new Error('usage: evidence.cjs deployment <config-relative-path> <output-relative-to-out>');
+    console.log('[evidence] deployment -> ' + await probeDeployment(rest[0], rest[1]));
+    return;
+  }
+  if (action === 'build') {
+    const split = rest.indexOf('--');
+    if (split !== 1) throw new Error('usage: evidence.cjs build <config-relative-path> -- <executable> <args...>');
+    console.log('[evidence] build -> ' + buildProducts(rest[0], rest.slice(split + 1)));
+    return;
+  }
+  if (action === 'products') {
+    if (rest.length !== 2) throw new Error('usage: evidence.cjs products <run-id> <config-relative-path>');
+    console.log('[evidence] products -> ' + collectProducts(rest[0], rest[1]));
+    return;
+  }
   if (action === 'run') {
     const [workPackage, suiteName] = rest;
     let opts;
     try { opts = parseRunArgs(rest.slice(2)); }
     catch (e) { console.error(e.message); console.error(module.exports.RUN_HELP); process.exit(2); }
     if (!workPackage || !suiteName || !opts.cmd.length) { console.error(module.exports.RUN_HELP); process.exit(2); }
-    const { runId, exitCode } = runCommand(workPackage, suiteName, opts.cmd, { reuseRunId: opts.reuseRunId });
-    console.log(`\n[evidence] run=${runId} exit=${exitCode}`);
-    process.exitCode = exitCode;
+    const deploymentConfig = process.env.ACCEPT_DEPLOYMENT_CONFIG;
+    let deploymentRun = null;
+    if (deploymentConfig) {
+      deploymentRun = loadOrCreateRun(workPackage, opts.reuseRunId);
+      opts.reuseRunId = deploymentRun.run.runId;
+      await probeDeployment(deploymentConfig, opts.reuseRunId + '/' + suiteName + '-deployment-before.json');
+    }
+    const result = runCommand(workPackage, suiteName, opts.cmd, { reuseRunId: opts.reuseRunId });
+    if (deploymentConfig) {
+      try {
+        await probeDeployment(deploymentConfig, result.runId + '/' + suiteName + '-deployment.json',
+          result.runId + '/' + suiteName + '-deployment-before.json');
+      } catch (error) {
+        result.exitCode = 1;
+        const runFile = path.join(result.runDir, 'run.json');
+        const run = JSON.parse(fs.readFileSync(runFile, 'utf8'));
+        run.suites[suiteName].exitCode = 1;
+        fs.writeFileSync(runFile, JSON.stringify(run, null, 2));
+        console.error('[evidence] deployment failed: ' + error.message);
+      }
+    }
+    console.log(`\n[evidence] run=${result.runId} exit=${result.exitCode}`);
+    process.exitCode = result.exitCode;
     return;
   }
   if (action === 'archive') {
@@ -378,7 +585,10 @@ function main() {
   process.exit(2);
 }
 
-if (require.main === module) main();
+if (require.main === module) main().catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+});
 
-module.exports = { ROOT, outRoot, archiveRoot, run: loadOrCreateRun, suite, runCommand, archive, check, sha256, safeJoin, timestamp, walk, parseRunArgs };
+module.exports = { ROOT, outRoot, archiveRoot, run: loadOrCreateRun, suite, runCommand, archive, check, sha256, safeJoin, timestamp, walk, parseRunArgs, collectProducts, buildProducts, productSnapshot, probeDeployment };
 
