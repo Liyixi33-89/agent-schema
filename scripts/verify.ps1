@@ -308,7 +308,8 @@ if ($Level -in @('commit', 'ci')) {
     } else {
         Step 'acceptance-archives' {
             foreach ($m in $manifests) {
-                $rel = [IO.Path]::GetRelativePath($archRoot, $m.DirectoryName)
+                # PS5.1 的 .NET Framework 无 Path.GetRelativePath（PS7 专有）——手动截前缀兼容双版本
+                $rel = $m.DirectoryName.Substring($archRoot.Length).TrimStart('\', '/')
                 node (Join-Path $root 'scripts\acceptance\evidence.cjs') check $rel
                 if ($LASTEXITCODE -ne 0) { throw "归档校验 FAIL: $rel" }
             }
