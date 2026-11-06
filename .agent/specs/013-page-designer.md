@@ -128,4 +128,20 @@ export const MATERIAL_PANEL: PanelGroup[];       // 物料面板分组清单（ 
 
 ## 7. 沉淀记录（结项时回填）
 
-- （待结项回填）
+- **协议缺陷修复**：expression.ts BINARY_PRECEDENCE 缺 `===`/`!==`——tokenize 识别但 parse 无优先级
+  当 trailing 拒绝，全部严格相等表达式编译失败（M1 冻结漏网；向量文件无该形态用例）。已补表项，
+  schema-protocol 88 项回归通过。教训：**双端向量执行只覆盖了出现的形态，未覆盖"语义上显然该有"
+  的形态**——契约测试用例设计须含操作符全家族。
+- **预览路由 Cookie 撞隔离**：浏览器登录态下打开 `#/preview?grant=` 自动附 schema_at Cookie，
+  exchange 按 03BE §4.1 拒 Cookie 凭证（PREVIEW_CREDENTIAL_REJECTED）。修复：前端 fetch 显式
+  `credentials:'omit'`（匿名消费 grant 与协议设计一致，不动后端安全链）。
+- **React 18 合成 DragEvent 不被委托层拾取**：dispatchEvent(DragEvent) 原样冒泡但 React onDrop
+  不响应（drop 非可信事件链）；fiber 直调同步 onDrop 可靠（M12 教训复用）。验收脚本已注明。
+- **工具栏按钮定位**：antd Tabs 隐藏页签残留 DOM 含同名按钮（主题页「保存变更」）——全局按钮
+  查找必须限定容器（「返回列表」祖先中按钮数最多的一层）。
+- **input value 不进 innerText**：保留草稿断言须读 input.value（属性面板值），bodyText 永远查不到。
+- **预览 exchange 契约**：响应 `{accessToken, pageId, expiresIn}`（无 previewToken/tenantId）——
+  preview JWT 内嵌 tenant claim 由服务端解析。
+- 验收 28/28：新建向导/拖拽撤销重做/属性面板即时反映/表达式阻断保存/409 三路径（保留+放弃）/
+  发布/grant 一次性/预览隔离通道/数据绑定组渲染。
+

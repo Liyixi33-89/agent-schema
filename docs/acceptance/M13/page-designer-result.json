@@ -1,0 +1,142 @@
+[
+  {
+    "name": "API 管理员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "A4-1 UI 向导新建页面（列表出现）",
+    "pass": true,
+    "detail": "pd_mw4ffcbv"
+  },
+  {
+    "name": "A4-2 空画布引导可见",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A4-3 拖入 SectionCard + TextInput",
+    "pass": true,
+    "detail": "dropped/dropped"
+  },
+  {
+    "name": "A4-4 画布出现节点",
+    "pass": true,
+    "detail": "count=2"
+  },
+  {
+    "name": "A4-5 撤销后节点减一",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A4-6 重做后节点恢复",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A5-1 属性面板出现配置分组",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A5-2 属性输入就位",
+    "pass": true,
+    "detail": "set"
+  },
+  {
+    "name": "A5-3 改 label 即时反映画布",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A6-1 填入错误表达式",
+    "pass": true,
+    "detail": "set"
+  },
+  {
+    "name": "A6-2 表达式错误阻断保存按钮",
+    "pass": true,
+    "detail": "disabled=true"
+  },
+  {
+    "name": "A6-3 错误提示可见",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A6-4 修正后保存成功",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A6-5 页面落库可查",
+    "pass": true,
+    "detail": "{\"id\":\"58\",\"pageKey\":\"pd_mw4ffcbv\",\"name\":\"验收设计器页\",\"type\":\"FORM\",\"path\":\"/pd_mw4ffcbv/form\",\"status\":\"ACTIVE\",\"draftVers"
+  },
+  {
+    "name": "A6-6 草稿含修正后表达式",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A7-1 外部保存推高版本",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "A7-2 409 冲突弹层出现",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A7-3 保留后本地草稿仍在",
+    "pass": true,
+    "detail": "input value=冲突测试标题"
+  },
+  {
+    "name": "A7-4 放弃后对齐服务器版本",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A8-1 发布应用",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "A8-2 预览 grant 签发",
+    "pass": true,
+    "detail": "grantId=6248b475-0e9"
+  },
+  {
+    "name": "A8-3 exchange 成功（15min 会话）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "A8-4 发布面可读（预览 token 通过隔离通道）",
+    "pass": true,
+    "detail": "HTTP 200 body={\"id\":\"page_8d845987-f51f-40a0-82ea-f70db6992b05\",\"name\":\"验收设计器页\",\"path\":\"/pd_mw"
+  },
+  {
+    "name": "A8-5 预览路由渲染（预览模式标识）",
+    "pass": true,
+    "detail": "预览模式（短时会话只读渲染；凭证 15 分钟有效）\n页面加载失败\n页面未绑定数据模型"
+  },
+  {
+    "name": "A8-6 预览兑换链路无失败（不含「预览失败」）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A8-7 grant 重放被拒",
+    "pass": true,
+    "detail": "HTTP 401"
+  },
+  {
+    "name": "A9-1 未绑模型页字段绑定入口（数据绑定组渲染，下拉提示未绑模型）",
+    "pass": true,
+    "detail": "has-bind-group"
+  }
+]

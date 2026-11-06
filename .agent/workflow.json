@@ -335,7 +335,7 @@
     {
       "id": "M13",
       "title": "页面设计器与预览",
-      "status": "implementing",
+      "status": "implemented",
       "priority": 9,
       "dependsOn": [
         "M6-M7",
@@ -346,7 +346,11 @@
         {
           "id": "page-designer",
           "requirement": "拖拽、propsSchema 属性面板、字段绑定、发布预览真实交互",
-          "evidence": null
+          "evidence": {
+            "command": "node scripts/acceptance/accept-page-designer.cjs（新建向导→拖拽/撤销重做→属性面板→表达式阻断→保存→409 冲突保护→发布→grant/exchange 预览→字段绑定入口；28/28 PASS）+ page-designer 单测 24/24",
+            "report": "docs/acceptance/M13/page-designer-report.md",
+            "passed": true
+          }
         }
       ],
       "review": null

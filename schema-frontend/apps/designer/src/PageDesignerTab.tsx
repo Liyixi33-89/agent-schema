@@ -603,6 +603,7 @@ function designerResolve(componentName: string): React.ComponentType<Record<stri
     const isWarned = canvasSelection.warned.has(nodeId);
     return (
       <div
+        data-node-id={nodeId}
         onClick={(e) => { e.stopPropagation(); canvasSelection.onSelect(nodeId); }}
         style={{
           outline: isSelected ? '2px solid #1677ff' : isWarned ? '2px dashed #faad14' : '1px dashed transparent',
