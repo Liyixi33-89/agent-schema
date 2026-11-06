@@ -48,7 +48,8 @@ class NotificationIT {
     @Autowired
     private JdbcTemplate jdbc;
 
-    @AfterAll
+    @org.junit.jupiter.api.BeforeEach
+    @org.junit.jupiter.api.AfterEach
     void cleanup() {
         jdbc.update("DELETE FROM notify_message WHERE tenant_id = ?", TENANT);
         jdbc.update("DELETE FROM notify_user_pref WHERE tenant_id = ?", TENANT);
