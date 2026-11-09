@@ -345,28 +345,152 @@
       "acceptance": [
         {
           "id": "page-designer",
-          "requirement": "拖拽/撤销重做、propsSchema 属性面板、字段绑定落协议字段(fieldRef)、容器嵌套/大纲排序/删除、表达式错误阻断全部保存路径(手动/自动/预览)、409 三方差异保护、发布预览隔离、绑定真实模型全链路(两段式建模→绑定→嵌套落库→发布→预览渲染可用表单→删字段标黄)。54/54 PASS exit=0(最终树 run 20261106-152504-6d8257e; 首run 20261106-142603-532775a 因评审补向量按门禁重跑)。page-designer 单测 27/27; schema-protocol 向量 99/99 + Java 向量 18/18(双端 ===/!== 同判含跨类型)",
+          "requirement": "主套件 54 场景（A4-A9 编辑内核/属性面板/表达式/409/发布预览 + B0-B8 绑定模型全链）",
+          "suite": "page-designer",
+          "command": "node scripts\\acceptance\\accept-page-designer.cjs",
+          "report": "docs/acceptance/M13/20261109-132449-4ab57bb/report.md",
+          "commit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+          "passed": true,
+          "provenance": "products.json",
+          "stability": "stability.json",
+          "deployment": "deployment.json",
           "evidence": {
             "command": "node scripts\\acceptance\\accept-page-designer.cjs",
-            "report": "docs/acceptance/M13/20261106-152504-6d8257e/report.md",
-            "commit": "6d8257e6305ecd9d30b0c91b8e6936ebc14f84b4",
+            "report": "docs/acceptance/M13/20261109-132449-4ab57bb/report.md",
+            "commit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
             "suite": "page-designer",
-            "passed": true
-          }
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "stability.json",
+            "deployment": "deployment.json"
+          },
+          "scenarios": [
+            "API 管理员登录::凭证三件套",
+            "A4-1 UI 向导新建页面（列表出现）",
+            "A4-2 空画布引导可见",
+            "A4-3 拖入 SectionCard + TextInput",
+            "A4-4 画布出现节点",
+            "A4-5 撤销后节点减一",
+            "A4-6 重做后节点恢复",
+            "A5-1 属性面板出现配置分组",
+            "A5-2 属性输入就位",
+            "A5-3 改 label 即时反映画布",
+            "A6-1 填入错误表达式",
+            "A6-2 表达式错误阻断保存按钮",
+            "A6-3 错误提示可见",
+            "A6-4 修正后保存成功",
+            "A6-5 页面落库可查",
+            "A6-6 草稿含修正后表达式",
+            "A7-1 外部保存推高版本",
+            "A7-2 409 冲突弹层出现",
+            "A7-3 保留后本地草稿仍在",
+            "A7-4 放弃后对齐服务器版本",
+            "A8-1 发布应用",
+            "A8-2 预览 grant 签发",
+            "A8-3 exchange 成功（15min 会话）",
+            "A8-4 发布面可读（预览 token 通过隔离通道）",
+            "A8-5 预览路由渲染（预览模式标识）",
+            "A8-6 预览兑换链路无失败（不含「预览失败」）",
+            "A8-7 grant 重放被拒",
+            "A9-1 未绑模型页字段绑定入口（数据绑定组渲染，下拉提示未绑模型）",
+            "B0-1 测试模型创建",
+            "B0-2 模型字段 precheck 签发 token",
+            "B0-3 模型字段保存（4 字段落库）",
+            "B1-1 绑定页创建",
+            "B1-2 绑定页落库",
+            "B2-0 API 绑定模型（草稿写入 modelId）",
+            "B2-1 拖入 TextInput",
+            "B2-3 字段绑定下拉渲染（绑定模型后）",
+            "B2-4 下拉选项可见并选中 amount",
+            "B3-1 保存成功",
+            "B3-2 fieldRef 落协议字段",
+            "B4-0 拖入 SectionCard",
+            "B4-1 容器落点捕获 + 嵌套拖入",
+            "B4-2 大纲嵌套缩进可见",
+            "B4-3 嵌套结构落库: TextInput 在 SectionCard children 内",
+            "B5-1 大纲含上移/下移/删除操作",
+            "B6-1 外部保存推高版本",
+            "B6-2 409 弹层出现",
+            "B6-3 差异摘要渲染（三方差异表）",
+            "B6-4 差异含节点数维度",
+            "B6-5 放弃后对齐",
+            "B7-1 发布",
+            "B7-2 预览路由渲染",
+            "B7-3 预览渲染绑定表单（不再提示未绑模型）",
+            "B8-1 模型删除字段保存(amount)",
+            "B8-2 差异检测标黄(引用已删字段的节点)"
+          ]
         },
         {
           "id": "page-designer-race",
-          "requirement": "真实交互专项补验：C1 模型生成默认页(向导选模型+Switch→骨架4×FormItem+fieldRef全中)/C2 原生事件链拖拽/C3 30s自动保存竞态(拖慢窗口内编辑不丢+版本链1→3)/C4 409保留后重存闭环(稍后处理→换基线→重存落库)。20/20 PASS exit=0；主套件同源码提交复跑 54/54。期间发现并修复真实缺陷：向导 Switch 后挂载致 generate 静默丢失(4c5b398)",
+          "requirement": "真实交互补验 20 场景（C1 模型生成默认页/C2 原生事件链拖拽/C3 30s 自动保存竞态/C4 409 保留后重存闭环）",
+          "suite": "page-designer-race",
+          "command": "node scripts\\acceptance\\accept-page-designer-race.cjs",
+          "report": "docs/acceptance/M13/20261109-132449-4ab57bb/report.md",
+          "commit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+          "passed": true,
+          "provenance": "products.json",
+          "stability": "stability.json",
+          "deployment": "deployment.json",
           "evidence": {
             "command": "node scripts\\acceptance\\accept-page-designer-race.cjs",
-            "report": "docs/acceptance/M13/20261109-125603-eeec18c/report.md",
-            "commit": "eeec18cb1991c5f9196e9a82a1028320d09b2cb3",
+            "report": "docs/acceptance/M13/20261109-132449-4ab57bb/report.md",
+            "commit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
             "suite": "page-designer-race",
-            "passed": true
-          }
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "stability.json",
+            "deployment": "deployment.json"
+          },
+          "scenarios": [
+            "C1-1b 生成开关默认开启（antd Switch）",
+            "C1-1 向导创建（模型生成）提交",
+            "C1-2 生成页落库",
+            "C1-3 草稿含字段骨架（≥4 FormItem 且控件带 fieldRef）",
+            "C1-4 骨架绑定模型字段",
+            "C2-1 真实鼠标拖拽执行（原生事件链）",
+            "C2-2 拖拽后画布出现节点",
+            "C3-1 编辑产生 dirty（拖入第二个节点）",
+            "C3-2 等待 30s 自动保存触发（真实定时器）",
+            "C3-3 自动保存真实触发（draftVersion 推进）",
+            "C3-4 保存期间编辑未被丢（手动保存收尾成功）",
+            "C3-5 竞态期间编辑内容落库",
+            "C3-6 版本链一致推进",
+            "C4-1 外部保存推高版本",
+            "C4-2 409 冲突弹层出现",
+            "C4-3 稍后处理保留草稿（弹层关闭）",
+            "C4-4 重开拉取服务器最新版",
+            "C4-5 换基线后重存成功",
+            "C4-6 重存内容落库（闭环完成）"
+          ]
         }
       ],
-      "review": null,
+      "review": {
+        "required": true,
+        "approved": false,
+        "kind": "independent-session",
+        "reviewer": null,
+        "approvalReference": null,
+        "coverage": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "findings": [
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "向导 Switch 后挂载致 generate 静默丢失（实现缺陷，4c5b398 修复，C1 补验实证）"
+          },
+          {
+            "blocking": false,
+            "status": "open",
+            "summary": "独立批准待真实独立评审人补签：本轮全部验收门禁（需求矩阵/场景/产物来源/部署探测）已过，但 review 为实现者整理，不构成独立批准（单人模式，GitHub 独立审批暂缓）"
+          }
+        ],
+        "note": "2026-11-09 实现者整理：验收链完整（54+20 场景、双端受控构建、运行实例身份核对）；缺独立批准——保持 implemented 直至独立评审完成"
+      },
       "gateVersion": 2,
       "implementedBy": "implementation-session-f42b4e21",
       "requirements": [
@@ -545,7 +669,8 @@
             "page-designer"
           ]
         }
-      ]
+      ],
+      "statusNote": "implemented: 验收全过(54+20)、产物来源链完整；缺独立批准（待真实独立评审）"
     },
     {
       "id": "M14",

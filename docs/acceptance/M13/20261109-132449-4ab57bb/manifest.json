@@ -1,0 +1,71 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M13",
+  "runId": "20261109-132449-4ab57bb",
+  "startedAt": "2026-11-09T05:24:49.568Z",
+  "finishedAt": "2026-11-09T05:34:12.819Z",
+  "sourceCommit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "win32",
+    "node": "v24.14.1"
+  },
+  "suites": {
+    "page-designer": {
+      "command": "node scripts\\acceptance\\accept-page-designer.cjs",
+      "startedAt": "2026-11-09T05:24:49.683Z",
+      "passed": 54,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-09T05:25:43.089Z"
+    },
+    "page-designer-race": {
+      "command": "node scripts\\acceptance\\accept-page-designer-race.cjs",
+      "startedAt": "2026-11-09T05:25:51.136Z",
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-09T05:26:46.700Z"
+    }
+  },
+  "files": [
+    {
+      "path": "report.md",
+      "sha256": "542d679edf16d8816bcd7f6ed96589d79613fa3397496c31d7211341a6cd30c8"
+    },
+    {
+      "path": "products.json",
+      "sha256": "dbb9eeacead5c3e9d2b561e0bd52d69754334169d3cd1e459ca26deca25e6656"
+    },
+    {
+      "path": "stability.json",
+      "sha256": "a52e6bff0632b9883a63e779600590bece6363388c8a6e4ca279e910ea93d040"
+    },
+    {
+      "path": "deployment.json",
+      "sha256": "5b87ae0dd5d49ccf8dc6ef2c1128f729b81a237ab975382bbce5ab22329253c5"
+    },
+    {
+      "path": "logs/page-designer-output.txt",
+      "sha256": "568a2ea14a6e5af36d2e4295070be4ce13e92cde36d8f7e8f33abbcc228d145a"
+    },
+    {
+      "path": "logs/page-designer-race-output.txt",
+      "sha256": "83d98bb74522e7279cd2a895f9d8b75d40ef268a3459b87356bfec801c86a813"
+    },
+    {
+      "path": "page-designer-result.json",
+      "sha256": "99192bddb373a301ccbd3987c7709283f6ba67a5763338ea29a481cb7f5deb21"
+    },
+    {
+      "path": "page-designer-race-result.json",
+      "sha256": "7d8a3782affa7d6d56d8f877f0fb6c14dfe449f7e077bcef20bfe672aa0fc309"
+    },
+    {
+      "path": "run.json",
+      "sha256": "603684b8d98d7187d6695a7f077ac1eb737ce1df896501e9a7861f570c58886d"
+    }
+  ]
+}
