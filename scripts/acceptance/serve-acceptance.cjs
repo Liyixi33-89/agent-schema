@@ -12,8 +12,9 @@ const path = require('path');
 
 const DIST_ROOT = path.resolve(__dirname, '../../schema-frontend/apps');
 const APPS = { designer: 'designer', runtime: 'runtime', admin: 'admin-console' };
-const BACKEND = { host: '127.0.0.1', port: 18080 };
-const PORT = 8090;
+// 环境注入：验收栈可在远端服务器运行——ACCEPT_BACKEND_HOST/PORT 指向独立验收后端
+const BACKEND = { host: process.env.ACCEPT_BACKEND_HOST || '127.0.0.1', port: Number(process.env.ACCEPT_BACKEND_PORT || 18080) };
+const PORT = Number(process.env.ACCEPT_PROXY_PORT || 8090);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
