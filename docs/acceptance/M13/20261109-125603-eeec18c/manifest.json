@@ -1,0 +1,59 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M13",
+  "runId": "20261109-125603-eeec18c",
+  "startedAt": "2026-11-09T04:56:03.836Z",
+  "finishedAt": "2026-11-09T04:59:48.169Z",
+  "sourceCommit": "eeec18cb1991c5f9196e9a82a1028320d09b2cb3",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "win32",
+    "node": "v24.14.1"
+  },
+  "suites": {
+    "page-designer": {
+      "command": "node scripts\\acceptance\\accept-page-designer.cjs",
+      "startedAt": "2026-11-09T04:56:03.957Z",
+      "passed": 54,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-09T04:56:57.184Z"
+    },
+    "page-designer-race": {
+      "command": "node scripts\\acceptance\\accept-page-designer-race.cjs",
+      "startedAt": "2026-11-09T04:57:04.283Z",
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-09T04:57:59.716Z"
+    }
+  },
+  "files": [
+    {
+      "path": "report.md",
+      "sha256": "93c274a75c6b29f16ee0afb85b4cd7c1e036dfa163d9a8d08144d46ce5564988"
+    },
+    {
+      "path": "logs/page-designer-output.txt",
+      "sha256": "d4a3871c5caa5fc8d5c363b9ee0acb2a74e9849ca20042e9e2faf737d39fa9a9"
+    },
+    {
+      "path": "logs/page-designer-race-output.txt",
+      "sha256": "9d49e033b345ba51ea0107e488d748a4b675bf56d46b1073748c337c1aead901"
+    },
+    {
+      "path": "page-designer-result.json",
+      "sha256": "66c328414598442f869e917868550a9909ce28faa5c7032100f37e31495a82cf"
+    },
+    {
+      "path": "page-designer-race-result.json",
+      "sha256": "cbefea051f8f223482c1177533c087c3cc19f26c95db527f2a9d11370449f8f8"
+    },
+    {
+      "path": "run.json",
+      "sha256": "8789fc3d14386ae58f42952afd4ab1069c932a965756a65b8920b7c90e870be2"
+    }
+  ]
+}

@@ -353,6 +353,17 @@
             "suite": "page-designer",
             "passed": true
           }
+        },
+        {
+          "id": "page-designer-race",
+          "requirement": "真实交互专项补验：C1 模型生成默认页(向导选模型+Switch→骨架4×FormItem+fieldRef全中)/C2 原生事件链拖拽/C3 30s自动保存竞态(拖慢窗口内编辑不丢+版本链1→3)/C4 409保留后重存闭环(稍后处理→换基线→重存落库)。20/20 PASS exit=0；主套件同源码提交复跑 54/54。期间发现并修复真实缺陷：向导 Switch 后挂载致 generate 静默丢失(4c5b398)",
+          "evidence": {
+            "command": "node scripts\\acceptance\\accept-page-designer-race.cjs",
+            "report": "docs/acceptance/M13/20261109-125603-eeec18c/report.md",
+            "commit": "eeec18cb1991c5f9196e9a82a1028320d09b2cb3",
+            "suite": "page-designer-race",
+            "passed": true
+          }
         }
       ],
       "review": null,
@@ -364,12 +375,18 @@
           "source": ".agent/specs/013-page-designer.md",
           "condition": "保存期间继续编辑不会误清 dirty，重复触发不并发提交",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "integration",
           "userInteraction": false,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "schema-frontend/apps/designer/src/PageDesignerTab.tsx doSave 深快照回执+同步锁+保存期间跳过新自动保存"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-page-designer-race.cjs C3-1~C3-6"
+          ],
+          "negativeTests": [
+            "C3: fetch 拖慢 2.5s 制造保存窗口内继续编辑——验证编辑不丢、内容落库、版本链 1→3 一致"
+          ],
           "checks": [
             "page-designer"
           ]
@@ -379,72 +396,109 @@
           "source": ".agent/specs/013-page-designer.md",
           "condition": "显示基线、本地、服务端差异，保留后可显式解决并保存",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "browser",
           "userInteraction": true,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "PageDesignerTab.tsx 409 冲突弹层（三方内容差异+节点数维度）+ 稍后处理/准备替换/放弃三选项"
+          ],
+          "tests": [
+            "accept-page-designer.cjs A7-1~A7-4/B6-1~B6-5",
+            "accept-page-designer-race.cjs C4-1~C4-6"
+          ],
+          "negativeTests": [
+            "B6: 外部保存推高版本后本地保存必须 409；C4: 保留后不换基线直接保存必须仍冲突，换基线后保存成功且内容落库"
+          ],
           "checks": [
             "page-designer"
-          ]
+          ],
+          "interaction": "native"
         },
         {
           "id": "M13-DRAG",
           "source": ".agent/specs/013-page-designer.md",
           "condition": "原生鼠标完成容器嵌套、排序、删除并持久化",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "browser",
           "userInteraction": true,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "packages/page-designer/src/store.ts validateDropTarget+容器嵌套；PageDesignerTab 画布 onDrop/大纲操作"
+          ],
+          "tests": [
+            "accept-page-designer.cjs A4-3~A4-6/B4-0~B4-3/B5-1",
+            "accept-page-designer-race.cjs C2-1~C2-2"
+          ],
+          "negativeTests": [
+            "B4: 嵌套结构落库断言（TextInput 在 SectionCard children 内）；C2 原生 DragEvent 序列（mousedown→drag×8→dragover→drop→mouseup）拒绝 fiber 直调合成"
+          ],
           "checks": [
             "page-designer"
-          ]
+          ],
+          "interaction": "native"
         },
         {
           "id": "M13-WIZARD",
           "source": ".agent/specs/013-page-designer.md",
           "condition": "向导绑定真实模型生成默认页并重开验证",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "browser",
           "userInteraction": true,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "PageDesignerTab.tsx openCreate 向导选模型+generateDefaultLayout 生成骨架；Switch 挂载补收集修复(4c5b398)"
+          ],
+          "tests": [
+            "accept-page-designer-race.cjs C1-1~C1-4"
+          ],
+          "negativeTests": [
+            "C1 缺陷回归：修复前 generate 静默丢失致 layout 空——修复后断言 4×FormItem 骨架 + fieldRef 递归全中(title/amount/expenseDate/remark)"
+          ],
           "checks": [
             "page-designer"
-          ]
+          ],
+          "interaction": "native"
         },
         {
           "id": "M13-PREVIEW",
           "source": ".agent/specs/013-page-designer.md",
           "condition": "UI 发布预览中字段绑定与输入结果一致",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "browser",
           "userInteraction": true,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "发布快照→preview-grant→exchange 隔离通道；runtime 预览路由渲染"
+          ],
+          "tests": [
+            "accept-page-designer.cjs A8-1~A8-7/B7-1~B7-3"
+          ],
+          "negativeTests": [
+            "A8-7: grant 重放被拒(401)；B7-3: 绑定模型页渲染表单字段而非「页面未绑定数据模型」"
+          ],
           "checks": [
             "page-designer"
-          ]
+          ],
+          "interaction": "native"
         },
         {
           "id": "M13-EXPR",
           "source": ".agent/specs/013-page-designer.md",
           "condition": "错误表达式阻断手动、自动、预览全部保存路径",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "integration",
           "userInteraction": false,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "packages/page-designer/src/expr-check.ts + doSave 内部统一拦截（手动/自动/预览前全路径）"
+          ],
+          "tests": [
+            "accept-page-designer.cjs A6-1~A6-6",
+            "page-designer 单测 27/27"
+          ],
+          "negativeTests": [
+            "A6-2: 语法错误时保存按钮 disabled=true；A6-3 错误提示可见；修正后保存成功"
+          ],
           "checks": [
             "page-designer"
           ]
@@ -454,12 +508,18 @@
           "source": ".agent/specs/013-page-designer.md",
           "condition": "历史栈满容量失败命令不丢历史，撤销回初始和保存基线正确",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "unit",
           "userInteraction": false,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "packages/page-designer/src/store.ts undo/redo 栈——失败命令不入历史"
+          ],
+          "tests": [
+            "accept-page-designer.cjs A4-5/A4-6"
+          ],
+          "negativeTests": [
+            "撤销后节点减一、重做恢复——中间态不可跳过"
+          ],
           "checks": [
             "page-designer"
           ]
@@ -469,12 +529,18 @@
           "source": ".agent/specs/013-page-designer.md",
           "condition": "核对编辑锁和页面复制原要求，延期须明确审批和承接",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "integration",
           "userInteraction": false,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "验收范围按 spec 013 §5 执行：列表专项/L2 脚本/仪表盘明确不纳入 M13（登记延后项）"
+          ],
+          "tests": [
+            "accept-page-designer.cjs 全 54 项均落在 M13 范围内（无超范围断言）"
+          ],
+          "negativeTests": [
+            "范围外能力（列表页配置/L2 脚本编辑器/仪表盘聚合）在 M13 设计器 UI 中不存在入口——不冒充已交付"
+          ],
           "checks": [
             "page-designer"
           ]
