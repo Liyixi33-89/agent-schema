@@ -214,9 +214,9 @@ export class DesignerStore {
   }
 
   /** 保存成功回执：清 dirty（04FE §3「保存前后状态一致才清 dirty」——调用方须在确认落库后调用）。 */
-  markSaved(): void {
-    this.savedBaseline = clone(this.doc);
-    this._dirty = false;
+  markSaved(savedDocument: PageSchema = this.doc): void {
+    this.savedBaseline = clone(savedDocument);
+    this.recomputeDirty();
     this.emit();
   }
 

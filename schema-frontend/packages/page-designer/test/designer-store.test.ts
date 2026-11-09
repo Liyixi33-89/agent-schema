@@ -69,6 +69,18 @@ describe('DesignerStore 命令系统（A1）', () => {
     expect(store.canRedo).toBe(false);
   });
 
+  it('旧保存回执保留期间编辑，undo 回已提交快照才清 dirty', () => {
+    const store = new DesignerStore(page());
+    store.execute({ type: 'insert', parentId: null, index: 0, node: node('a') });
+    const submitted = structuredClone(store.document);
+    store.execute({ type: 'insert', parentId: null, index: 1, node: node('b') });
+    store.markSaved(submitted);
+    expect(store.dirty).toBe(true);
+    expect(store.document.layout).toHaveLength(2);
+    store.undo();
+    expect(store.dirty).toBe(false);
+  });
+
   it('markSaved 清 dirty；load 重置历史', () => {
     const store = new DesignerStore(page());
     store.execute({ type: 'insert', parentId: null, index: 0, node: node('a') });
