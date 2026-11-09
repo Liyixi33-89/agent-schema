@@ -10,6 +10,7 @@ const path = require('path');
 const os = require('os');
 
 const ev = require('./evidence.cjs');
+fs.mkdirSync(path.join(ev.ROOT, '.session_tmps'), { recursive: true });
 
 test('认证后端探测：旧源码、实例替换、缺凭证拒绝且凭证不归档', async () => {
   const http = require('http');

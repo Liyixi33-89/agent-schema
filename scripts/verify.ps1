@@ -230,9 +230,8 @@ if (Test-Path $evidenceTest) {
 $workflowGateTest = Join-Path $root 'scripts\workflow_gate_test.py'
 if (Test-Path $workflowGateTest) {
     Step 'workflow-gate-test' {
-        # PS5.1 + $ErrorActionPreference=Stop 会把 python 的 stderr 行升级为管道中断
-        # （Exit code 2 + 输出截断）——用 cmd /c 包装把整段输出收进单一字符串
-        $raw = & cmd /c "python `"$workflowGateTest`" 2>&1"
+        # 在 Python 内统一输出通道，兼容 PS5.1 与 Linux，保留真实退出码
+        $raw = & python -c 'import runpy,sys,os; sys.stderr=sys.stdout; path,name=sys.argv[1:]; sys.argv=[path]; sys.path.insert(0,os.path.dirname(os.path.abspath(path))); runpy.run_path(path,run_name=name)' $workflowGateTest '__main__'
         $code = $global:LASTEXITCODE
         $hasOk = ($raw -split "`r?`n" | Where-Object { $_ -match '^(OK|FAILED\b)' }) -join '; '
         if ($code -ne 0 -or $hasOk -notmatch 'OK') { throw "workflow 门禁测试未通过 (exit=$code) :: $hasOk" }

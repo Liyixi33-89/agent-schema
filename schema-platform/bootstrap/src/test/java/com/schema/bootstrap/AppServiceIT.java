@@ -64,11 +64,7 @@ class AppServiceIT {
                 + "(SELECT id FROM sys_role WHERE app_id IS NOT NULL)");
         jdbc.update("DELETE FROM sys_role WHERE app_id IS NOT NULL");
         // 应用创建权限闸（PRD07 §4：租户管理员）：用户 1 需持租户级 org:manage 角色
-        jdbc.update("INSERT INTO sys_role (tenant_id, app_id, code, name, role_type) "
-                + "VALUES (1, 1, 'it_org_admin', 'IT 组织管理员', 'APP') "
-                + "ON CONFLICT DO NOTHING");
-        Long roleId = jdbc.queryForObject(
-                "SELECT id FROM sys_role WHERE tenant_id=1 AND code='it_org_admin'", Long.class);
+        Long roleId = ensureTenantRole("it_org_admin", "IT 组织管理员");
         jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) "
                 + "VALUES (?, 'ACTION', 0, 'org:manage') ON CONFLICT DO NOTHING", roleId);
         jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (1, ?) "

@@ -14,7 +14,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class RuntimeBuildController {
     private final String instanceId = UUID.randomUUID().toString();
-    private final String sourceCommit = readSourceCommit();
+    private final String sourceCommit;
+
+    public RuntimeBuildController() {
+        this(readSourceCommit());
+    }
+
+    RuntimeBuildController(String sourceCommit) {
+        this.sourceCommit = sourceCommit != null && sourceCommit.matches("[0-9a-f]{40}")
+                ? sourceCommit : null;
+    }
 
     private static String readSourceCommit() {
         try (InputStream stream = RuntimeBuildController.class.getResourceAsStream("/build-source.txt")) {
