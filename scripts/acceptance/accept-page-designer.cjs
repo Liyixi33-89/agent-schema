@@ -9,7 +9,7 @@
  * 通道：CDP 真实事件 + API 断言 + 落库核对；fail-fast。
  */
 const cdp = require('./cdp.cjs');
-const { BASE, ok, record, ApiClient, dbQuery, summary, request } = require('./accept-lib.cjs');
+const { BASE, ok, record, ApiClient, summary, request } = require('./accept-lib.cjs');
 
 const USERNAME = process.env.ACCEPT_USERNAME || 'accept_admin';
 const PASSWORD = process.env.ACCEPT_PASSWORD || 'Accept!2026';
@@ -566,7 +566,7 @@ async function canvasNodeCount() {
     await sleep(400);
     await clickToolbar('保存');
     ok('B6-2 409 弹层出现', await waitText('草稿版本冲突', 10000));
-    ok('B6-3 差异摘要渲染（三方差异表）', (await bodyText()).includes('三方差异摘要'));
+    ok('B6-3 差异摘要渲染（三方差异表）', (await bodyText()).includes('三方内容差异'));
     ok('B6-4 差异含节点数维度', (await bodyText()).includes('节点数'));
     // 放弃对齐服务器
     await clickButton('放弃我的修改', 'document.querySelector(".ant-modal")');
@@ -593,8 +593,10 @@ async function canvasNodeCount() {
     await clickTab('页面');
     await waitText(bindKey, 8000);
 
-    // API 删模型字段(两段式)——删除 amount(被 B2-4 绑定引用, 删后设计器应标黄); 当前版本查 DB
-    const curVer = dbQuery(`SELECT current_version FROM meta_model WHERE id=${modelId}`)[0];
+    // API 删模型字段(两段式)——删除 amount(被 B2-4 绑定引用, 删后设计器应标黄); 版本走 API 详情
+    // （服务器验收栈：DB 在远端 schema_acceptance，dbQuery 不可用——改 GET /api/models/{id} 取 currentVersion）
+    const modelDetail = await admin.call('GET', `/api/models/${modelId}`, null, { 'X-App-Id': '1' });
+    const curVer = modelDetail.json.currentVersion ?? modelDetail.json.data?.currentVersion;
     const delPre = await admin.call('POST', `/api/models/${modelId}/precheck`,
       { changes: [{ op: 'DELETE_FIELD', fieldKey: 'amount' }] }, { 'X-App-Id': '1' });
     const delToken = delPre.json.confirmToken;

@@ -1,0 +1,112 @@
+#!/bin/bash
+# M13 服务器验收 seed：经真实 API 建「报销管理」应用完整数据链（服务器本机打 18081）
+set -e
+BASE=${1:-http://127.0.0.1:18081}
+JAR=$(mktemp)
+
+csrf() { grep schema_csrf "$JAR" | awk '{print $7}'; }
+api() {
+  local m=$1 p=$2 body=${3:-}
+  if [ -n "$body" ]; then
+    curl -s -b "$JAR" -c "$JAR" -X "$m" "$BASE$p" -H "Content-Type: application/json" \
+      -H "X-CSRF-Token: $(csrf)" -H "Origin: $BASE" ${EXTRA_HDR:+-H "$EXTRA_HDR"} -d "$body"
+  else
+    curl -s -b "$JAR" -c "$JAR" -X "$m" "$BASE$p" -H "X-CSRF-Token: $(csrf)" -H "Origin: $BASE" ${EXTRA_HDR:+-H "$EXTRA_HDR"}
+  fi
+}
+
+curl -s -c "$JAR" "$BASE/api/auth/csrf" -o /dev/null
+api POST /api/auth/login '{"username":"accept_admin","password":"Accept!2026"}' -o /dev/null
+echo "login OK"
+
+# 幂等：已有同名应用直接复用
+EXISTING=$(api GET "/api/apps?keyword=%E6%8A%A5%E9%94%80%E7%AE%A1%E7%90%86")
+APP_ID=$(echo "$EXISTING" | sed -n 's/.*"list":\[{"id":\([0-9]*\).*/\1/p')
+if [ -z "$APP_ID" ]; then
+  APP=$(api POST /api/apps '{"name":"报销管理","description":"M13 浏览器验收应用"}')
+  APP_ID=$(echo "$APP" | sed -n 's/.*"appId":\([0-9]*\).*/\1/p')
+fi
+echo "app: $APP_ID"
+
+EXTRA_HDR="X-App-Id: $APP_ID"
+MLIST=$(api GET "/api/models?appId=$APP_ID")
+MDL_ID=$(echo "$MLIST" | sed -n 's/.*"modelKey":"expense","id":"\([0-9]*\)".*/\1/p')
+if [ -z "$MDL_ID" ]; then
+  MDL_ID=$(echo "$MLIST" | sed -n 's/.*{"id":"\([0-9]*\)","modelKey":"expense".*/\1/p')
+fi
+if [ -z "$MDL_ID" ]; then
+  MDL=$(api POST /api/models '{"modelKey":"expense","name":"报销单"}')
+  MDL_ID=$(echo "$MDL" | sed -n 's/.*"id":"\([0-9]*\)".*/\1/p')
+fi
+EXTRA_HDR=""
+echo "model: $MDL_ID"
+
+CHANGES='[
+ {"op":"ADD_FIELD","fieldKey":"title","field":{"type":"text","label":"报销事由","required":true}},
+ {"op":"ADD_FIELD","fieldKey":"amount","field":{"type":"number","label":"金额","required":true}},
+ {"op":"ADD_FIELD","fieldKey":"expenseDate","field":{"type":"date","label":"报销日期"}},
+ {"op":"ADD_FIELD","fieldKey":"remark","field":{"type":"text","label":"备注"}}
+]'
+PRE=$(EXTRA_HDR="X-App-Id: $APP_ID" api POST /api/models/$MDL_ID/precheck "{\"changes\":$CHANGES,\"baseVersion\":1}")
+TOKEN=$(echo "$PRE" | sed -n 's/.*"confirmToken":"\([^"]*\)".*/\1/p')
+SAVE=$(EXTRA_HDR="X-App-Id: $APP_ID" api POST /api/models/$MDL_ID/schema "{\"changes\":$CHANGES,\"baseVersion\":1,\"confirmToken\":\"$TOKEN\"}")
+echo "saveSchema: $(echo $SAVE | head -c 120)"
+
+# 幂等：已有同 pageKey 页面直接复用
+PLIST=$(api GET "/api/pages?appId=$APP_ID")
+PAGE_ID=$(echo "$PLIST" | sed -n 's/.*"pageKey":"expense_form"[^}]*"id":"\([0-9]*\)".*/\1/p')
+if [ -z "$PAGE_ID" ]; then
+  PAGE_ID=$(echo "$PLIST" | sed -n 's/.*"id":"\([0-9]*\)","pageKey":"expense_form".*/\1/p')
+fi
+if [ -z "$PAGE_ID" ]; then
+  PAGE=$(api POST /api/pages "{\"appId\":$APP_ID,\"pageKey\":\"expense_form\",\"name\":\"报销登记\",\"type\":\"FORM\",\"modelId\":$MDL_ID,\"path\":\"/expense/form\"}")
+  PAGE_ID=$(echo "$PAGE" | sed -n 's/.*"id":"\([0-9]*\)".*/\1/p')
+fi
+echo "page(form): $PAGE_ID"
+
+# 当前导航版本（幂等重跑：首次 0，之后 +1；接口返回 {"tree":[...],"version":N}）
+NAV_CUR=$(api GET "/api/apps/$APP_ID/nav" | sed -n 's/.*"version":\([0-9]*\).*/\1/p')
+[ -z "$NAV_CUR" ] && NAV_CUR=0
+NAV_BASE=$NAV_CUR
+
+DRAFT=$(cat <<EOF
+{"schema":{
+ "id":"accept_form_1","pageKey":"expense_form","name":"报销登记","type":"FORM",
+ "modelId":"$MDL_ID","path":"/expense/form","schemaVersion":1,
+ "layout":[
+  {"id":"f1","componentName":"Input","fieldRef":"title","props":{"label":"报销事由"}},
+  {"id":"f2","componentName":"InputNumber","fieldRef":"amount","props":{"label":"金额"}},
+  {"id":"f3","componentName":"DatePicker","fieldRef":"expenseDate","props":{"label":"报销日期"}},
+  {"id":"f4","componentName":"Textarea","fieldRef":"remark","props":{"label":"备注"}},
+  {"id":"f5","componentName":"Button","props":{"label":"提交","actionType":"submit"}}
+ ],
+ "dataSource":null,"actions":[]},
+ "baseDraftVersion":1}
+EOF
+)
+# dataSource 定义为 object 不接受 null——协议非必填，删除该键
+DRAFT=$(echo "$DRAFT" | sed 's/ "dataSource":null,//')
+# 幂等草稿保存：先查当前 draftVersion 再以它为 base
+DRAFT_CUR=$(api GET "/api/pages/$PAGE_ID/draft" | sed -n 's/.*"draftVersion":\([0-9]*\).*/\1/p')
+[ -z "$DRAFT_CUR" ] && DRAFT_CUR=1
+DRAFT=$(echo "$DRAFT" | sed "s/\"baseDraftVersion\":1}/\"baseDraftVersion\":$DRAFT_CUR}/")
+api PUT /api/pages/$PAGE_ID/draft "$DRAFT" -o /dev/null
+echo "draft saved"
+
+NAV="{\"tree\":[
+ {\"id\":\"g1\",\"type\":\"GROUP\",\"label\":\"报销中心\",\"children\":[
+  {\"id\":\"p1\",\"type\":\"PAGE\",\"label\":\"报销登记\",\"refId\":$PAGE_ID}
+ ]},
+ {\"id\":\"l1\",\"type\":\"LINK\",\"label\":\"帮助中心\",\"url\":\"https://example.com/help\"}
+],\"version\":$NAV_BASE}"
+NAVRES=$(api PUT /api/apps/$APP_ID/nav "$NAV")
+echo "nav: $(echo $NAVRES | head -c 80)"
+
+api POST /api/apps/$APP_ID/members "{\"userId\":2,\"roles\":[\"user\"]}" -o /dev/null
+echo "member added"
+
+PUB=$(api POST /api/apps/$APP_ID/publish '{"changelog":"M13 验收首次发布"}')
+echo "publish: $(echo $PUB | head -c 120)"
+
+echo "== DONE app=$APP_ID model=$MDL_ID page=$PAGE_ID =="
+rm -f "$JAR"

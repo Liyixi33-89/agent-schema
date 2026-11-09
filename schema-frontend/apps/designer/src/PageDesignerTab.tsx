@@ -163,14 +163,19 @@ function CreatePageForm({ models, onSubmit }: {
 }): React.ReactElement {
   const [form] = Form.useForm();
   const [hasModel, setHasModel] = React.useState(false);
+  const collect = (): void => {
+    // 现取全量（Switch 后挂载时 onValuesChange 缓存的 generate 是 undefined——提交前必须重取）
+    const v = form.getFieldsValue() as { name?: string; pageKey?: string; path?: string; modelId?: string; generate?: boolean };
+    if (v.name && v.pageKey && v.path) {
+      onSubmit({ type: 'FORM', modelId: v.modelId, generate: !!v.generate, name: v.name, pageKey: v.pageKey, path: v.path });
+    }
+  };
+  React.useEffect(() => {
+    // Switch 挂载后 initialValue 写入表单但不触发 onValuesChange——延迟补一次收集
+    if (hasModel) { const t = window.setTimeout(collect, 50); return () => window.clearTimeout(t); }
+  }, [hasModel]);
   return (
-    <Form form={form} layout="vertical" onValuesChange={(): void => {
-      // 收集当前值回调（受控提取——Modal onOk 消费）
-      const v = form.getFieldsValue() as { name?: string; pageKey?: string; path?: string; modelId?: string; generate?: boolean };
-      if (v.name && v.pageKey && v.path) {
-        onSubmit({ type: 'FORM', modelId: v.modelId, generate: !!v.generate, name: v.name, pageKey: v.pageKey, path: v.path });
-      }
-    }}>
+    <Form form={form} layout="vertical" onValuesChange={collect}>
       <Form.Item name="name" label="页面名称" rules={[{ required: true }]}><Input placeholder="如：报销登记表" /></Form.Item>
       <Form.Item name="pageKey" label="页面标识" rules={[{ required: true }]}><Input placeholder="如：expense_form" /></Form.Item>
       <Form.Item name="path" label="访问路径" rules={[{ required: true }]}><Input placeholder="如：/expense/form" /></Form.Item>
