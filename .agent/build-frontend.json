@@ -1,0 +1,7 @@
+{
+  "products": [
+    { "name": "designer", "path": "schema-frontend/apps/designer/dist/index.html" },
+    { "name": "runtime", "path": "schema-frontend/apps/runtime/dist/index.html" },
+    { "name": "admin", "path": "schema-frontend/apps/admin-console/dist/index.html" }
+  ]
+}
