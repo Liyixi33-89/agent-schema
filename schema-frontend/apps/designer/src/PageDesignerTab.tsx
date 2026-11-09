@@ -244,12 +244,15 @@ function PageCanvas({ api, app, pageId, initialDraftVersion, onExit }: CanvasPro
     phase: 'ready';
   }>({ phase: 'loading' });
   const storeRef = React.useRef<DesignerStore | null>(null);
+  const baselineRef = React.useRef<PageSchema | null>(null);
   const [version, setVersion] = React.useState(0); // doc 变更计数（订阅触发重渲染）
   const [selected, setSelected] = React.useState<string | null>(null);
   const [fields, setFields] = React.useState<FieldSchema[]>([]);
   const [draftVersion, setDraftVersion] = React.useState(initialDraftVersion);
   const [conflict, setConflict] = React.useState<{ serverVersion: number; serverDoc: PageSchema } | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const savingRef = React.useRef(false);
+  const conflictPendingRef = React.useRef(false);
   const [mobileView, setMobileView] = React.useState(false);
 
   // 装载草稿 + 模型字段
@@ -262,6 +265,7 @@ function PageCanvas({ api, app, pageId, initialDraftVersion, onExit }: CanvasPro
         const migrated = migrate(d.schema as PageSchema);
         const page = validatePageSchema(migrated);
         if (!cancelled) {
+          baselineRef.current = structuredClone(page);
           storeRef.current = new DesignerStore(page);
           storeRef.current.subscribe(() => setVersion((n) => n + 1));
           setDraftVersion(d.draftVersion);
@@ -334,37 +338,40 @@ function PageCanvas({ api, app, pageId, initialDraftVersion, onExit }: CanvasPro
   }, [state.phase, store, draftVersion, saving, exprErrors.length]);
 
   const doSave = React.useCallback(async (manual = true): Promise<boolean> => {
-    if (!store || saving) return false;
+    if (!store || savingRef.current || conflict !== null || (!manual && conflictPendingRef.current)) return false;
     // 表达式阻断（PRD 02 §2.2.3）：错误存在时禁止一切保存（含自动与预览前触发）
     if (exprErrors.length > 0) {
       if (manual) message.error(`表达式错误 ${exprErrors.length} 处，已阻断保存`);
       return false;
     }
-    // 快照保存时刻的 doc 引用——回执只对该版本清 dirty；期间继续编辑则保持 dirty
-    const savedDoc = store.document;
+    // 深快照固定请求内容；回执只推进该快照的保存基线，期间新编辑保持 dirty
+    const savedDoc = structuredClone(store.document);
+    savingRef.current = true;
     setSaving(true);
     try {
       const r = await api.savePageDraft(pageId, savedDoc, draftVersion);
       setDraftVersion(r.draftVersion);
-      if (store.document === savedDoc) {
-        store.markSaved();
-      }
+      store.markSaved(savedDoc);
+      baselineRef.current = structuredClone(savedDoc);
+      conflictPendingRef.current = false;
       // 否则：保存期间有新编辑，保持 dirty 待下一轮保存
       if (manual) message.success('已保存');
       return true;
     } catch (e) {
       if (e instanceof ApiError && e.code === 'DRAFT_VERSION_CONFLICT') {
         const server = await api.getPageDraft(pageId);
+        conflictPendingRef.current = true;
         setConflict({ serverVersion: server.draftVersion, serverDoc: server.schema as PageSchema });
       } else {
         showError(e);
       }
       return false;
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, pageId, store, draftVersion, saving, exprErrors.length]);
+  }, [api, pageId, store, draftVersion, saving, exprErrors.length, conflict]);
 
   const execute = React.useCallback((cmd: DesignerCommand, label?: string) => {
     store?.execute(cmd, label);
@@ -539,12 +546,21 @@ function PageCanvas({ api, app, pageId, initialDraftVersion, onExit }: CanvasPro
         width={560}
         footer={[
           <Button key="keep" onClick={() => setConflict(null)}>保留我的修改，稍后处理</Button>,
+          <Button key="replace" danger onClick={() => {
+            if (!conflict) return;
+            setDraftVersion(conflict.serverVersion);
+            store.markSaved(conflict.serverDoc);
+            baselineRef.current = structuredClone(conflict.serverDoc);
+            setConflict(null);
+            message.warning('已保留本地内容并更新基线；请手动保存以替换服务器草稿');
+          }}>保留本地并准备替换服务器草稿</Button>,
           <Button key="discard" danger onClick={async () => {
-            const server = conflict?.serverDoc ?? (await api.getPageDraft(pageId)).schema as PageSchema;
-            const page = validatePageSchema(migrate(server));
+            const fresh = await api.getPageDraft(pageId);
+            const page = validatePageSchema(migrate(fresh.schema as PageSchema));
             store.load(page);
-            const fresh = await api.getPageDraft(pageId).catch(() => null);
-            if (fresh) setDraftVersion(fresh.draftVersion);
+            baselineRef.current = structuredClone(page);
+            setDraftVersion(fresh.draftVersion);
+            conflictPendingRef.current = false;
             setSelected(null);
             setConflict(null);
             message.info('已放弃本地修改，对齐服务器版本');
@@ -552,8 +568,8 @@ function PageCanvas({ api, app, pageId, initialDraftVersion, onExit }: CanvasPro
         ]}
       >
         <Alert type="warning" showIcon message={`服务器草稿已更新到 v${conflict?.serverVersion ?? '?'}，你的本地草稿已保留。`}
-          description="可选择保留本地继续编辑（稍后刷新页面以服务器版本为基线重新保存），或放弃本地修改直接对齐服务器版本。" />
-        {conflict?.serverDoc && doc ? <ConflictDiff local={doc} server={conflict.serverDoc} /> : null}
+          description="稍后处理保留草稿并暂停自动保存；准备替换会更新基线，需再次手动保存；放弃则重新获取服务器内容。" />
+        {conflict?.serverDoc && doc ? <ConflictDiff baseline={baselineRef.current ?? doc} local={doc} server={conflict.serverDoc} /> : null}
       </Modal>
     </div>
   );
@@ -647,7 +663,26 @@ function PropsPanel({ node, meta, fields, warned, onChange }: {
 
 // ---------- 409 三方差异摘要（本地 vs 服务器草稿） ----------
 
-function ConflictDiff({ local, server }: { local: PageSchema; server: PageSchema }): React.ReactElement {
+function ConflictDiff({ baseline, local, server }: { baseline: PageSchema; local: PageSchema; server: PageSchema }): React.ReactElement {
+  const flatten = (page: PageSchema): Map<string, unknown> => {
+    const values = new Map<string, unknown>();
+    const walk = (nodes: LayoutNode[], parentId: string | null): void => {
+      nodes.forEach((node, index) => {
+        const { children, ...content } = node;
+        values.set(node.id, { ...content, parentId, index });
+        walk(children ?? [], node.id);
+      });
+    };
+    const { layout, ...pageProps } = page;
+    values.set('$page', pageProps);
+    walk(layout, null);
+    return values;
+  };
+  const baseValues = flatten(baseline), localValues = flatten(local), serverValues = flatten(server);
+  const display = (value: unknown): string => value === undefined ? '不存在（新增/删除）' : JSON.stringify(value);
+  const changes = [...new Set([...baseValues.keys(), ...localValues.keys(), ...serverValues.keys()])]
+    .filter((id) => display(baseValues.get(id)) !== display(localValues.get(id))
+      || display(baseValues.get(id)) !== display(serverValues.get(id)));
   const stats = React.useMemo(() => {
     const count = (nodes: LayoutNode[]): { nodes: number; bound: number } => {
       let n = 0, bound = 0;
@@ -682,7 +717,17 @@ function ConflictDiff({ local, server }: { local: PageSchema; server: PageSchema
   }, [local, server]);
   return (
     <div style={{ marginTop: 12 }}>
-      <Typography.Text strong style={{ fontSize: 13 }}>三方差异摘要</Typography.Text>
+      <Typography.Text strong style={{ fontSize: 13 }}>三方内容差异（不自动合并）</Typography.Text>
+      <List dataSource={changes} renderItem={(id) => (
+        <List.Item key={id}>
+          <Space direction="vertical">
+            <Typography.Text strong>{id === '$page' ? '页面属性' : `节点 ${id}`}</Typography.Text>
+            <Typography.Text>编辑基线：{display(baseValues.get(id))}</Typography.Text>
+            <Typography.Text>本地草稿：{display(localValues.get(id))}</Typography.Text>
+            <Typography.Text>服务器草稿：{display(serverValues.get(id))}</Typography.Text>
+          </Space>
+        </List.Item>
+      )} />
       <table style={{ width: '100%', marginTop: 4, fontSize: 12, borderCollapse: 'collapse' }}>
         <thead>
           <tr>
@@ -698,7 +743,7 @@ function ConflictDiff({ local, server }: { local: PageSchema; server: PageSchema
         </tbody>
       </table>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        选择「保留」后建议尽快刷新页面获取服务器基线再继续保存；「放弃」将直接覆盖为服务器内容。
+        稍后处理不会更新版本；准备替换只更新基线，需手动保存；放弃会重新获取服务器草稿。
       </Typography.Text>
     </div>
   );

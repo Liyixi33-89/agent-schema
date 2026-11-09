@@ -265,17 +265,25 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
     }
     # M2/M3 集成测试门禁（01BE §7 / 03BE §7 硬性要求：真实 PG）：引擎就绪才执行，缺环境降级说明
     Step 'backend-it' {
+        # 探活地址可注入（WSL 场景 PG 监听 WSL IP 而非 Windows 127.0.0.1）；默认本机
+        $pgHost = $env:VERIFY_PG_HOST
+        if (-not $pgHost) { $pgHost = '127.0.0.1' }
         $pgUp = $false
         try {
             $tcp = New-Object System.Net.Sockets.TcpClient
-            $tcp.Connect('127.0.0.1', 5432)
+            $tcp.Connect($pgHost, 5432)
             $pgUp = $true
             $tcp.Close()
         } catch { $pgUp = $false }
         if (-not $pgUp) { throw '本地 PG 未就绪（docker compose up -d postgres）——集成测试门禁不可跳过' }
         Push-Location $be
         try {
-            mvn -q -pl bootstrap -am test "-Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT,ObjectStorageContractIT,AppServiceIT" "-Dsurefire.failIfNoSpecifiedTests=false"
+            $itArgs = @('-q', '-pl', 'bootstrap', '-am', 'test',
+                "-Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT,ObjectStorageContractIT,AppServiceIT",
+                '-Dsurefire.failIfNoSpecifiedTests=false')
+            # WSL 场景：IT 硬编码 localhost 不可达时按探活地址改写 JDBC 主机
+            if ($pgHost -ne '127.0.0.1') { $itArgs += "-Dspring.datasource.url=jdbc:postgresql://${pgHost}:5432/schema_dev" }
+            mvn @itArgs
             if ($LASTEXITCODE -ne 0) { throw "集成测试退出码 $LASTEXITCODE（PowerShell 下 mvn/git 把进度写 stderr 是误报来源；真实结论看 BUILD SUCCESS/测试计数）" }
         } finally { Pop-Location }
     }
