@@ -102,8 +102,23 @@ NAV="{\"tree\":[
 NAVRES=$(api PUT /api/apps/$APP_ID/nav "$NAV")
 echo "nav: $(echo $NAVRES | head -c 80)"
 
-api POST /api/apps/$APP_ID/members "{\"userId\":2,\"roles\":[\"user\"]}" -o /dev/null
+# 成员角色：user（使用）+ developer（设计能力——页面/模型设计器验收必需，缺 developer
+# 会被 DesignGate 拒（PERM_DENIED），向导模型下拉为空、生成开关不渲染）
+api POST /api/apps/$APP_ID/members "{\"userId\":2,\"roles\":[\"user\",\"developer\"]}" -o /dev/null
 echo "member added"
+
+# 权限点授予：页面域判定走 sys_role_permission 权限点（PagePermGate）而非角色码——
+# 成员 API 只写 sys_user_role，developer/app_admin 需显式授 page:design / app:publish
+# （幂等；直连本机 PG——服务器验收栈专用）
+PGOK=$(sudo -u postgres psql -d schema_acceptance -tAc "
+INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action)
+SELECT r.id, 'ACTION', 0, 'page:design' FROM sys_role r WHERE r.tenant_id=1 AND r.app_id=$APP_ID AND r.code='developer'
+ON CONFLICT DO NOTHING;
+INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action)
+SELECT r.id, 'ACTION', 0, 'app:publish' FROM sys_role r WHERE r.tenant_id=1 AND r.app_id=$APP_ID AND r.code IN ('developer','app_admin')
+ON CONFLICT DO NOTHING;
+" 2>/dev/null || true)
+echo "perms seeded"
 
 PUB=$(api POST /api/apps/$APP_ID/publish '{"changelog":"M13 验收首次发布"}')
 echo "publish: $(echo $PUB | head -c 120)"

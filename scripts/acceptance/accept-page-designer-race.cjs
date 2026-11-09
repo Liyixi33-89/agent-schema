@@ -1,9 +1,13 @@
 /**
  * M13 补充验收（真实交互专项）：
  *  C1 模型生成默认页：向导选模型+勾选生成 → 草稿含字段骨架（PRD 02 §2.1）
- *  C2 真实鼠标拖拽：CDP Input.dispatchMouseEvent（HTML5 DnD 真实链路）
- *  C3 自动保存竞态：30s 定时器真实触发 + fetch 拖慢制造保存中编辑窗口
- *  C4 409 保留后重存闭环：稍后处理 → 换基线 → 修改 → 保存成功
+ *  C2 拖拽（合成 DnD 事件链）：headless 下 CDP 合成鼠标无法驱动浏览器原生 HTML5 拖拽源
+ *     （不产生 dragstart/dataTransfer），故用页面内完整 dragover+drop 事件链 + DataTransfer。
+ *     事件 isTrusted=false 属已知边界——组件端未过滤 isTrusted（已核对），验收覆盖
+ *     「事件链→落点校验→命令系统→画布渲染」全链路，不宣称 OS 级真实拖拽。
+ *  C3 自动保存竞态（确定性 in-flight 窗口）：fetch 拦截在 PUT 发出即挂起响应（门控），
+ *     锁定「保存请求在途」窗口内继续编辑 → 放行 → 断言响应回执不吞编辑（dirty 保持、内容最终落库）
+ *  C4 409 三路径闭环：稍后处理 → 保留草稿；保留本地并准备替换 → 换基线 → 手动保存 → 服务器被本地替换
  * 环境：本地 8090 代理 → SSH 隧道 → 服务器 18081 验收后端（schema_acceptance 库）
  */
 const { BASE, ok, record, ApiClient, summary } = require('./accept-lib.cjs');
@@ -60,7 +64,9 @@ async function canvasNodeCount() {
   return Number(await cdp.evalJs(`(() => document.querySelector('.ant-card[style*="flex: 1"]')?.querySelectorAll('[data-node-id]').length ?? -1)()`));
 }
 
-/** 真实鼠标拖拽：CDP Input.dispatchMouseEvent 完整按下-移动-释放序列（HTML5 DnD 浏览器原生链路）。 */
+/** 合成 DnD 事件链（headless 边界内最接近真实拖拽的形态）：
+ *  mousedown → 逐点 dragover（触发落点指示）→ drop（带 DataTransfer 物料标识）→ mouseup。
+ *  drop 宿主按 React 挂载的 onDrop 冒泡查找（fiber 反查仅用于定位，不直接调 handler）。 */
 async function realMouseDrag(fromExpr, toExpr) {
   return cdp.evalJs(`(async () => {
     const from = ${fromExpr}; const to = ${toExpr};
@@ -143,14 +149,20 @@ async function realMouseDrag(fromExpr, toExpr) {
       opt.click(); return 'picked';
     })()`);
     await sleep(500);
-    // 「由模型生成默认布局」为 antd Switch 且 initialValue=true（选中模型后默认开启）——断言其在场即可
-    await cdp.evalJs(`(() => {
-      const modal = ${MODAL};
-      if (!modal) return 'no-modal';
-      const sw = Array.from(modal.querySelectorAll('button[role="switch"]')).find(s => s.offsetParent !== null);
-      if (!sw) return 'no-switch';
-      return 'switch-on=' + (sw.getAttribute('aria-checked') === 'true');
-    })()`).then((x) => ok('C1-1b 生成开关默认开启（antd Switch）', x === 'switch-on=true', x));
+    // 「由模型生成默认布局」为 antd Switch 且 initialValue=true（选中模型后默认开启）——
+    // 选模后条件挂载渲染，轮询等待其出现（modal 动画时序不稳定，单次查询会偶发 no-switch）
+    let switchState = 'no-switch';
+    for (let i = 0; i < 20 && switchState === 'no-switch'; i++) {
+      await sleep(300);
+      switchState = await cdp.evalJs(`(() => {
+        const modal = ${MODAL};
+        if (!modal) return 'no-modal';
+        const sw = Array.from(modal.querySelectorAll('button[role="switch"]')).find(s => s.offsetParent !== null);
+        if (!sw) return 'no-switch';
+        return 'switch-on=' + (sw.getAttribute('aria-checked') === 'true');
+      })()`);
+    }
+    ok('C1-1b 生成开关默认开启（antd Switch）', switchState === 'switch-on=true', switchState);
     await sleep(400);
     await clickButton('创建', `(${MODAL})`);
     ok('C1-1 向导创建（模型生成）提交', await waitText('页面已创建', 12000));
@@ -204,16 +216,18 @@ async function realMouseDrag(fromExpr, toExpr) {
     await waitText('返回列表', 12000);
     await sleep(1200);
 
-    // 真实鼠标拖拽 TextInput 到画布
+    // 合成 DnD 事件链拖 TextInput 入画布（headless 边界：不产生原生 dragstart，
+    // drop 带 DataTransfer 走组件 onDrop 完整落点校验→命令系统→渲染链路）
     const matExpr = `(() => { const panels = Array.from(document.querySelectorAll('.ant-card')).filter(c => { const h = c.querySelector('.ant-card-head'); return h && h.textContent.trim() === '物料'; }); const panel = panels[panels.length - 1]; return Array.from(panel.querySelectorAll('[draggable]')).find(d => d.textContent.trim() === 'TextInput'); })()`;
     const canvasExpr = `(() => { const guide = Array.from(document.querySelectorAll('div')).find(d => d.textContent.trim() === '拖拽左侧物料到此处开始搭建页面' && d.children.length === 0); return guide ? guide.parentElement : document.querySelector('.ant-card[style*="flex: 1"] > div'); })()`;
     const dragRes = await realMouseDrag(matExpr, canvasExpr);
     await sleep(800);
-    ok('C2-1 真实鼠标拖拽执行（原生事件链）', String(dragRes).startsWith('dropped'), String(dragRes));
-    ok('C2-2 拖拽后画布出现节点', (await canvasNodeCount()) >= 1, 'count=' + (await canvasNodeCount()));
+    ok('C2-1 合成 DnD 事件链执行（dragover+drop+DataTransfer）', String(dragRes).startsWith('dropped'), String(dragRes));
+    ok('C2-2 拖拽后画布出现节点（经落点校验+命令系统）', (await canvasNodeCount()) >= 1, 'count=' + (await canvasNodeCount()));
 
-    // ========== C3 自动保存竞态（30s 定时器 + 拖慢保存窗口中继续编辑） ==========
-    // 记录当前 draftVersion，编辑产生 dirty，等 31s 触发自动保存
+    // ========== C3 自动保存竞态（确定性 in-flight 窗口） ==========
+    // 门控设计：fetch 拦截在 PUT 发出即挂起响应（不固定延时），脚本确认「请求已发出且
+    // 响应未返回」后才编辑——锁定真实在途窗口，消除旧版「探针看到版本推进时保存已完成」的时序漏洞。
     const pages3 = await admin.call('GET', `/api/pages?appId=1`);
     const racePage = (pages3.json.list || []).find((p) => p.pageKey === c2Key);
     const beforeDraft = await admin.call('GET', `/api/pages/${racePage.id}/draft`);
@@ -224,55 +238,95 @@ async function realMouseDrag(fromExpr, toExpr) {
     await sleep(800);
     ok('C3-1 编辑产生 dirty（拖入第二个节点）', (await canvasNodeCount()) >= 2, 'count=' + (await canvasNodeCount()));
 
-    // 拖慢 PUT draft 响应制造保存中窗口
+    // 安装门控：PUT draft 发出即挂起（window.__gate.resolve 由脚本显式放行）
     await cdp.evalJs(`(() => {
-      const orig = window.fetch;
+      const orig = window.__origFetch || window.fetch;
       window.__origFetch = orig;
+      window.__gate = { fired: 0, resolve: null };
       window.fetch = (...args) => {
         const url = String(args[0]);
         if (url.includes('/draft') && (args[1]?.method === 'PUT' || args[1]?.method === 'put')) {
-          return new Promise((resolve) => setTimeout(() => resolve(orig(...args)), 2500));
+          window.__gate.fired++;
+          const p = orig(...args);
+          return new Promise((resolve) => {
+            window.__gate.resolve = () => resolve(p);
+            // 不设自动放行——由脚本在编辑完成后显式放行，窗口确定性锁定
+          });
         }
         return orig(...args);
       };
-      return 'fetch-slowed';
+      return 'gate-installed';
     })()`);
 
-    // 等待 30s 自动保存触发（定时器周期 30s——最多等 33s）
-    record('C3-2 等待 30s 自动保存触发（真实定时器）', true, 'waiting 33s...');
-    const autoStart = Date.now();
-    let autoSaved = false;
-    while (Date.now() - autoStart < 33_000) {
-      await sleep(2000);
-      const probe = await admin.call('GET', `/api/pages/${racePage.id}/draft`);
-      if (probe.json.draftVersion > vBefore) { autoSaved = true; break; }
-    }
-    ok('C3-3 自动保存真实触发（draftVersion 推进）', autoSaved, `v=${vBefore}→探针推进`);
+    // 手动触发保存（不必等 30s 定时器——竞态窗口构造与触发源无关；
+    // 30s 定时器真实性已由 C3-2b 在窗口放行后独立验证）
+    const saveStart = await clickToolbar('保存');
+    let fired = 0;
+    for (let i = 0; i < 50 && fired === 0; i++) { await sleep(200); fired = Number(await cdp.evalJs('window.__gate?.fired || 0')); }
+    ok('C3-2 保存请求已发出且响应被门控挂起（in-flight 确认）', saveStart === 'clicked' && fired >= 1, `save=${saveStart} fired=${fired}`);
 
-    // 自动保存进行中（fetch 拖慢 2.5s）立刻编辑——验证保存期间新编辑保持 dirty 且不被丢
-    await cdp.evalJs(`(() => {
+    // —— 现在保存确定性在途：此刻编辑（保存快照已定格，新编辑只进 dirty）——
+    const editDuring = await cdp.evalJs(`(() => {
       const card = ${PROP_PANEL};
       const input = card?.querySelector('.ant-form-item input');
       if (!input) return 'no-input';
       const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
       s.call(input, '竞态期间编辑');
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      return 'edited-during-save';
+      return 'edited-inflight';
     })()`);
+    await sleep(400);
+    // dirty 仍在：响应未返回，回执不可能清 dirty；且新编辑值已在文档中
+    const dirtyDuring = await cdp.evalJs(`(() => {
+      const inputs = Array.from((${PROP_PANEL})?.querySelectorAll('.ant-form-item input') || []);
+      const hit = inputs.find(i => i.value === '竞态期间编辑');
+      return 'dirty-marker=' + (!!hit) + ' gateFired=' + (window.__gate?.fired || 0);
+    })()`);
+    ok('C3-3 保存 in-flight 期间编辑生效（值已在文档，等待回执）', editDuring === 'edited-inflight' && dirtyDuring.includes('dirty-marker=true'), `${editDuring}/${dirtyDuring}`);
 
-    // 恢复 fetch 并等待保存完成 + 下一轮自动保存（或手动保存收尾）
-    await sleep(3500);
+    // 放行响应 → 回执返回；断言期间编辑未被回执吞掉
+    await cdp.evalJs('window.__gate.resolve && window.__gate.resolve()');
+    await sleep(1200);
     await cdp.evalJs(`(() => { if (window.__origFetch) window.fetch = window.__origFetch; return 'fetch-restored'; })()`);
-    await sleep(1000);
+    // 回执返回后画布应回到 dirty（期间编辑未被标为已保存）
+    const dirtyAfter = await cdp.evalJs(`(() => document.body.innerText.includes('未保存'))()`);
+    ok('C3-4 回执返回后期间编辑保持 dirty（不被保存回执吞掉）', dirtyAfter === true, `dirty=${dirtyAfter}`);
 
-    // 手动保存收尾（覆盖保存期间编辑的内容）——工具栏 includes 匹配（按钮文本含「·未保存」角标）
+    // 手动保存收尾（把期间编辑落库）——工具栏 includes 匹配（按钮文本含「·未保存」角标）
     const saveClick = await clickToolbar('保存');
     const savedFinal = saveClick === 'clicked' && await waitText('已保存', 12000);
-    ok('C3-4 保存期间编辑未被丢（手动保存收尾成功）', savedFinal);
+    ok('C3-5 保存期间编辑未被丢（手动保存收尾成功）', savedFinal);
     const afterDraft = await admin.call('GET', `/api/pages/${racePage.id}/draft`);
     const finalText = JSON.stringify(afterDraft.json.schema?.layout || []);
-    ok('C3-5 竞态期间编辑内容落库', finalText.includes('竞态期间编辑'), finalText.slice(0, 100));
-    ok('C3-6 版本链一致推进', afterDraft.json.draftVersion > vBefore, `v=${vBefore}→${afterDraft.json.draftVersion}`);
+    ok('C3-6 竞态期间编辑内容落库', finalText.includes('竞态期间编辑'), finalText.slice(0, 100));
+    ok('C3-7 版本链一致推进', afterDraft.json.draftVersion > vBefore, `v=${vBefore}→${afterDraft.json.draftVersion}`);
+
+    // —— C3b 30s 自动保存定时器真实触发（独立验证，与竞态窗口解耦）——
+    // 保持 dirty 等定时器自然触发；探针只认「无任何手动保存时 draftVersion 自己推进」
+    await cdp.evalJs(`(() => {
+      const card = ${PROP_PANEL};
+      const input = card?.querySelector('.ant-form-item input');
+      if (!input) return 'no-input';
+      const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      s.call(input, '定时器验证编辑');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return 'dirty-set';
+    })()`);
+    const vBeforeTimer = afterDraft.json.draftVersion;
+    record('C3b-1 等待 30s 自动保存定时器真实触发（最长 36s）', true, 'waiting...');
+    const timerStart = Date.now();
+    let timerSaved = false;
+    while (Date.now() - timerStart < 36_000) {
+      await sleep(3000);
+      const probe = await admin.call('GET', `/api/pages/${racePage.id}/draft`);
+      if (probe.json.draftVersion > vBeforeTimer) { timerSaved = true; break; }
+    }
+    ok('C3b-2 自动保存真实触发（无手动保存，draftVersion 自然推进）', timerSaved, `v=${vBeforeTimer}`);
+    if (timerSaved) {
+      const timerDraft = await admin.call('GET', `/api/pages/${racePage.id}/draft`);
+      const timerStr = JSON.stringify(timerDraft.json.schema?.layout || []);
+      ok('C3b-3 定时器保存内容落库', timerStr.includes('定时器验证编辑'), timerStr.slice(0, 80));
+    }
 
     // ========== C4 409 保留后重存闭环 ==========
     // 外部保存推高版本制造冲突
@@ -303,13 +357,48 @@ async function realMouseDrag(fromExpr, toExpr) {
     })()`);
     await sleep(600);
     ok('C4-3 稍后处理保留草稿（弹层关闭）', keepClick === 'clicked' && !(await bodyText()).includes('草稿版本冲突'), keepClick);
+
+    // —— C4b 第三按钮完整闭环：保留本地并准备替换 → 手动保存 → 服务器被本地内容替换 ——
+    // 再次制造冲突（本地改 + 外部推版本 → 保存 409）
+    await cdp.evalJs(`(() => {
+      const card = ${PROP_PANEL};
+      const input = card?.querySelector('.ant-form-item input');
+      const s = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      s.call(input, '本地独有内容');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await sleep(400);
+    const cur2 = await admin.call('GET', `/api/pages/${racePage.id}/draft`);
+    await admin.expect('C4b-1 外部再次推高版本（制造冲突）', 'PUT', `/api/pages/${racePage.id}/draft`, 200,
+      { schema: cur2.json.schema, baseDraftVersion: cur2.json.draftVersion });
+    await sleep(300);
+    await clickToolbar('保存');
+    ok('C4b-2 第二次 409 弹层出现', await waitText('草稿版本冲突', 10000));
+    const replaceClick = await cdp.evalJs(`(() => {
+      const modal = ${CONFLICT_MODAL};
+      if (!modal) return 'no-modal';
+      const b = Array.from(modal.querySelectorAll('button')).find(x => (x.textContent || '').includes('准备替换'));
+      if (!b) return 'missing:' + Array.from(modal.querySelectorAll('button')).map(x => x.textContent).join('|');
+      b.click(); return 'clicked';
+    })()`);
+    await sleep(600);
+    ok('C4b-3 保留本地并准备替换（基线更新、弹层关闭）', replaceClick === 'clicked' && !(await bodyText()).includes('草稿版本冲突'), replaceClick);
+    // 手动保存 → 应以新基线成功，服务器内容被本地替换
+    await sleep(400);
+    await clickToolbar('保存');
+    ok('C4b-4 换基线后手动保存成功', await waitText('已保存', 12000));
+    const replacedDraft = await admin.call('GET', `/api/pages/${racePage.id}/draft`);
+    const replacedStr = JSON.stringify(replacedDraft.json.schema?.layout || []);
+    ok('C4b-5 服务器草稿被本地内容替换（闭环核心断言）', replacedStr.includes('本地独有内容'), replacedStr.slice(0, 100));
+    ok('C4b-6 替换后服务器不再含外部独有内容', !replacedStr.includes('重存闭环测试'), '');
+
     // 显式换基线：重新打开设计器（拉最新服务器版），再编辑保存
     await cdp.evalJs(`(() => { const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('返回列表')); btn?.click(); })()`);
     await waitText('新建页面', 8000);
     await cdp.evalJs(`(() => { const item = Array.from(document.querySelectorAll('.ant-list-item')).find(x => x.textContent.includes('${c2Key}')); const btn = Array.from(item.querySelectorAll('button')).find(b => b.textContent.includes('设计')); btn.click(); })()`);
     await waitText('返回列表', 12000);
     await sleep(1500);
-    // 画布应显示服务器最新内容（外部保存的 schema——节点仍在）
+    // 画布应显示服务器最新内容（被替换后的本地独有内容——节点仍在）
     ok('C4-4 重开拉取服务器最新版', (await canvasNodeCount()) >= 2, 'count=' + (await canvasNodeCount()));
     // 编辑 + 保存成功（新基线无冲突）
     const selRes = await cdp.evalJs(`(() => {
@@ -333,7 +422,7 @@ async function realMouseDrag(fromExpr, toExpr) {
     }
     await sleep(400);
     await clickToolbar('保存');
-    ok('C4-5 换基线后重存成功', await waitText('已保存', 12000));
+    ok('C4-5 重开编辑保存成功（放弃式换基线路径）', await waitText('已保存', 12000));
     const finalCheck = await admin.call('GET', `/api/pages/${racePage.id}/draft`);
     const finalStr = JSON.stringify(finalCheck.json.schema?.layout || []);
     ok('C4-6 重存内容落库（闭环完成）', finalStr.includes('闭环成功标记'), finalStr.slice(0, 100));
