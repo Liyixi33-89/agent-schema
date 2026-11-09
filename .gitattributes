@@ -1,0 +1,6 @@
+# 证据归档字节保真：归档哈希以归档时磁盘字节为准，禁止任何换行/编码转换
+# -text = 关闭换行转换原样入库；binary = 同时禁 git diff/merge 文本处理
+docs/acceptance/** -text
+docs/acceptance/**/*.json binary
+docs/acceptance/**/*.txt binary
+docs/acceptance/**/*.md -text
