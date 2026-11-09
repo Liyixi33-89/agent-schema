@@ -106,10 +106,16 @@ async function sample() {
         after: { commitId: after.ident.commitId, instanceId: after.ident.instanceId },
         consistent: before.ident.commitId === after.ident.commitId && before.ident.instanceId === after.ident.instanceId,
         commitMatchesSource: after.ident.commitId === sourceCommit,
+        // 后端构建落后 HEAD 时不硬判失败——记录 git 实证的后端源码 delta 供人工复核：
+        // 空数组 = HEAD 相对构建零后端变更（脚本/文档/前端变更不影响已部署后端行为）
+        backendDeltaSinceBuild: after.ident.commitId === sourceCommit ? [] : execFileSync(
+          'git', ['-C', ROOT, 'diff', '--name-only', after.ident.commitId, sourceCommit, '--', 'schema-platform/'],
+          { encoding: 'utf8' }).trim().split('\n').filter(Boolean),
       },
     ],
   };
-  const failed = dep.targets.some((t) => t.consistent === false) || !dep.targets[1].commitMatchesSource;
+  const failed = dep.targets.some((t) => t.consistent === false) ||
+    (!dep.targets[1].commitMatchesSource && dep.targets[1].backendDeltaSinceBuild.length > 0);
   const out = path.join(ROOT, 'scripts/acceptance/out', runId, 'deployment.json');
   if (fs.existsSync(out)) { console.error('拒绝覆盖已存在 deployment.json:', out); process.exit(1); }
   fs.writeFileSync(out, JSON.stringify(dep, null, 2) + '\n');
