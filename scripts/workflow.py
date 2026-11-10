@@ -17,6 +17,9 @@ ROOT = _resolve_root()
 LEDGER = ROOT / '.agent' / 'workflow.json'
 EVIDENCE_TOOL = Path(__file__).resolve().parents[1] / 'scripts' / 'acceptance' / 'evidence.cjs'
 IMPLEMENTATION_PATHS = ('schema-frontend', 'schema-platform', 'scripts', 'contract', 'sql')
+# 产物采集配置随 run 演进（sourceCommit/runtimeVersion 每轮更新）——属证据生成参数而非实现代码，
+# 且已移出版本控制（.gitignore）；计入变更判定会让每一轮证据提交都触发「须重验」死循环。
+EVIDENCE_CONFIG_GLOBS = ('accept-products-*.config.json', 'accept-build-*.config.json')
 STATES = ('planned', 'ready', 'implementing', 'implemented', 'verified', 'accepted', 'blocked')
 
 
@@ -49,7 +52,9 @@ def implementation_changed_between(source_commit, head):
                           cwd=ROOT, capture_output=True, text=True)
     if diff.returncode != 0:
         raise ValueError('git diff failed: ' + diff.stderr.strip())
-    return [ln for ln in diff.stdout.splitlines() if ln.strip()]
+    import fnmatch
+    return [ln for ln in diff.stdout.splitlines()
+            if ln.strip() and not any(fnmatch.fnmatch(ln.strip().split('/')[-1], g) for g in EVIDENCE_CONFIG_GLOBS)]
 
 
 def verify_commit(record, label, work_package=None):
