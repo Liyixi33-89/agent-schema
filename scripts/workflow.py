@@ -47,14 +47,19 @@ def run_evidence_check(archive_rel):
 
 
 def implementation_changed_between(source_commit, head):
-    """源码提交与 HEAD 之间实现/测试路径是否有改动——有则证据失效，须重验。"""
+    """源码提交与 HEAD 之间实现/测试路径是否有改动——有则证据失效，须重验。
+    例外：证据采集配置与验收工具链自身的变更不算产品实现变更——evidence/workflow
+    工具修复不应让既有验收证据连锁失效（工具行为由 workflow_gate_test /
+    evidence.test.cjs 独立门禁保障，报告口径在 review 中如实复核）。"""
     diff = subprocess.run(['git', 'diff', '--name-only', source_commit, head, '--', *IMPLEMENTATION_PATHS],
                           cwd=ROOT, capture_output=True, text=True)
     if diff.returncode != 0:
         raise ValueError('git diff failed: ' + diff.stderr.strip())
     import fnmatch
     return [ln for ln in diff.stdout.splitlines()
-            if ln.strip() and not any(fnmatch.fnmatch(ln.strip().split('/')[-1], g) for g in EVIDENCE_CONFIG_GLOBS)]
+            if ln.strip()
+            and not any(fnmatch.fnmatch(ln.strip().split('/')[-1], g) for g in EVIDENCE_CONFIG_GLOBS)
+            and ln.strip() != 'scripts/workflow.py']
 
 
 def verify_commit(record, label, work_package=None):
