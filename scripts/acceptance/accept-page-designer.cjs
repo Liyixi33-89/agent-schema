@@ -153,6 +153,16 @@ async function dragMaterial(componentName) {
 /** 属性面板卡片（头标题「属性」——页面上唯一）。 */
 const PROP_PANEL = `Array.from(document.querySelectorAll('.ant-card')).find(c => { const h = c.querySelector('.ant-card-head'); return h && h.textContent.trim() === '属性'; })`;
 
+async function clickAppCard() {
+  // 应用卡片登录后异步加载——轮询点击直到卡片出现（消除首载时序 flake）
+  for (let i = 0; i < 16; i++) {
+    const r = await cdp.evalJs(`(() => { const cards = Array.from(document.querySelectorAll('.ant-card')); const c = cards.find(x => x.textContent.includes('报销管理')); if (!c) return ''; (c.querySelector('button') || c).click(); return 'ok'; })()`);
+    if (r === 'ok') break;
+    await new Promise((res) => setTimeout(res, 500));
+  }
+  await cdp.waitFor('.ant-tabs', 8000);
+}
+
 async function canvasNodeCount() {
   return Number(await cdp.evalJs(`(() => document.querySelector('.ant-card[style*="flex: 1"]')?.querySelectorAll('[data-node-id]').length ?? -1)()`));
 }
@@ -172,8 +182,7 @@ async function canvasNodeCount() {
     await cdp.fill('input[placeholder="密码"]', PASSWORD);
     await cdp.click('button[type="submit"]');
     await cdp.waitFor('.ant-layout-header', 10000);
-    await cdp.evalJs(`(() => { const cards = Array.from(document.querySelectorAll('.ant-card')); const c = cards.find(x => x.textContent.includes('报销管理')); (c?.querySelector('button') || c)?.click(); })()`);
-    await cdp.waitFor('.ant-tabs', 8000);
+    await clickAppCard();
     await clickTab('页面');
 
     // ========== A4 UI 新建 + 拖拽 ==========
@@ -343,8 +352,7 @@ async function canvasNodeCount() {
     // ========== A9 字段绑定（未绑模型页提示）==========
     await cdp.goto(`${BASE}/designer/`);
     await cdp.waitFor('.ant-layout-header', 10000);
-    await cdp.evalJs(`(() => { const cards = Array.from(document.querySelectorAll('.ant-card')); const c = cards.find(x => x.textContent.includes('报销管理')); (c?.querySelector('button') || c)?.click(); })()`);
-    await cdp.waitFor('.ant-tabs', 8000);
+    await clickAppCard();
     await clickTab('页面');
     await waitText(pageKey, 8000);
     await openDesign(pageKey);
@@ -588,8 +596,7 @@ async function canvasNodeCount() {
     // B8 差异检测：删除模型字段 → 设计器标黄
     await cdp.goto(`${BASE}/designer/`);
     await cdp.waitFor('.ant-layout-header', 10000);
-    await cdp.evalJs(`(() => { const cards = Array.from(document.querySelectorAll('.ant-card')); const c = cards.find(x => x.textContent.includes('报销管理')); (c?.querySelector('button') || c)?.click(); })()`);
-    await cdp.waitFor('.ant-tabs', 8000);
+    await clickAppCard();
     await clickTab('页面');
     await waitText(bindKey, 8000);
 

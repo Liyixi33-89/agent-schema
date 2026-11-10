@@ -115,7 +115,12 @@ async function syntheticDndChain(fromExpr, toExpr) {
     await cdp.fill('input[placeholder="密码"]', PASSWORD);
     await cdp.click('button[type="submit"]');
     await cdp.waitFor('.ant-layout-header', 10000);
-    await cdp.evalJs(`(() => { const cards = Array.from(document.querySelectorAll('.ant-card')); const c = cards.find(x => x.textContent.includes('报销管理')); (c?.querySelector('button') || c)?.click(); })()`);
+    // 应用卡片登录后异步加载——轮询点击直到卡片出现（消除首载时序 flake）
+    for (let i = 0; i < 16; i++) {
+      const r = await cdp.evalJs(`(() => { const cards = Array.from(document.querySelectorAll('.ant-card')); const c = cards.find(x => x.textContent.includes('报销管理')); if (!c) return ''; (c.querySelector('button') || c).click(); return 'ok'; })()`);
+      if (r === 'ok') break;
+      await sleep(500);
+    }
     await cdp.waitFor('.ant-tabs', 8000);
     await clickTab('页面');
 
