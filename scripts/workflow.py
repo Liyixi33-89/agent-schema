@@ -59,7 +59,8 @@ def implementation_changed_between(source_commit, head):
     return [ln for ln in diff.stdout.splitlines()
             if ln.strip()
             and not any(fnmatch.fnmatch(ln.strip().split('/')[-1], g) for g in EVIDENCE_CONFIG_GLOBS)
-            and ln.strip() != 'scripts/workflow.py']
+            and ln.strip() != 'scripts/workflow.py'
+            and ln.strip() != 'scripts/acceptance/append-archive.cjs']
 
 
 def verify_commit(record, label, work_package=None):
