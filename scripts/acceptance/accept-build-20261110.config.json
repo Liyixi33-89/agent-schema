@@ -1,0 +1,13 @@
+﻿{
+  "backendIdentity": true,
+  "products": [
+    {
+      "name": "designer-accept",
+      "path": "schema-frontend/apps/designer/dist-accept/index.html"
+    },
+    {
+      "name": "accept-backend",
+      "path": "schema-platform/bootstrap/target/bootstrap-0.1.0-SNAPSHOT.jar"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M13",
+  "runId": "20261110-095505-30fdd61",
+  "startedAt": "2026-11-10T01:55:05.309Z",
+  "sourceCommit": "30fdd61768a27e0f40032087d948787f94aac452",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "win32",
+    "node": "v24.14.1"
+  },
+  "suites": {
+    "page-designer-race": {
+      "command": "node scripts/acceptance/accept-page-designer-race.cjs",
+      "startedAt": "2026-11-10T01:55:05.449Z",
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-10T01:56:02.611Z"
+    },
+    "page-designer": {
+      "command": "node scripts/acceptance/accept-page-designer.cjs",
+      "startedAt": "2026-11-10T01:56:26.326Z",
+      "passed": 54,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-10T01:57:17.852Z"
+    }
+  }
+}

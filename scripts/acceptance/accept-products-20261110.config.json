@@ -1,0 +1,10 @@
+{
+  "products": [
+    {
+      "name": "designer-accept",
+      "path": "schema-frontend/apps/designer/dist-accept/index.html",
+      "sourceCommit": "30fdd61768a27e0f40032087d948787f94aac452",
+      "runtimeVersion": "28cd68af"
+    }
+  ]
+}

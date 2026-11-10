@@ -1,0 +1,33 @@
+{
+  "sourceCommit": "30fdd61768a27e0f40032087d948787f94aac452",
+  "sampledAt": "2026-11-10T02:16:50.065Z",
+  "method": "auto-probe",
+  "unchanged": true,
+  "targets": [
+    {
+      "name": "designer-static",
+      "method": "http-response-sha256",
+      "probeUrl": "http://111.231.57.177/accept/designer/",
+      "expected": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "before": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "after": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "localDistSha256": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "instanceBefore": "static-file",
+      "instanceAfter": "static-file",
+      "consistent": true
+    },
+    {
+      "name": "backend-identity",
+      "method": "backend-build-identity",
+      "probeUrl": "http://127.0.0.1:18081/api/system/build-identity",
+      "expected": "30fdd61768a27e0f40032087d948787f94aac452",
+      "before": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+      "after": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+      "instanceBefore": "45d7d83e-7077-48ca-be35-128021c90a6a",
+      "instanceAfter": "45d7d83e-7077-48ca-be35-128021c90a6a",
+      "consistent": true,
+      "commitMatchesSource": false,
+      "backendDeltaSinceBuild": []
+    }
+  ]
+}

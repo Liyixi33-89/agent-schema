@@ -92,6 +92,16 @@ cat > "$OUT/stability.json" <<EOF
   "sourceCommit": "$SHA",
   "sampledAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "method": "auto-probe",
+  "unchanged": $([ "$B1" = "$A1" ] && [ "$L1" = "$L2" ] && [ "$B1" = "$L1" ] && echo true || echo false),
+  "products": [
+    {
+      "name": "designer-accept",
+      "path": "schema-frontend/apps/designer/dist-accept/index.html",
+      "sha256": "$L1",
+      "bytes": $(stat -c %s "$DESIGNER_DIR/dist-accept/index.html"),
+      "runtimeVersion": "$(echo "$L1" | cut -c1-8)"
+    }
+  ],
   "checks": [
     {
       "name": "static-response-stable",
