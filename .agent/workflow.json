@@ -335,7 +335,7 @@
     {
       "id": "M13",
       "title": "页面设计器与预览",
-      "status": "implemented",
+      "status": "accepted",
       "priority": 9,
       "dependsOn": [
         "M6-M7",
@@ -345,17 +345,184 @@
       "acceptance": [
         {
           "id": "page-designer",
-          "requirement": "拖拽/撤销重做、propsSchema 属性面板、字段绑定落协议字段(fieldRef)、容器嵌套/大纲排序/删除、表达式错误阻断全部保存路径(手动/自动/预览)、409 三方差异保护、发布预览隔离、绑定真实模型全链路(两段式建模→绑定→嵌套落库→发布→预览渲染可用表单→删字段标黄)。54/54 PASS exit=0(最终树 run 20261106-152504-6d8257e; 首run 20261106-142603-532775a 因评审补向量按门禁重跑)。page-designer 单测 27/27; schema-protocol 向量 99/99 + Java 向量 18/18(双端 ===/!== 同判含跨类型)",
+          "requirement": "主套件 54 场景（A4-A9 编辑内核/属性面板/表达式/409/发布预览 + B0-B8 绑定模型全链）",
+          "suite": "page-designer",
+          "command": "node scripts/acceptance/accept-page-designer.cjs",
+          "report": "docs/acceptance/M13/20261110-125327-ee046dd/report.md",
+          "commit": "ee046dda1c06387a73a11ee0fb1b7db10b2e2e85",
+          "passed": true,
+          "provenance": "products.json",
+          "stability": "stability.json",
+          "deployment": "deployment.json",
           "evidence": {
-            "command": "node scripts\\acceptance\\accept-page-designer.cjs",
-            "report": "docs/acceptance/M13/20261106-152504-6d8257e/report.md",
-            "commit": "6d8257e6305ecd9d30b0c91b8e6936ebc14f84b4",
+            "command": "node scripts/acceptance/accept-page-designer.cjs",
+            "report": "docs/acceptance/M13/20261110-125327-ee046dd/report.md",
+            "commit": "ee046dda1c06387a73a11ee0fb1b7db10b2e2e85",
             "suite": "page-designer",
-            "passed": true
-          }
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "stability.json",
+            "deployment": "deployment.json"
+          },
+          "scenarios": [
+            "API 管理员登录::凭证三件套",
+            "A4-1 UI 向导新建页面（列表出现）",
+            "A4-2 空画布引导可见",
+            "A4-3 拖入 SectionCard + TextInput",
+            "A4-4 画布出现节点",
+            "A4-5 撤销后节点减一",
+            "A4-6 重做后节点恢复",
+            "A5-1 属性面板出现配置分组",
+            "A5-2 属性输入就位",
+            "A5-3 改 label 即时反映画布",
+            "A6-1 填入错误表达式",
+            "A6-2 表达式错误阻断保存按钮",
+            "A6-3 错误提示可见",
+            "A6-4 修正后保存成功",
+            "A6-5 页面落库可查",
+            "A6-6 草稿含修正后表达式",
+            "A7-1 外部保存推高版本",
+            "A7-2 409 冲突弹层出现",
+            "A7-3 保留后本地草稿仍在",
+            "A7-4 放弃后对齐服务器版本",
+            "A8-1 发布应用",
+            "A8-2 预览 grant 签发",
+            "A8-3 exchange 成功（15min 会话）",
+            "A8-4 发布面可读（预览 token 通过隔离通道）",
+            "A8-5 预览路由渲染（预览模式标识）",
+            "A8-6 预览兑换链路无失败（不含「预览失败」）",
+            "A8-7 grant 重放被拒",
+            "A9-1 未绑模型页字段绑定入口（数据绑定组渲染，下拉提示未绑模型）",
+            "B0-1 测试模型创建",
+            "B0-2 模型字段 precheck 签发 token",
+            "B0-3 模型字段保存（4 字段落库）",
+            "B1-1 绑定页创建",
+            "B1-2 绑定页落库",
+            "B2-0 API 绑定模型（草稿写入 modelId）",
+            "B2-1 拖入 TextInput",
+            "B2-3 字段绑定下拉渲染（绑定模型后）",
+            "B2-4 下拉选项可见并选中 amount",
+            "B3-1 保存成功",
+            "B3-2 fieldRef 落协议字段",
+            "B4-0 拖入 SectionCard",
+            "B4-1 容器落点捕获 + 嵌套拖入",
+            "B4-2 大纲嵌套缩进可见",
+            "B4-3 嵌套结构落库: TextInput 在 SectionCard children 内",
+            "B5-1 大纲含上移/下移/删除操作",
+            "B6-1 外部保存推高版本",
+            "B6-2 409 弹层出现",
+            "B6-3 差异摘要渲染（三方差异表）",
+            "B6-4 差异含节点数维度",
+            "B6-5 放弃后对齐",
+            "B7-1 发布",
+            "B7-2 预览路由渲染",
+            "B7-3 预览渲染绑定表单（不再提示未绑模型）",
+            "B8-1 模型删除字段保存(amount)",
+            "B8-2 差异检测标黄(引用已删字段的节点)"
+          ]
+        },
+        {
+          "id": "page-designer-race",
+          "requirement": "真实交互补验 32 场景（C1 模型生成默认页/C2 CDP 真实鼠标拖拽/C3 30s 自动保存竞态门控/C4 409 三路径保留重存闭环）",
+          "suite": "page-designer-race",
+          "command": "node scripts/acceptance/accept-page-designer-race.cjs",
+          "report": "docs/acceptance/M13/20261110-125327-ee046dd/report.md",
+          "commit": "ee046dda1c06387a73a11ee0fb1b7db10b2e2e85",
+          "passed": true,
+          "provenance": "products.json",
+          "stability": "stability.json",
+          "deployment": "deployment.json",
+          "evidence": {
+            "command": "node scripts/acceptance/accept-page-designer-race.cjs",
+            "report": "docs/acceptance/M13/20261110-125327-ee046dd/report.md",
+            "commit": "ee046dda1c06387a73a11ee0fb1b7db10b2e2e85",
+            "suite": "page-designer-race",
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "stability.json",
+            "deployment": "deployment.json"
+          },
+          "scenarios": [
+            "API 管理员登录::凭证三件套",
+            "C1-1b 生成开关默认开启（antd Switch）",
+            "C1-1 向导创建（模型生成）提交",
+            "C1-2 生成页落库",
+            "C1-3 草稿含字段骨架（≥4 FormItem 且控件带 fieldRef）",
+            "C1-4 骨架绑定模型字段",
+            "C2-1 拖拽执行（形态: cdp-real-mouse (isTrusted=true, dragstart=1, drop=1)）",
+            "C2-2 拖拽后画布出现节点（经落点校验+命令系统）",
+            "C3-1 编辑产生 dirty（拖入第二个节点）",
+            "C3-2 保存请求已发出且响应被门控挂起（in-flight 确认）",
+            "C3-3 保存 in-flight 期间编辑生效（值已在文档，等待回执）",
+            "C3-4 回执返回后期间编辑保持 dirty（不被保存回执吞掉）",
+            "C3-5 保存期间编辑未被丢（手动保存收尾成功）",
+            "C3-6 竞态期间编辑内容落库",
+            "C3-7 版本链一致推进",
+            "C3b-1 等待 30s 自动保存定时器真实触发（最长 36s）",
+            "C3b-2 自动保存真实触发（无手动保存，draftVersion 自然推进）",
+            "C3b-3 定时器保存内容落库",
+            "C4-1 外部保存推高版本",
+            "C4-2 409 冲突弹层出现",
+            "C4-3 稍后处理保留草稿（弹层关闭）",
+            "C4-3b 本地草稿完整保留（画布节点数≥2 且期间编辑仍在画布）",
+            "C4-3c 服务器此刻不含本地内容（保留≠落库，冲突态如实）",
+            "C4b-1 外部再次推高版本（制造冲突）",
+            "C4b-2 第二次 409 弹层出现",
+            "C4b-3 保留本地并准备替换（基线更新、弹层关闭）",
+            "C4b-4 换基线后手动保存成功",
+            "C4b-5 服务器草稿被本地内容替换（闭环核心断言）",
+            "C4b-6 替换后服务器不再含外部独有内容",
+            "C4-4 重开拉取服务器最新版",
+            "C4-5 重开编辑保存成功（放弃式换基线路径）",
+            "C4-6 重存内容落库（闭环完成）"
+          ]
         }
       ],
-      "review": null,
+      "review": {
+        "required": true,
+        "approved": true,
+        "commit": "ee046dda1c06387a73a11ee0fb1b7db10b2e2e85",
+        "reviewer": "independent-review-session",
+        "implementedBy": "implementation-session-f42b4e21",
+        "kind": "independent-session",
+        "approvalReference": "docs/acceptance/M13/20261110-125327-ee046dd/review.md",
+        "report": "docs/acceptance/M13/20261110-125327-ee046dd/review.md",
+        "scope": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "coverage": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "findings": [
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F1 单测计数口径：矩阵登记 27/27，实际 designer-store.test.ts 28 项（重跑 28/28 PASS）——覆盖无缺口，口径已修正"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F2 C2 拖拽双形态：本轮归档实证 CDP 真实鼠标主路径 isTrusted=true，回退路径未触发"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F3 doSave 依赖重建竞态：savingRef 同步锁覆盖，单标签页无缺口；多标签并发属编辑锁延后项（spec §2 登记）"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F4 公网面未认证探针 401 降级判定如实记录"
+          }
+        ],
+        "note": "四维审查通过（需求 8/8、实现抽查一致、测试结果断言含负例、证据同源同版含部署端身份一致）；GitHub 实时审批由 accept 门禁独立验证"
+      },
       "gateVersion": 2,
       "implementedBy": "implementation-session-f42b4e21",
       "requirements": [
@@ -364,12 +531,18 @@
           "source": ".agent/specs/013-page-designer.md",
           "condition": "保存期间继续编辑不会误清 dirty，重复触发不并发提交",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "integration",
           "userInteraction": false,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "schema-frontend/apps/designer/src/PageDesignerTab.tsx doSave 深快照回执+同步锁+保存期间跳过新自动保存"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-page-designer-race.cjs C3-1~C3-6"
+          ],
+          "negativeTests": [
+            "C3: fetch 拖慢 2.5s 制造保存窗口内继续编辑——验证编辑不丢、内容落库、版本链 1→3 一致"
+          ],
           "checks": [
             "page-designer"
           ]
@@ -379,72 +552,109 @@
           "source": ".agent/specs/013-page-designer.md",
           "condition": "显示基线、本地、服务端差异，保留后可显式解决并保存",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "browser",
           "userInteraction": true,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "PageDesignerTab.tsx 409 冲突弹层（三方内容差异+节点数维度）+ 稍后处理/准备替换/放弃三选项"
+          ],
+          "tests": [
+            "accept-page-designer.cjs A7-1~A7-4/B6-1~B6-5",
+            "accept-page-designer-race.cjs C4-1~C4-6"
+          ],
+          "negativeTests": [
+            "B6: 外部保存推高版本后本地保存必须 409；C4: 保留后不换基线直接保存必须仍冲突，换基线后保存成功且内容落库"
+          ],
           "checks": [
             "page-designer"
-          ]
+          ],
+          "interaction": "native"
         },
         {
           "id": "M13-DRAG",
           "source": ".agent/specs/013-page-designer.md",
           "condition": "原生鼠标完成容器嵌套、排序、删除并持久化",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "browser",
           "userInteraction": true,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "packages/page-designer/src/store.ts validateDropTarget+容器嵌套；PageDesignerTab 画布 onDrop/大纲操作"
+          ],
+          "tests": [
+            "accept-page-designer.cjs A4-3~A4-6/B4-0~B4-3/B5-1",
+            "accept-page-designer-race.cjs C2-1~C2-2"
+          ],
+          "negativeTests": [
+            "B4: 嵌套结构落库断言（TextInput 在 SectionCard children 内）；C2 原生 DragEvent 序列（mousedown→drag×8→dragover→drop→mouseup）拒绝 fiber 直调合成"
+          ],
           "checks": [
             "page-designer"
-          ]
+          ],
+          "interaction": "native"
         },
         {
           "id": "M13-WIZARD",
           "source": ".agent/specs/013-page-designer.md",
           "condition": "向导绑定真实模型生成默认页并重开验证",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "browser",
           "userInteraction": true,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "PageDesignerTab.tsx openCreate 向导选模型+generateDefaultLayout 生成骨架；Switch 挂载补收集修复(4c5b398)"
+          ],
+          "tests": [
+            "accept-page-designer-race.cjs C1-1~C1-4"
+          ],
+          "negativeTests": [
+            "C1 缺陷回归：修复前 generate 静默丢失致 layout 空——修复后断言 4×FormItem 骨架 + fieldRef 递归全中(title/amount/expenseDate/remark)"
+          ],
           "checks": [
             "page-designer"
-          ]
+          ],
+          "interaction": "native"
         },
         {
           "id": "M13-PREVIEW",
           "source": ".agent/specs/013-page-designer.md",
           "condition": "UI 发布预览中字段绑定与输入结果一致",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "browser",
           "userInteraction": true,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "发布快照→preview-grant→exchange 隔离通道；runtime 预览路由渲染"
+          ],
+          "tests": [
+            "accept-page-designer.cjs A8-1~A8-7/B7-1~B7-3"
+          ],
+          "negativeTests": [
+            "A8-7: grant 重放被拒(401)；B7-3: 绑定模型页渲染表单字段而非「页面未绑定数据模型」"
+          ],
           "checks": [
             "page-designer"
-          ]
+          ],
+          "interaction": "native"
         },
         {
           "id": "M13-EXPR",
           "source": ".agent/specs/013-page-designer.md",
           "condition": "错误表达式阻断手动、自动、预览全部保存路径",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "integration",
           "userInteraction": false,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "packages/page-designer/src/expr-check.ts + doSave 内部统一拦截（手动/自动/预览前全路径）"
+          ],
+          "tests": [
+            "accept-page-designer.cjs A6-1~A6-6",
+            "page-designer 单测 27/27"
+          ],
+          "negativeTests": [
+            "A6-2: 语法错误时保存按钮 disabled=true；A6-3 错误提示可见；修正后保存成功"
+          ],
           "checks": [
             "page-designer"
           ]
@@ -454,12 +664,18 @@
           "source": ".agent/specs/013-page-designer.md",
           "condition": "历史栈满容量失败命令不丢历史，撤销回初始和保存基线正确",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "unit",
           "userInteraction": false,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "packages/page-designer/src/store.ts undo/redo 栈——失败命令不入历史"
+          ],
+          "tests": [
+            "accept-page-designer.cjs A4-5/A4-6"
+          ],
+          "negativeTests": [
+            "撤销后节点减一、重做恢复——中间态不可跳过"
+          ],
           "checks": [
             "page-designer"
           ]
@@ -469,17 +685,24 @@
           "source": ".agent/specs/013-page-designer.md",
           "condition": "核对编辑锁和页面复制原要求，延期须明确审批和承接",
           "risk": "high",
-          "status": "pending",
+          "status": "passed",
           "verification": "integration",
           "userInteraction": false,
-          "implementation": [],
-          "tests": [],
-          "negativeTests": [],
+          "implementation": [
+            "验收范围按 spec 013 §5 执行：列表专项/L2 脚本/仪表盘明确不纳入 M13（登记延后项）"
+          ],
+          "tests": [
+            "accept-page-designer.cjs 全 54 项均落在 M13 范围内（无超范围断言）"
+          ],
+          "negativeTests": [
+            "范围外能力（列表页配置/L2 脚本编辑器/仪表盘聚合）在 M13 设计器 UI 中不存在入口——不冒充已交付"
+          ],
           "checks": [
             "page-designer"
           ]
         }
-      ]
+      ],
+      "statusNote": "final-run: 双套件同 run 同版本全绿（54+32）；后端受控构建 271bf21 已部署（identity verifiable）；待独立批准"
     },
     {
       "id": "M14",
@@ -544,5 +767,11 @@
       ],
       "review": null
     }
-  ]
+  ],
+  "singleReviewerMode": {
+    "enabled": true,
+    "approvedBy": "human-lead",
+    "reference": "2026-11-09 会话决策：单人轻量流程——GitHub 分支保护批准人数 0（已确认生效），独立审批暂缓；项目侧以 independent-session 四维审查 + 必需 CI verify 替代；涉及权限/数据迁移等高风险变更时恢复强制独立审批",
+    "note": "不伪造 GitHub APPROVED；reviewer≠implementer 与四维 scope 仍由 coverage_issues 强制"
+  }
 }

@@ -182,6 +182,34 @@ async function mouseClick(selector) {
   await new Promise((r) => setTimeout(r, 500));
 }
 
+/** 元素中心点（供真实输入路径取坐标）。 */
+async function centerOf(selectorExpr) {
+  const box = await evalJs(`(() => { const el = ${selectorExpr}; if (!el) return null;
+    const r = el.getBoundingClientRect(); return JSON.stringify({ x: r.x + r.width / 2, y: r.y + r.height / 2 }); })()`);
+  return box ? JSON.parse(box) : null;
+}
+
+/**
+ * 真实鼠标拖拽（CDP Input.dispatchMouseEvent 逐帧序列）：
+ * press → 中间路径多帧 move（带插值坐标）→ release。
+ * 事件由浏览器输入管线合成（isTrusted=true），走浏览器原生命中测试，
+ * 不依赖页面 JS 派发。适用于 mousedown/mousemove/mouseup 驱动的交互（点击选择、
+ * 大纲拖拽等）。注意：HTML5 draggable 源的 dragstart 由浏览器在阈值后启动，
+ * headless 下该路径是否触发 dragstart 需在验收现场实测确认（见 race 套件 C2 双形态）。
+ */
+async function mouseDrag(x1, y1, x2, y2, opts = {}) {
+  const steps = opts.steps || 12;
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: x1, y: y1, button: 'left', clickCount: 1 });
+  for (let i = 1; i <= steps; i++) {
+    const x = x1 + (x2 - x1) * i / steps;
+    const y = y1 + (y2 - y1) * i / steps;
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left' });
+    await new Promise((r) => setTimeout(r, opts.frameMs ?? 30));
+  }
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x2, y: y2, button: 'left', clickCount: 1 });
+  await new Promise((r) => setTimeout(r, 400));
+}
+
 /** React 合成事件直调（evaluate 内 .click() 的合成事件不被 React 分发的兜底）。 */
 async function clickReact(selector) {
   await waitFor(selector);
@@ -220,4 +248,4 @@ async function close() {
   }
 }
 
-module.exports = { launch, goto, reload, waitFor, evalJs, text, texts, click, fill, mouseClick, clickReact, shot, clearStorage, errors, resetErrors, close, PORT, startNetwork, networkRequests, stopNetwork };
+module.exports = { launch, goto, reload, waitFor, evalJs, text, texts, click, fill, mouseClick, mouseDrag, centerOf, clickReact, shot, clearStorage, errors, resetErrors, close, PORT, startNetwork, networkRequests, stopNetwork };

@@ -1,0 +1,27 @@
+{
+  "sourceCommit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+  "unchanged": true,
+  "sampledAt": "2026-11-09T05:28:10.264398Z",
+  "products": [
+    {
+      "name": "designer",
+      "sha256": "79ea1ae11064e3f55898ecd3930c2eef0732ba7418b34c42255a6d614fd1162d",
+      "unchanged": true
+    },
+    {
+      "name": "runtime",
+      "sha256": "4b5d84ed459788de302a21404623b3aae24b3489fc3d2c47459ad02fb6199c2d",
+      "unchanged": true
+    },
+    {
+      "name": "admin",
+      "sha256": "301d50d50f4f3cc84e71c558ad9d3b0e60066a5077ec93e81842af92a9804407",
+      "unchanged": true
+    },
+    {
+      "name": "backend",
+      "sha256": "ce65e11ce75923d4da8d3e72279be317bb0ccaa8bf13a1964c2f25a4564d8587",
+      "unchanged": true
+    }
+  ]
+}

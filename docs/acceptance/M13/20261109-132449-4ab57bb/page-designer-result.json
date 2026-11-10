@@ -1,0 +1,272 @@
+[
+  {
+    "name": "API 管理员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "A4-1 UI 向导新建页面（列表出现）",
+    "pass": true,
+    "detail": "pd_mw8thcn9"
+  },
+  {
+    "name": "A4-2 空画布引导可见",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A4-3 拖入 SectionCard + TextInput",
+    "pass": true,
+    "detail": "dropped/dropped"
+  },
+  {
+    "name": "A4-4 画布出现节点",
+    "pass": true,
+    "detail": "count=2"
+  },
+  {
+    "name": "A4-5 撤销后节点减一",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A4-6 重做后节点恢复",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A5-1 属性面板出现配置分组",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A5-2 属性输入就位",
+    "pass": true,
+    "detail": "set"
+  },
+  {
+    "name": "A5-3 改 label 即时反映画布",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A6-1 填入错误表达式",
+    "pass": true,
+    "detail": "set"
+  },
+  {
+    "name": "A6-2 表达式错误阻断保存按钮",
+    "pass": true,
+    "detail": "disabled=true"
+  },
+  {
+    "name": "A6-3 错误提示可见",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A6-4 修正后保存成功",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A6-5 页面落库可查",
+    "pass": true,
+    "detail": "{\"id\":\"31\",\"pageKey\":\"pd_mw8thcn9\",\"name\":\"验收设计器页\",\"type\":\"FORM\",\"path\":\"/pd_mw8thcn9/form\",\"status\":\"ACTIVE\",\"draftVers"
+  },
+  {
+    "name": "A6-6 草稿含修正后表达式",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A7-1 外部保存推高版本",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "A7-2 409 冲突弹层出现",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A7-3 保留后本地草稿仍在",
+    "pass": true,
+    "detail": "input value=冲突测试标题"
+  },
+  {
+    "name": "A7-4 放弃后对齐服务器版本",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A8-1 发布应用",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "A8-2 预览 grant 签发",
+    "pass": true,
+    "detail": "grantId=a63e4291-7e7"
+  },
+  {
+    "name": "A8-3 exchange 成功（15min 会话）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "A8-4 发布面可读（预览 token 通过隔离通道）",
+    "pass": true,
+    "detail": "HTTP 200 body={\"id\":\"page_2d64a0c4-06bb-40ff-895d-e5edaef1eec3\",\"name\":\"验收设计器页\",\"path\":\"/pd_mw"
+  },
+  {
+    "name": "A8-5 预览路由渲染（预览模式标识）",
+    "pass": true,
+    "detail": "预览模式（短时会话只读渲染；凭证 15 分钟有效）\n页面加载失败\n页面未绑定数据模型"
+  },
+  {
+    "name": "A8-6 预览兑换链路无失败（不含「预览失败」）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "A8-7 grant 重放被拒",
+    "pass": true,
+    "detail": "HTTP 401"
+  },
+  {
+    "name": "A9-1 未绑模型页字段绑定入口（数据绑定组渲染，下拉提示未绑模型）",
+    "pass": true,
+    "detail": "has-bind-group"
+  },
+  {
+    "name": "B0-1 测试模型创建",
+    "pass": true,
+    "detail": "modelId=6"
+  },
+  {
+    "name": "B0-2 模型字段 precheck 签发 token",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "B0-3 模型字段保存（4 字段落库）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "B1-1 绑定页创建",
+    "pass": true,
+    "detail": "pd_bind_mw8thcn9"
+  },
+  {
+    "name": "B1-2 绑定页落库",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "B2-0 API 绑定模型（草稿写入 modelId）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "B2-1 拖入 TextInput",
+    "pass": true,
+    "detail": "dropped"
+  },
+  {
+    "name": "B2-3 字段绑定下拉渲染（绑定模型后）",
+    "pass": true,
+    "detail": "has-fieldref-widget"
+  },
+  {
+    "name": "B2-4 下拉选项可见并选中 amount",
+    "pass": true,
+    "detail": "picked"
+  },
+  {
+    "name": "B3-1 保存成功",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "B3-2 fieldRef 落协议字段",
+    "pass": true,
+    "detail": "protocol=true props=false"
+  },
+  {
+    "name": "B4-0 拖入 SectionCard",
+    "pass": true,
+    "detail": "dropped"
+  },
+  {
+    "name": "B4-1 容器落点捕获 + 嵌套拖入",
+    "pass": true,
+    "detail": "nested-dropped"
+  },
+  {
+    "name": "B4-2 大纲嵌套缩进可见",
+    "pass": true,
+    "detail": "indented=1"
+  },
+  {
+    "name": "B4-3 嵌套结构落库: TextInput 在 SectionCard children 内",
+    "pass": true,
+    "detail": "ver=4"
+  },
+  {
+    "name": "B5-1 大纲含上移/下移/删除操作",
+    "pass": true,
+    "detail": "has-ops(9)"
+  },
+  {
+    "name": "B6-1 外部保存推高版本",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "B6-2 409 弹层出现",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "B6-3 差异摘要渲染（三方差异表）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "B6-4 差异含节点数维度",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "B6-5 放弃后对齐",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "B7-1 发布",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "B7-2 预览路由渲染",
+    "pass": true,
+    "detail": "预览模式（短时会话只读渲染；凭证 15 分钟有效）\n验收绑定页\n卡片\n提 交"
+  },
+  {
+    "name": "B7-3 预览渲染绑定表单（不再提示未绑模型）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "B8-1 模型删除字段保存(amount)",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "B8-2 差异检测标黄(引用已删字段的节点)",
+    "pass": true,
+    "detail": "{\"total\":2,\"dashed\":2,\"warnRows\":0}"
+  }
+]

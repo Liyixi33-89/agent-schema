@@ -1,0 +1,22 @@
+{
+  "sourceCommit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+  "unchanged": true,
+  "targets": [
+    {
+      "name": "designer-static",
+      "method": "http-response-sha256",
+      "before": "79ea1ae11064e3f55898ecd3930c2eef0732ba7418b34c42255a6d614fd1162d",
+      "after": "79ea1ae11064e3f55898ecd3930c2eef0732ba7418b34c42255a6d614fd1162d",
+      "expected": "79ea1ae11064e3f55898ecd3930c2eef0732ba7418b34c42255a6d614fd1162d"
+    },
+    {
+      "name": "backend-identity",
+      "method": "backend-build-identity",
+      "before": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+      "after": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+      "expected": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+      "instanceBefore": "45d7d83e-7077-48ca-be35-128021c90a6a",
+      "instanceAfter": "45d7d83e-7077-48ca-be35-128021c90a6a"
+    }
+  ]
+}

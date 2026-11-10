@@ -1,0 +1,45 @@
+{
+  "sourceCommit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+  "products": [
+    {
+      "name": "designer",
+      "sourceCommit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+      "runtimeVersion": "4ab57bb",
+      "path": "schema-frontend/apps/designer/dist/index.html",
+      "sha256": "79ea1ae11064e3f55898ecd3930c2eef0732ba7418b34c42255a6d614fd1162d",
+      "bytes": 377,
+      "collectedAt": "2026-11-09T05:27:36.939Z",
+      "method": "local-file-sha256"
+    },
+    {
+      "name": "runtime",
+      "sourceCommit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+      "runtimeVersion": "4ab57bb",
+      "path": "schema-frontend/apps/runtime/dist/index.html",
+      "sha256": "4b5d84ed459788de302a21404623b3aae24b3489fc3d2c47459ad02fb6199c2d",
+      "bytes": 294,
+      "collectedAt": "2026-11-09T05:27:36.941Z",
+      "method": "local-file-sha256"
+    },
+    {
+      "name": "admin",
+      "sourceCommit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+      "runtimeVersion": "4ab57bb",
+      "path": "schema-frontend/apps/admin-console/dist/index.html",
+      "sha256": "301d50d50f4f3cc84e71c558ad9d3b0e60066a5077ec93e81842af92a9804407",
+      "bytes": 298,
+      "collectedAt": "2026-11-09T05:27:36.942Z",
+      "method": "local-file-sha256"
+    },
+    {
+      "name": "backend",
+      "sourceCommit": "4ab57bbfc9f7114039c840c05c017e5190d7a2fe",
+      "runtimeVersion": "4ab57bb",
+      "path": "schema-platform/bootstrap/target/bootstrap-0.1.0-SNAPSHOT.jar",
+      "sha256": "ce65e11ce75923d4da8d3e72279be317bb0ccaa8bf13a1964c2f25a4564d8587",
+      "bytes": 24943320,
+      "collectedAt": "2026-11-09T05:27:37.004Z",
+      "method": "local-file-sha256"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M13",
+  "runId": "20261110-095505-30fdd61",
+  "startedAt": "2026-11-10T01:55:05.309Z",
+  "finishedAt": "2026-11-10T02:18:08.988Z",
+  "sourceCommit": "30fdd61768a27e0f40032087d948787f94aac452",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "win32",
+    "node": "v24.14.1"
+  },
+  "suites": {
+    "page-designer-race": {
+      "command": "node scripts/acceptance/accept-page-designer-race.cjs",
+      "startedAt": "2026-11-10T01:55:05.449Z",
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-10T01:56:02.611Z"
+    },
+    "page-designer": {
+      "command": "node scripts/acceptance/accept-page-designer.cjs",
+      "startedAt": "2026-11-10T01:56:26.326Z",
+      "passed": 54,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-10T01:57:17.852Z"
+    }
+  },
+  "files": [
+    {
+      "path": "run.json",
+      "sha256": "a31cbc787e0302a40c65d6398ae13ab1b4ba967ef85a73d21b66f21b4003ac12"
+    },
+    {
+      "path": "report.md",
+      "sha256": "5e9a85aa0c4d52fba2de732f34d0640e6d2931a1063aa7e4c35a71fd9d53c8b2"
+    },
+    {
+      "path": "stability.json",
+      "sha256": "56b72a016854023ce2b62f785bfa5ec8157580ad5cefcc6bef311d32bf4ebf05"
+    },
+    {
+      "path": "deployment.json",
+      "sha256": "9973e5b720f6638f5a378cc1ea8404bda37c65048f2bbcea8c875c6e96fe06a0"
+    },
+    {
+      "path": "products.json",
+      "sha256": "8f66b6a55439caa25cda0162e727e5192b3a82d64a84e6adb90378c33b4187d6"
+    },
+    {
+      "path": "page-designer-result.json",
+      "sha256": "3581d1711856da701d736e0765693b17eb4215afdb07b8aedc9e637a7467d90b"
+    },
+    {
+      "path": "page-designer-race-result.json",
+      "sha256": "7ffffe8eea2df4dc46403870147b31ac2d5de747db5342e55bacba44390cac07"
+    },
+    {
+      "path": "logs/page-designer-output.txt",
+      "sha256": "880ca40fbfc74f549b576779e267e9964aeae894ad173e485e4ffdd7dd721fda"
+    },
+    {
+      "path": "logs/page-designer-race-output.txt",
+      "sha256": "b59c2a36a16b641acf2dda0a20b2c95d3d408a4a0e3e4346f8e9d438fcdcbc4c"
+    }
+  ]
+}

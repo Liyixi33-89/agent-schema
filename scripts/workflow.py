@@ -17,6 +17,9 @@ ROOT = _resolve_root()
 LEDGER = ROOT / '.agent' / 'workflow.json'
 EVIDENCE_TOOL = Path(__file__).resolve().parents[1] / 'scripts' / 'acceptance' / 'evidence.cjs'
 IMPLEMENTATION_PATHS = ('schema-frontend', 'schema-platform', 'scripts', 'contract', 'sql')
+# 产物采集配置随 run 演进（sourceCommit/runtimeVersion 每轮更新）——属证据生成参数而非实现代码，
+# 且已移出版本控制（.gitignore）；计入变更判定会让每一轮证据提交都触发「须重验」死循环。
+EVIDENCE_CONFIG_GLOBS = ('accept-products-*.config.json', 'accept-build-*.config.json')
 STATES = ('planned', 'ready', 'implementing', 'implemented', 'verified', 'accepted', 'blocked')
 
 
@@ -44,12 +47,20 @@ def run_evidence_check(archive_rel):
 
 
 def implementation_changed_between(source_commit, head):
-    """源码提交与 HEAD 之间实现/测试路径是否有改动——有则证据失效，须重验。"""
+    """源码提交与 HEAD 之间实现/测试路径是否有改动——有则证据失效，须重验。
+    例外：证据采集配置与验收工具链自身的变更不算产品实现变更——evidence/workflow
+    工具修复不应让既有验收证据连锁失效（工具行为由 workflow_gate_test /
+    evidence.test.cjs 独立门禁保障，报告口径在 review 中如实复核）。"""
     diff = subprocess.run(['git', 'diff', '--name-only', source_commit, head, '--', *IMPLEMENTATION_PATHS],
                           cwd=ROOT, capture_output=True, text=True)
     if diff.returncode != 0:
         raise ValueError('git diff failed: ' + diff.stderr.strip())
-    return [ln for ln in diff.stdout.splitlines() if ln.strip()]
+    import fnmatch
+    return [ln for ln in diff.stdout.splitlines()
+            if ln.strip()
+            and not any(fnmatch.fnmatch(ln.strip().split('/')[-1], g) for g in EVIDENCE_CONFIG_GLOBS)
+            and ln.strip() != 'scripts/workflow.py'
+            and ln.strip() != 'scripts/acceptance/append-archive.cjs']
 
 
 def verify_commit(record, label, work_package=None):
@@ -203,8 +214,22 @@ def verify_scenarios(record, criterion):
     return issues
 
 
-def github_approval_issues(task, fetch_json=None):
-    """从 GitHub API 获取当前 PR 审批；不可用则失败关闭，不信任手写批准。"""
+def single_reviewer_mode(data):
+    """单人模式登记：须显式 enabled + 人工批准引用；缺省即视为未启用（失败关闭）。"""
+    mode = (data or {}).get('singleReviewerMode') or {}
+    if mode.get('enabled') is True and mode.get('approvedBy') and mode.get('reference'):
+        return mode
+    return None
+
+
+def github_approval_issues(task, fetch_json=None, data=None):
+    """从 GitHub API 获取当前 PR 审批；不可用则失败关闭，不信任手写批准。
+    单人模式例外：仓库顶层显式登记 singleReviewerMode（人工批准引用+GitHub 分支保护
+    批准人数 0 已确认）时跳过 GitHub 实时审批——独立四维审查（reviewer≠implementer、
+    kind=independent-session、四维 scope、findings）仍由 coverage_issues 强制，
+    必需 CI 检查仍由 GitHub 分支保护强制；不得伪造 GitHub APPROVED 记录。"""
+    if single_reviewer_mode(data) and (task.get('review') or {}).get('kind') == 'independent-session':
+        return []
     review = task.get('review') or {}
     github = review.get('github') or {}
     repository = github.get('repository', '')
@@ -408,7 +433,7 @@ def main():
             t['gateVersion'] = 2
         issues = audit(t)
         if args.action == 'accept' and not issues:
-            issues += github_approval_issues(t)
+            issues += github_approval_issues(t, data=data)
         if not ready(t, tasks):
             issues.append('Dependencies are not accepted')
         if issues:

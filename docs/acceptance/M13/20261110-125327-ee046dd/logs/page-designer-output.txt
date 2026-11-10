@@ -1,0 +1,61 @@
+PASS  API 管理员登录::凭证三件套  -- at=true rt=true csrf=true body零凭证=true
+PASS  A4-1 UI 向导新建页面（列表出现）  -- pd_mwa7u9dd
+PASS  A4-2 空画布引导可见
+PASS  A4-3 拖入 SectionCard + TextInput  -- dropped/dropped
+PASS  A4-4 画布出现节点  -- count=2
+PASS  A4-5 撤销后节点减一
+PASS  A4-6 重做后节点恢复
+PASS  A5-1 属性面板出现配置分组
+PASS  A5-2 属性输入就位  -- set
+PASS  A5-3 改 label 即时反映画布
+PASS  A6-1 填入错误表达式  -- set
+PASS  A6-2 表达式错误阻断保存按钮  -- disabled=true
+PASS  A6-3 错误提示可见
+PASS  A6-4 修正后保存成功
+PASS  A6-5 页面落库可查  -- {"id":"69","pageKey":"pd_mwa7u9dd","name":"验收设计器页","type":"FORM","path":"/pd_mwa7u9dd/form","status":"ACTIVE","draftVers
+PASS  A6-6 草稿含修正后表达式
+PASS  A7-1 外部保存推高版本  -- HTTP 200
+PASS  A7-2 409 冲突弹层出现
+PASS  A7-3 保留后本地草稿仍在  -- input value=冲突测试标题
+PASS  A7-4 放弃后对齐服务器版本
+PASS  A8-1 发布应用  -- HTTP 200
+PASS  A8-2 预览 grant 签发  -- grantId=7f315fae-eb0
+PASS  A8-3 exchange 成功（15min 会话）  -- HTTP 200
+PASS  A8-4 发布面可读（预览 token 通过隔离通道）  -- HTTP 200 body={"id":"page_e5f60500-55be-4427-b56a-69a44a9b12c9","name":"验收设计器页","path":"/pd_mw
+PASS  A8-5 预览路由渲染（预览模式标识）  -- 预览模式（短时会话只读渲染；凭证 15 分钟有效）
+页面加载失败
+页面未绑定数据模型
+PASS  A8-6 预览兑换链路无失败（不含「预览失败」）
+PASS  A8-7 grant 重放被拒  -- HTTP 401
+PASS  A9-1 未绑模型页字段绑定入口（数据绑定组渲染，下拉提示未绑模型）  -- has-bind-group
+PASS  B0-1 测试模型创建  -- modelId=14
+PASS  B0-2 模型字段 precheck 签发 token
+PASS  B0-3 模型字段保存（4 字段落库）  -- HTTP 200
+PASS  B1-1 绑定页创建  -- pd_bind_mwa7u9dd
+PASS  B1-2 绑定页落库
+PASS  B2-0 API 绑定模型（草稿写入 modelId）  -- HTTP 200
+PASS  B2-1 拖入 TextInput  -- dropped
+PASS  B2-3 字段绑定下拉渲染（绑定模型后）  -- has-fieldref-widget
+PASS  B2-4 下拉选项可见并选中 amount  -- picked
+PASS  B3-1 保存成功
+PASS  B3-2 fieldRef 落协议字段  -- protocol=true props=false
+PASS  B4-0 拖入 SectionCard  -- dropped
+PASS  B4-1 容器落点捕获 + 嵌套拖入  -- nested-dropped
+PASS  B4-2 大纲嵌套缩进可见  -- indented=1
+PASS  B4-3 嵌套结构落库: TextInput 在 SectionCard children 内  -- ver=4
+PASS  B5-1 大纲含上移/下移/删除操作  -- has-ops(9)
+PASS  B6-1 外部保存推高版本  -- HTTP 200
+PASS  B6-2 409 弹层出现
+PASS  B6-3 差异摘要渲染（三方差异表）
+PASS  B6-4 差异含节点数维度
+PASS  B6-5 放弃后对齐
+PASS  B7-1 发布  -- HTTP 200
+PASS  B7-2 预览路由渲染  -- 预览模式（短时会话只读渲染；凭证 15 分钟有效）
+验收绑定页
+卡片
+提 交
+PASS  B7-3 预览渲染绑定表单（不再提示未绑模型）
+PASS  B8-1 模型删除字段保存(amount)  -- HTTP 200
+PASS  B8-2 差异检测标黄(引用已删字段的节点)  -- {"total":2,"dashed":2,"warnRows":0}
+
+=== page-designer 验收: 54/54 PASS ===
