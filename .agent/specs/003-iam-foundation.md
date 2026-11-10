@@ -3,7 +3,7 @@ spec_id: 003-iam-foundation
 status: active
 milestone: M3                # 依赖图 §3.4 权限基座（与 M1 后半并行）
 created: 2026-10-29
-last_verified_at: 2026-11-06
+last_verified_at: 2026-11-10
 owner: 待定
 ---
 

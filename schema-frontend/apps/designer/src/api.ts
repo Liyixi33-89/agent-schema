@@ -152,6 +152,12 @@ export class ApiClient {
     return this.req('POST', `/api/apps/${appId}/preview-grants`, { pageId: Number(pageId) }) as Promise<{ grantId: string; previewUrl?: string }>;
   }
 
+  // ---------- L2 脚本编译（04BE §A.5：保存即编译；成功回 {artifactUrl, contentHash}） ----------
+
+  buildPageCode(pageId: string | number, sourceCode: string): Promise<{ artifactUrl: string; contentHash: string; reused?: boolean }> {
+    return this.req('POST', `/api/build/pages/${pageId}/code`, { sourceCode }) as Promise<{ artifactUrl: string; contentHash: string; reused?: boolean }>;
+  }
+
   // ---------- 模型与元数据（01BE §A.1-A.3；X-App-Id 路由应用域） ----------
 
   private async reqApp(appId: number, method: string, path: string, body?: unknown): Promise<unknown> {

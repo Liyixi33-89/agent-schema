@@ -16,10 +16,14 @@ dist-accept/
 .turbo/
 coverage/
 
+# build-service è¿è¡Œæ—¶äº§ç‰©ï¼ˆäº§ç‰©ç›®å½•ä¸ worker å…œåº•ç›®å½•â€”â€”è¯æ®ä¸å…¥åº“ï¼ŒæŒ‰ run-id å½’æ¡£ï¼‰
+build-worker/
+data/artifacts/
+
 # éªŒæ”¶è¿è¡Œäº§ç‰©ï¼ˆè„šæœ¬è¾“å‡ºåˆ° scripts/acceptance/out/ï¼Œè¯æ®å½’æ¡£åœ¨ docs/acceptance/ï¼‰
 scripts/acceptance/out/
 scripts/acceptance/*-result.json
 scripts/acceptance/dbq_exec.sh
 
-# ²úÎï²É¼¯ÅäÖÃĞ¯´øÂÖ´Î sourceCommit£¨Ëæ run Ñİ½ø£¬²»ÈëÊµÏÖÂ·¾¶£©
+# ï¿½ï¿½ï¿½ï¿½É¼ï¿½ï¿½ï¿½ï¿½ï¿½Ğ¯ï¿½ï¿½ï¿½Ö´ï¿½ sourceCommitï¿½ï¿½ï¿½ï¿½ run ï¿½İ½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Êµï¿½ï¿½Â·ï¿½ï¿½ï¿½ï¿½
 scripts/acceptance/accept-products-*.config.json

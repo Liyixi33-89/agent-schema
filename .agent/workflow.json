@@ -707,7 +707,7 @@
     {
       "id": "M14",
       "title": "L2 Worker 隔离与最小编译链路",
-      "status": "planned",
+      "status": "implementing",
       "priority": 10,
       "dependsOn": [
         "M6-M7"
