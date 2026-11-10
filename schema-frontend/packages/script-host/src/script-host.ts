@@ -15,8 +15,13 @@ export interface ScriptHostOptions {
   loadModule(contentHash: string): Promise<HookModule>;
   /** 主线程消息桥实现（op 白名单校验在此层）。 */
   bridge: MessageBridge;
-  /** Worker 工厂：注入扫描通过的产物入口与静态快照。 */
+  /** Worker 工厂：返回未初始化的 Worker（init 握手由 ScriptHost 统一驱动）。 */
   createWorker(contentHash: string): WorkerLike;
+  /** 静态快照（08FE §5：mount 时一次性注入，脱敏白名单）。 */
+  staticUser?: ScriptContext['user'];
+  staticPage?: ScriptContext['page'];
+  /** 产物 URL（module worker import 目标；缺省时 Worker 自行闭包加载——兼容旧工厂）。 */
+  artifactUrl?: (contentHash: string) => string;
 }
 
 export interface WorkerLike {
@@ -36,6 +41,12 @@ interface PoolEntry {
   worker: WorkerLike;
   busy: boolean;
 }
+
+/** Worker 协议消息形态（与 worker-bootstrap.ts 对齐——单一协议真源两侧镜像）。 */
+type WorkerMsg =
+  | { type: 'ready'; ok: boolean; err?: string }
+  | { type: 'ctx-call'; id: string; op: string; args: unknown[] }
+  | { type: 'hook-done'; ok: boolean; value?: unknown; err?: string };
 
 export class ScriptHost {
   private readonly pool = new Map<string, PoolEntry>();
@@ -79,7 +90,19 @@ export class ScriptHost {
     entry.busy = true;
     let terminated = false;
     try {
-      // 钩子调用走 Worker 内执行协议：发送 { type:'run', hook, payload }
+      // 常驻分派器统一处理 ready/ctx-call/hook-done 三类消息；init 由宿主显式驱动——
+      // ready 后再发 run（消除异步 import 竞态）；ctx-call 由桥分派并回执 ctx-result。
+      const dispatcher = this.attachDispatcher(entry.worker);
+      entry.worker.postMessage({
+        type: 'init',
+        artifactUrl: this.options.artifactUrl?.(binding.contentHash),
+        staticUser: this.options.staticUser,
+        staticPage: this.options.staticPage,
+      });
+      const ready = await this.awaitReady(entry.worker, dispatcher.ready);
+      if (!ready.ok) {
+        return { ok: false, error: ready.err ?? 'worker 初始化失败', durationMs: Date.now() - started };
+      }
       // ⚠️ 超时硬中断双通道（08FE §4.3）：
       //   ① worker.terminate() —— 真终止执行线程（同步死循环被物理停止）
       //   ② 主线程 Promise 超时拒绝 —— terminate 只杀 worker，不会让本 await settle；
@@ -107,6 +130,8 @@ export class ScriptHost {
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e), durationMs: Date.now() - started };
     } finally {
+      entry.worker.removeEventListener('message', this.currentListener ?? (() => {}));
+      this.currentListener = undefined;
       if (terminated || tempWorker) {
         entry.worker.terminate(); // 终止后重建（复用池位语义）或丢弃临时 worker
         if (!tempWorker) {
@@ -116,6 +141,44 @@ export class ScriptHost {
         entry.busy = false;
       }
     }
+  }
+
+  /** 当前挂载的常驻 message 监听（runOnWorker finally 卸载）。 */
+  private currentListener: ((e: { data: unknown }) => void) | undefined;
+
+  /**
+   * 常驻消息分派器（08FE §4.2 桥的真实接线）：
+   * - ready：init 完成信号（Promise 化握手）
+   * - ctx-call：Worker 发起的桥调用 → bridge.dispatch（op 白名单在此校验）→ 回执 ctx-result
+   * - hook-done：由 invoke 的一次性监听消费；此分派器转发兜底（不重复 resolve）
+   */
+  private attachDispatcher(worker: WorkerLike): { ready: Promise<{ ok: boolean; err?: string }> } {
+    let resolveReady!: (r: { ok: boolean; err?: string }) => void;
+    const ready = new Promise<{ ok: boolean; err?: string }>((resolve) => { resolveReady = resolve; });
+    const listener = (e: { data: unknown }): void => {
+      const msg = e.data as WorkerMsg;
+      if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
+      if (msg.type === 'ready') {
+        resolveReady({ ok: msg.ok, err: msg.err });
+      } else if (msg.type === 'ctx-call') {
+        void this.options.bridge.dispatch(msg.op, msg.args).then((r) => {
+          worker.postMessage({ type: 'ctx-result', id: msg.id, ok: r.ok, result: r.result, err: r.err });
+        });
+      } else if (msg.type === 'hook-done') {
+        resolveReady({ ok: true }); // 钩子先于 ready 完成的兜底（正常序 ready 必先到）
+      }
+    };
+    worker.addEventListener('message', listener);
+    this.currentListener = listener;
+    return { ready };
+  }
+
+  /** 等待 init 完成（ready 消息或已加载短路）；超时防 Worker 构造即挂死。 */
+  private async awaitReady(_worker: WorkerLike, ready: Promise<{ ok: boolean; err?: string }>): Promise<{ ok: boolean; err?: string }> {
+    return Promise.race([
+      ready,
+      new Promise<{ ok: false; err: string }>((resolve) => setTimeout(() => resolve({ ok: false, err: 'worker 初始化超时' }), 5_000)),
+    ]);
   }
 
   private invoke(worker: WorkerLike, hook: HookName, payload: unknown, binding: ScriptBinding): Promise<{ ok: boolean; value?: unknown; warned?: boolean }> {
@@ -158,13 +221,14 @@ export class ScriptHost {
 }
 
 /** 测试台辅助：同一 ScriptHost + mock 桥（保真承诺——执行器/消息桥/扫描器为同一实例）。 */
-export function createMockBridge(overrides?: Partial<Record<string, (args: unknown[]) => unknown>>): MessageBridge & { calls: Array<{ op: string; args: unknown[] }> } {
+export function createMockBridge(overrides?: Partial<Record<string, (args: unknown[]) => unknown>>, initialForm?: Record<string, unknown>): MessageBridge & { calls: Array<{ op: string; args: unknown[] }>; form: Record<string, unknown> } {
   const calls: Array<{ op: string; args: unknown[] }> = [];
+  const form: Record<string, unknown> = { ...(initialForm ?? {}) };
   const handlers: Record<string, (args: unknown[]) => unknown> = {
-    'form.get': (args) => (args[1] as Record<string, unknown>)?.[args[0] as string],
-    'form.set': () => undefined,
-    'form.getValues': (args) => args[0],
-    'form.setValues': () => undefined,
+    'form.get': (args) => form[args[0] as string],
+    'form.set': (args) => { form[args[0] as string] = args[1]; return undefined; },
+    'form.getValues': () => form,
+    'form.setValues': (args) => { Object.assign(form, args[0] as Record<string, unknown>); return undefined; },
     'api.call': () => ({ ok: true }),
     'ui.toast': () => undefined,
     'ui.confirm': () => true,
@@ -174,6 +238,7 @@ export function createMockBridge(overrides?: Partial<Record<string, (args: unkno
   };
   return {
     calls,
+    form,
     async dispatch(op, args) {
       calls.push({ op, args });
       const handler = handlers[op];

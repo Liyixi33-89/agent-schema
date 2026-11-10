@@ -16,8 +16,8 @@ import {
 } from '@schema/script-host';
 import { ApiClient, ApiError } from './api';
 
-const SAMPLE = `export async function beforeSubmit(ctx) {
-  const amount = Number(await ctx.form.get('amount'));
+const SAMPLE = `export async function beforeSubmit(payload, ctx) {
+  const amount = Number(payload?.record?.amount ?? await ctx.form.get('amount'));
   if (amount > 10000) {
     ctx.logger.warn('金额超阈，触发复核标记');
     await ctx.ui.toast('大额提交将进入复核', 'warning');
@@ -87,8 +87,8 @@ export default function ScriptPanel({ api, pageId }: { api: ApiClient; pageId: s
     setRunResult(null);
     setLogs([]);
     const bridge: MessageBridge & { calls: Array<{ op: string; args: unknown[] }> } = createMockBridge({
-      'api.call': (args) => ({ ok: true, result: { passed: true } }),
-    });
+      'api.call': () => ({ passed: true }),
+    }, { amount: '20000' });
     const host = new ScriptHost({
       loadModule: async () => ({}),
       bridge: {
@@ -98,7 +98,10 @@ export default function ScriptPanel({ api, pageId }: { api: ApiClient; pageId: s
           return r;
         },
       },
-      createWorker: () => wrapWorker(createScriptWorker(artifactUrl, { id: 'mock-user', roles: ['developer'] }, { params: {}, query: {}, mode: 'design' })),
+      createWorker: () => wrapWorker(createScriptWorker()),
+      artifactUrl: () => artifactUrl,
+      staticUser: { id: 'mock-user', roles: ['developer'] },
+      staticPage: { params: {}, query: {}, mode: 'design' },
       warnMs: 500,
       hardMs: 10_000,
     });

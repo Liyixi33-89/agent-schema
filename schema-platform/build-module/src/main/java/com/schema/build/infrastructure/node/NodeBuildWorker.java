@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,6 +19,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -102,10 +104,25 @@ public class NodeBuildWorker {
             proc.getOutputStream().write(request.getBytes(StandardCharsets.UTF_8));
             proc.getOutputStream().close();
 
-            String stdout;
-            try (InputStream in = proc.getInputStream()) {
-                stdout = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            }
+            // stderr 并发排空（防管道缓冲区满导致子进程写阻塞——同步 readAllBytes 会先卡死）
+            final Process p = proc;
+            CompletableFuture<String> stderr = CompletableFuture.supplyAsync(() -> {
+                try (InputStream err = p.getErrorStream()) {
+                    return new String(err.readAllBytes(), StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    return "";
+                }
+            });
+            // stdout 缓冲读（限时 waitFor 之后再取内容——waitFor 不依赖流消费即可推进）
+            ByteArrayOutputStream stdoutBuf = new ByteArrayOutputStream();
+            CompletableFuture<Void> stdoutDrain = CompletableFuture.runAsync(() -> {
+                try (InputStream in = p.getInputStream()) {
+                    in.transferTo(stdoutBuf);
+                } catch (Exception ignored) {
+                    // 进程被强制终止时流关闭属正常——内容以 waitFor 后缓冲为准
+                }
+            });
+
             boolean finished = proc.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
             if (!finished) {
                 proc.destroyForcibly().waitFor(2, TimeUnit.SECONDS);
@@ -114,10 +131,13 @@ public class NodeBuildWorker {
                                 "编译超时 %dms（已终止）".formatted(timeoutMs), "BUILD_TIMEOUT")), (int) timeoutMs);
             }
             if (proc.exitValue() != 0) {
+                String errText = stderr.getNow("");
                 return new BuildTask.Result(false, null,
                         List.of(new BuildTask.CompileError(null, null,
-                                "编译进程异常退出 code=%d".formatted(proc.exitValue()), "WORKER_CRASH")), 0);
+                                "编译进程异常退出 code=%d%s".formatted(proc.exitValue(),
+                                        errText.isBlank() ? "" : "：" + errText.trim()), "WORKER_CRASH")), 0);
             }
+            String stdout = stdoutBuf.toString(StandardCharsets.UTF_8);
             return parseResponse(stdout);
         } catch (Exception e) {
             log.warn("build-worker 调度失败: {}", e.getMessage());
