@@ -1,0 +1,15 @@
+{
+  "sourceCommit": "acf1f21985f0ff757f1da5ab19e498211aa1fbc3",
+  "products": [
+    {
+      "name": "designer-accept",
+      "sourceCommit": "acf1f21985f0ff757f1da5ab19e498211aa1fbc3",
+      "runtimeVersion": "28cd68af",
+      "path": "schema-frontend/apps/designer/dist-accept/index.html",
+      "sha256": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "bytes": 391,
+      "collectedAt": "2026-11-10T04:29:06.500Z",
+      "method": "local-file-sha256"
+    }
+  ]
+}

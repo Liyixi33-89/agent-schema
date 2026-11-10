@@ -1,0 +1,162 @@
+[
+  {
+    "name": "API 管理员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "C1-1b 生成开关默认开启（antd Switch）",
+    "pass": true,
+    "detail": "switch-on=true"
+  },
+  {
+    "name": "C1-1 向导创建（模型生成）提交",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "C1-2 生成页落库",
+    "pass": true,
+    "detail": "pd_gen_mwa6s8et"
+  },
+  {
+    "name": "C1-3 草稿含字段骨架（≥4 FormItem 且控件带 fieldRef）",
+    "pass": true,
+    "detail": "n=4 refs=4 [FormItem,FormItem,FormItem,FormItem]"
+  },
+  {
+    "name": "C1-4 骨架绑定模型字段",
+    "pass": true,
+    "detail": "title,amount,expenseDate,remark"
+  },
+  {
+    "name": "C2-1 拖拽执行（形态: cdp-real-mouse (isTrusted=true, dragstart=1, drop=1)）",
+    "pass": true,
+    "detail": "dropped:real-input"
+  },
+  {
+    "name": "C2-2 拖拽后画布出现节点（经落点校验+命令系统）",
+    "pass": true,
+    "detail": "count=1"
+  },
+  {
+    "name": "C3-1 编辑产生 dirty（拖入第二个节点）",
+    "pass": true,
+    "detail": "count=2"
+  },
+  {
+    "name": "C3-2 保存请求已发出且响应被门控挂起（in-flight 确认）",
+    "pass": true,
+    "detail": "save=clicked fired=1"
+  },
+  {
+    "name": "C3-3 保存 in-flight 期间编辑生效（值已在文档，等待回执）",
+    "pass": true,
+    "detail": "edited-inflight/dirty-marker=true gateFired=1"
+  },
+  {
+    "name": "C3-4 回执返回后期间编辑保持 dirty（不被保存回执吞掉）",
+    "pass": true,
+    "detail": "dirty=true"
+  },
+  {
+    "name": "C3-5 保存期间编辑未被丢（手动保存收尾成功）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "C3-6 竞态期间编辑内容落库",
+    "pass": true,
+    "detail": "[{\"id\":\"QKIVwW19jw\",\"props\":{},\"componentName\":\"TextInput\"},{\"id\":\"XveJ8lTEmI\",\"props\":{\"placeholder"
+  },
+  {
+    "name": "C3-7 版本链一致推进",
+    "pass": true,
+    "detail": "v=1→3"
+  },
+  {
+    "name": "C3b-1 等待 30s 自动保存定时器真实触发（最长 36s）",
+    "pass": true,
+    "detail": "waiting..."
+  },
+  {
+    "name": "C3b-2 自动保存真实触发（无手动保存，draftVersion 自然推进）",
+    "pass": true,
+    "detail": "v=3"
+  },
+  {
+    "name": "C3b-3 定时器保存内容落库",
+    "pass": true,
+    "detail": "[{\"id\":\"QKIVwW19jw\",\"props\":{},\"componentName\":\"TextInput\"},{\"id\":\"XveJ8lTEmI\",\""
+  },
+  {
+    "name": "C4-1 外部保存推高版本",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "C4-2 409 冲突弹层出现",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "C4-3 稍后处理保留草稿（弹层关闭）",
+    "pass": true,
+    "detail": "clicked"
+  },
+  {
+    "name": "C4-3b 本地草稿完整保留（画布节点数≥2 且期间编辑仍在画布）",
+    "pass": true,
+    "detail": "nodes=2 marker=true"
+  },
+  {
+    "name": "C4-3c 服务器此刻不含本地内容（保留≠落库，冲突态如实）",
+    "pass": true,
+    "detail": "[{\"id\":\"QKIVwW19jw\",\"props\":{},\"componentName\":\"TextInput\"},"
+  },
+  {
+    "name": "C4b-1 外部再次推高版本（制造冲突）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "C4b-2 第二次 409 弹层出现",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "C4b-3 保留本地并准备替换（基线更新、弹层关闭）",
+    "pass": true,
+    "detail": "clicked"
+  },
+  {
+    "name": "C4b-4 换基线后手动保存成功",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "C4b-5 服务器草稿被本地内容替换（闭环核心断言）",
+    "pass": true,
+    "detail": "[{\"id\":\"QKIVwW19jw\",\"props\":{},\"componentName\":\"TextInput\"},{\"id\":\"XveJ8lTEmI\",\"props\":{\"placeholder"
+  },
+  {
+    "name": "C4b-6 替换后服务器不再含外部独有内容",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "C4-4 重开拉取服务器最新版",
+    "pass": true,
+    "detail": "count=2"
+  },
+  {
+    "name": "C4-5 重开编辑保存成功（放弃式换基线路径）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "C4-6 重存内容落库（闭环完成）",
+    "pass": true,
+    "detail": "[{\"id\":\"QKIVwW19jw\",\"props\":{\"placeholder\":\"闭环成功标记\"},\"componentName\":\"TextInput\"},{\"id\":\"XveJ8lTEmI\""
+  }
+]
