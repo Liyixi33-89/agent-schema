@@ -348,16 +348,16 @@
           "requirement": "主套件 54 场景（A4-A9 编辑内核/属性面板/表达式/409/发布预览 + B0-B8 绑定模型全链）",
           "suite": "page-designer",
           "command": "node scripts/acceptance/accept-page-designer.cjs",
-          "report": "docs/acceptance/M13/20261110-095505-30fdd61/report.md",
-          "commit": "30fdd61768a27e0f40032087d948787f94aac452",
+          "report": "docs/acceptance/M13/20261110-114619-271bf21/report.md",
+          "commit": "271bf2104c78f051ebab7b65b1657c32a35584ad",
           "passed": true,
           "provenance": "products.json",
           "stability": "stability.json",
           "deployment": "deployment.json",
           "evidence": {
             "command": "node scripts/acceptance/accept-page-designer.cjs",
-            "report": "docs/acceptance/M13/20261110-095505-30fdd61/report.md",
-            "commit": "30fdd61768a27e0f40032087d948787f94aac452",
+            "report": "docs/acceptance/M13/20261110-114619-271bf21/report.md",
+            "commit": "271bf2104c78f051ebab7b65b1657c32a35584ad",
             "suite": "page-designer",
             "passed": true,
             "provenance": "products.json",
@@ -426,16 +426,16 @@
           "requirement": "真实交互补验 32 场景（C1 模型生成默认页/C2 CDP 真实鼠标拖拽/C3 30s 自动保存竞态门控/C4 409 三路径保留重存闭环）",
           "suite": "page-designer-race",
           "command": "node scripts/acceptance/accept-page-designer-race.cjs",
-          "report": "docs/acceptance/M13/20261110-095505-30fdd61/report.md",
-          "commit": "30fdd61768a27e0f40032087d948787f94aac452",
+          "report": "docs/acceptance/M13/20261110-114619-271bf21/report.md",
+          "commit": "271bf2104c78f051ebab7b65b1657c32a35584ad",
           "passed": true,
           "provenance": "products.json",
           "stability": "stability.json",
           "deployment": "deployment.json",
           "evidence": {
             "command": "node scripts/acceptance/accept-page-designer-race.cjs",
-            "report": "docs/acceptance/M13/20261110-095505-30fdd61/report.md",
-            "commit": "30fdd61768a27e0f40032087d948787f94aac452",
+            "report": "docs/acceptance/M13/20261110-114619-271bf21/report.md",
+            "commit": "271bf2104c78f051ebab7b65b1657c32a35584ad",
             "suite": "page-designer-race",
             "passed": true,
             "provenance": "products.json",
@@ -683,7 +683,7 @@
           ]
         }
       ],
-      "statusNote": "implemented: 验收全过(54+20)、产物来源链完整；缺独立批准（待真实独立评审）"
+      "statusNote": "final-run: 双套件同 run 同版本全绿（54+32）；后端受控构建 271bf21 已部署（identity verifiable）；待独立批准"
     },
     {
       "id": "M14",

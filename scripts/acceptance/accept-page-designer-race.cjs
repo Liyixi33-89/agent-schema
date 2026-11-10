@@ -137,23 +137,30 @@ async function syntheticDndChain(fromExpr, toExpr) {
       setV('input[placeholder="如：expense_form"]', '${c1Key}');
       setV('input[placeholder="如：/expense/form"]', '/${c1Key}/form');
     })()`);
-    // 选模型（antd Select 须点内部 input 展开）
-    await cdp.evalJs(`(() => {
-      const modal = ${MODAL};
-      if (!modal) return 'no-modal';
-      const formItem = Array.from(modal.querySelectorAll('.ant-form-item')).find(f => f.textContent.includes('绑定模型'));
-      const si = formItem?.querySelector('.ant-select-selector');
-      if (!si) return 'no-select';
-      si.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      return 'opened';
-    })()`);
-    await sleep(800);
-    await cdp.evalJs(`(() => {
-      const opt = Array.from(document.querySelectorAll('.ant-select-dropdown .ant-select-item-option')).find(o => o.textContent.includes('报销单'));
-      if (!opt) return 'no-option';
-      opt.click(); return 'picked';
-    })()`);
-    await sleep(500);
+    // 选模型（antd Select 须点内部 input 展开）——虚拟滚动只渲染可视区选项，
+    // 「报销单」（id=1 建最早，列表按新建倒序排在底部）须先把 dropdown 滚到底再点。
+    let picked = '';
+    for (let i = 0; i < 20 && picked !== 'picked'; i++) {
+      picked = await cdp.evalJs(`(() => {
+        const vis = Array.from(document.querySelectorAll('.ant-select-dropdown')).filter(d => !d.classList.contains('ant-select-dropdown-hidden'));
+        const dd = vis[vis.length - 1];
+        if (!dd) {
+          const modal = ${MODAL};
+          const formItem = Array.from(modal?.querySelectorAll('.ant-form-item') || []).find(f => f.textContent.includes('绑定模型'));
+          const si = formItem?.querySelector('.ant-select-selector');
+          if (si) { si.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); si.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); }
+          return 'no-dropdown';
+        }
+        const holder = dd.querySelector('.rc-virtual-list-holder');
+        if (holder) holder.scrollTop = holder.scrollHeight;
+        const opt = Array.from(dd.querySelectorAll('.ant-select-item-option')).find(o => o.textContent.includes('报销单'));
+        if (!opt) return 'no-option-after-scroll';
+        opt.click(); return 'picked';
+      })()`);
+      if (picked !== 'picked') await sleep(450);
+    }
+    if (picked !== 'picked') throw new Error('C1 选模型失败: ' + picked);
+    await sleep(600);
     // 「由模型生成默认布局」为 antd Switch 且 initialValue=true（选中模型后默认开启）——
     // 选模后条件挂载渲染，轮询等待其出现（modal 动画时序不稳定，单次查询会偶发 no-switch）
     let switchState = 'no-switch';

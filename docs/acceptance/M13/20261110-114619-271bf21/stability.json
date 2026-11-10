@@ -1,0 +1,35 @@
+{
+  "sourceCommit": "271bf2104c78f051ebab7b65b1657c32a35584ad",
+  "sampledAt": "2026-11-10T03:49:27Z",
+  "method": "auto-probe",
+  "unchanged": true,
+  "products": [
+    {
+      "name": "designer-accept",
+      "path": "schema-frontend/apps/designer/dist-accept/index.html",
+      "sha256": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "bytes": 391,
+      "runtimeVersion": "28cd68af"
+    }
+  ],
+  "checks": [
+    {
+      "name": "static-response-stable",
+      "before": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "after": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "stable": true
+    },
+    {
+      "name": "api-route-reachable",
+      "csrfProbe": "401",
+      "authenticatedAppsList": "unprobed"
+    },
+    {
+      "name": "local-dist-rebuild-deterministic",
+      "method": "two-fresh-builds",
+      "build1": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "build2": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "deterministic": true
+    }
+  ]
+}

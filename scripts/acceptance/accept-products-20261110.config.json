@@ -3,7 +3,7 @@
     {
       "name": "designer-accept",
       "path": "schema-frontend/apps/designer/dist-accept/index.html",
-      "sourceCommit": "30fdd61768a27e0f40032087d948787f94aac452",
+      "sourceCommit": "271bf2104c78f051ebab7b65b1657c32a35584ad",
       "runtimeVersion": "28cd68af"
     }
   ]
