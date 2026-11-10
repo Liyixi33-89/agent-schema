@@ -1,0 +1,11 @@
+﻿{
+    "migrations":  [
+                       {
+                           "from":  "docs/acceptance/M14/20261110-160500-e5fe6c2",
+                           "to":  "docs/acceptance/M14/legacy/20261110-160500-e5fe6c2",
+                           "reason":  "历史收口 run 仅提交 report.md、无 manifest（不补造——README §5「不能追溯的材料不能用于新的验收通过」）；运行链四阻断缺陷由 20261110-165800-3d41186 修复并重建证据，本 run 结论已被取代",
+                           "originalSha256":  "ab351d05557098e252f9aadcc8f6e52c4884e520c726cb19d680138c668a9b30",
+                           "movedAt":  "2026-11-10T17:35:00+08:00"
+                       }
+                   ]
+}
