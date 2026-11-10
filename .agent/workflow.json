@@ -707,7 +707,7 @@
     {
       "id": "M14",
       "title": "L2 Worker 隔离与最小编译链路",
-      "status": "implementing",
+      "status": "implemented",
       "priority": 10,
       "dependsOn": [
         "M6-M7"
@@ -717,7 +717,12 @@
         {
           "id": "script-isolation",
           "requirement": "受控消息桥、token 隔离、死循环 terminate 后页面可交互、扫描编译 hash 回写",
-          "evidence": null
+          "evidence": {
+            "commit": "e5fe6c2",
+            "command": "powershell -File scripts/verify.ps1 -Level commit",
+            "report": "docs/acceptance/M14/20261110-160500-e5fe6c2/report.md",
+            "passed": true
+          }
         }
       ],
       "review": null
