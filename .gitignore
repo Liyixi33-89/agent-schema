@@ -20,3 +20,6 @@ coverage/
 scripts/acceptance/out/
 scripts/acceptance/*-result.json
 scripts/acceptance/dbq_exec.sh
+
+# 产物采集配置携带轮次 sourceCommit（随 run 演进，不入实现路径）
+scripts/acceptance/accept-products-*.config.json
