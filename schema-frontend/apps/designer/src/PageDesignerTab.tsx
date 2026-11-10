@@ -9,7 +9,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import {
-  Alert, Button, Card, Dropdown, Empty, Form, Input, List, message, Modal, Select, Space, Spin,
+  Alert, Button, Card, Drawer, Dropdown, Empty, Form, Input, List, message, Modal, Select, Space, Spin,
   Switch, Tag, Tooltip, Typography,
 } from 'antd';
 import type { MenuProps } from 'antd';
@@ -25,6 +25,7 @@ import {
   type DesignerCommand, type PropFieldSchema,
 } from '@schema/page-designer';
 import { ApiClient, ApiError, type AppCard, type PageRow } from './api';
+import ScriptPanel from './ScriptPanel';
 
 // 物料一次性注册（与 runtime 宿主同源）
 let materialsReady = false;
@@ -259,6 +260,7 @@ function PageCanvas({ api, app, pageId, initialDraftVersion, onExit }: CanvasPro
   const savingRef = React.useRef(false);
   const conflictPendingRef = React.useRef(false);
   const [mobileView, setMobileView] = React.useState(false);
+  const [scriptOpen, setScriptOpen] = React.useState(false);
 
   // 装载草稿 + 模型字段
   React.useEffect(() => {
@@ -411,6 +413,13 @@ function PageCanvas({ api, app, pageId, initialDraftVersion, onExit }: CanvasPro
           const ok = exprErrors.length > 0 ? false : (dirty ? await doSave(true) : true);
           if (ok) { void openPreview(api, app.id, pageId); }
         }}>预览</Button>
+        <Button onClick={() => setScriptOpen(true)}>脚本</Button>
+        {scriptOpen ? (
+          <Drawer title="L2 脚本（测试台）" open width={720} destroyOnClose
+            onClose={() => setScriptOpen(false)}>
+            <ScriptPanel api={api} pageId={pageId} />
+          </Drawer>
+        ) : null}
         {exprErrors.length > 0 ? (
           <Tooltip title={exprErrors.map((e) => e.message).join('；')}>
             <Tag color="red">表达式错误 {exprErrors.length} 处（阻断保存）</Tag>

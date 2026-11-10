@@ -8,6 +8,14 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@schema/schema-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "acorn": "^8.14.0"
   }
 }

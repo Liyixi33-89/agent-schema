@@ -1,0 +1,10 @@
+﻿{
+  "name": "@schema/build-worker-deps",
+  "private": true,
+  "description": "build-module Node 工脚本依赖（04BE §2.3：acorn 扫描 + esbuild 编译；Java 进程绝不运行 JS 工具链——独立 Node 进程消费）",
+  "type": "module",
+  "dependencies": {
+    "acorn": "^8.14.0",
+    "esbuild": "^0.25.0"
+  }
+}

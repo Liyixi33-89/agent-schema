@@ -210,6 +210,15 @@ if (Test-Path $contractDir) {
         try {
             mvn -q -pl schema-protocol test "-Dtest=EnumContractTest,SchemaContractTest"
             if ($LASTEXITCODE -ne 0) { throw "后端契约比对退出码 $LASTEXITCODE" }
+            # M14 红线双端同判（08FE §8）：后端 Node 工脚本跑共享 redline-vectors.json，
+            # 判定必须与前端 Vitest 一致（漂移即 FAIL）；Node 不可用时 FAIL 不降级（红线门禁不可跳）
+            $buildMod = Join-Path $be 'build-module'
+            if (Test-Path (Join-Path $buildMod 'pom.xml')) {
+                if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'node 不可用——红线同判门禁不可跳过' }
+                # -am 带兄弟模块（SNAPSHOT 未装仓时 -pl 单跑依赖解析失败——M12 已沉淀同款坑）
+                mvn -q -pl build-module -am test "-Dtest=RedlineVectorTest" "-Dsurefire.failIfNoSpecifiedTests=false"
+                if ($LASTEXITCODE -ne 0) { throw "红线向量同判退出码 $LASTEXITCODE" }
+            }
         } finally { Pop-Location }
     }
 } else { Skip 'contract-diff' 'contract/ 尚未导出（spec-001 T6 落地后生效）' }
