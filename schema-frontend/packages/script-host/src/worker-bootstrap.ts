@@ -13,10 +13,14 @@
 export const WORKER_BOOTSTRAP = `
 const waiting = new Map();
 let mod = null;
+let staticUser = undefined;
+let staticPage = undefined;
 self.onmessage = async (e) => {
   const msg = e.data;
   if (msg.type === 'init') {
     try {
+      staticUser = msg.staticUser;
+      staticPage = msg.staticPage;
       mod = msg.artifactUrl ? await import(msg.artifactUrl) : null;
       self.postMessage({ type: 'ready', ok: !!mod });
     } catch (err) {
@@ -52,8 +56,8 @@ self.onmessage = async (e) => {
         dialog: (c) => callVoid('ui.dialog', [c]),
       },
       logger: { debug: logger('debug'), info: logger('info'), warn: logger('warn'), error: logger('error') },
-      user: msg.staticUser,
-      page: msg.staticPage,
+      user: staticUser,
+      page: staticPage,
     };
     try {
       const fn = mod[msg.hook];
@@ -70,10 +74,14 @@ self.onmessage = async (e) => {
 };
 `;
 
-/** 构造真实 Worker（Blob 入口 + 产物 import）；供 ScriptHost.createWorker 注入。 */
-export function createScriptWorker(artifactUrl: string, staticUser: unknown, staticPage: unknown): Worker {
+/** 构造真实 Worker（Blob 入口 + 产物 import）；init 握手由 ScriptHost 驱动（构造期不发送——
+ *  消息监听挂载先于 init，避免 ready 早于监听就绪被丢弃）。 */
+export function createScriptWorker(artifactUrl?: string, staticUser?: unknown, staticPage?: unknown): Worker {
   const blob = new Blob([WORKER_BOOTSTRAP], { type: 'text/javascript' });
   const worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
-  worker.postMessage({ type: 'init', artifactUrl, staticUser, staticPage });
+  if (artifactUrl !== undefined) {
+    // 兼容旧调用（构造期直发 init）；新链路由 ScriptHost 统一 postMessage init
+    worker.postMessage({ type: 'init', artifactUrl, staticUser, staticPage });
+  }
   return worker;
 }

@@ -1,0 +1,43 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M14",
+  "runId": "20261110-165800-3d41186",
+  "startedAt": "2026-11-10T08:40:00.000Z",
+  "finishedAt": "2026-11-10T09:05:00.000Z",
+  "sourceCommit": "3d41186c8fc19ee801f0114c5771b4d51f34b736",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "win32 10.0.26100 (PowerShell 5.1)",
+    "node": "v24.14.1",
+    "pnpm": "10.33.0",
+    "jdk": "21.0.12.1",
+    "maven": "3.9.14",
+    "database": "WSL PostgreSQL 17 (localhost:5432)"
+  },
+  "suites": {
+    "script-host-unit": {
+      "command": "npx vitest run (packages/script-host)",
+      "startedAt": "2026-11-10T08:50:11.000Z",
+      "passed": 39,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-10T08:50:13.000Z"
+    },
+    "verify-commit": {
+      "command": "powershell -File scripts/verify.ps1 -Level commit",
+      "startedAt": "2026-11-10T08:55:00.000Z",
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-10T08:57:54.000Z"
+    }
+  },
+  "files": [
+    {
+      "path": "report.md",
+      "sha256": "135eeb5432086e55ae3eada07b4bf12e3fc815f4e227fbddc33303e873cc9208"
+    }
+  ]
+}

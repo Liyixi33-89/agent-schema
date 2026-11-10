@@ -718,11 +718,13 @@
           "id": "script-isolation",
           "requirement": "受控消息桥、token 隔离、死循环 terminate 后页面可交互、扫描编译 hash 回写",
           "evidence": {
-            "commit": "e5fe6c2",
+            "commit": "3d41186c8fc19ee801f0114c5771b4d51f34b736",
             "command": "powershell -File scripts/verify.ps1 -Level commit",
-            "report": "docs/acceptance/M14/20261110-160500-e5fe6c2/report.md",
+            "report": "docs/acceptance/M14/20261110-165800-3d41186/report.md",
+            "suite": "verify-commit",
             "passed": true
-          }
+          },
+          "note": "2026-11-10 运行链修复后重建证据：消息桥/ready 握手/静态快照/编译超时四阻断缺陷已修（单测 35→39）；PageSchema.scripts 持久化闭环与真实浏览器 G7 证据遗留，M14 维持 implemented——详见 report.md 遗留登记"
         }
       ],
       "review": null
