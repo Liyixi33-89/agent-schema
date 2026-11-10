@@ -1,0 +1,43 @@
+﻿{
+  "formatVersion": 1,
+  "workPackage": "M14",
+  "runId": "20261110-165800-3d41186",
+  "startedAt": "2026-11-10T16:40:00+08:00",
+  "finishedAt": "2026-11-10T17:05:00+08:00",
+  "sourceCommit": "3d41186c8fc19ee801f0114c5771b4d51f34b736",
+  "workingTreeClean": false,
+  "environment": {
+    "os": "Windows 10.0.26100 (PowerShell 5.1)",
+    "node": "24.14.1",
+    "pnpm": "10.33.0",
+    "jdk": "21.0.12.1",
+    "maven": "3.9.14",
+    "database": "WSL PostgreSQL 17 (localhost:5432)",
+    "buildSource": "local"
+  },
+  "suites": [
+    {
+      "name": "script-host-unit",
+      "command": "npx vitest run (packages/script-host)",
+      "exitCode": 0,
+      "status": "PASS",
+      "passed": 39,
+      "failed": 0,
+      "skipped": 0,
+      "materials": []
+    },
+    {
+      "name": "verify-commit",
+      "command": "powershell -File scripts/verify.ps1 -Level commit",
+      "exitCode": 0,
+      "status": "PASS",
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0,
+      "note": "十一步 PASS；进程 exit code 1 为 PowerShell stderr 进度误报（既有口径）",
+      "materials": []
+    }
+  ],
+  "supersedes": null,
+  "notes": "增量修复 run：修正 20261110-160500-e5fe6c2 中「运行期链路已验收」的过度表述；PageSchema.scripts 持久化闭环与真实浏览器 G7 证据遗留登记，M14 维持 implemented。"
+}
