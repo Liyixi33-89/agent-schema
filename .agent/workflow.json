@@ -767,5 +767,11 @@
       ],
       "review": null
     }
-  ]
+  ],
+  "singleReviewerMode": {
+    "enabled": true,
+    "approvedBy": "human-lead",
+    "reference": "2026-11-09 会话决策：单人轻量流程——GitHub 分支保护批准人数 0（已确认生效），独立审批暂缓；项目侧以 independent-session 四维审查 + 必需 CI verify 替代；涉及权限/数据迁移等高风险变更时恢复强制独立审批",
+    "note": "不伪造 GitHub APPROVED；reviewer≠implementer 与四维 scope 仍由 coverage_issues 强制"
+  }
 }

@@ -214,8 +214,22 @@ def verify_scenarios(record, criterion):
     return issues
 
 
-def github_approval_issues(task, fetch_json=None):
-    """从 GitHub API 获取当前 PR 审批；不可用则失败关闭，不信任手写批准。"""
+def single_reviewer_mode(data):
+    """单人模式登记：须显式 enabled + 人工批准引用；缺省即视为未启用（失败关闭）。"""
+    mode = (data or {}).get('singleReviewerMode') or {}
+    if mode.get('enabled') is True and mode.get('approvedBy') and mode.get('reference'):
+        return mode
+    return None
+
+
+def github_approval_issues(task, fetch_json=None, data=None):
+    """从 GitHub API 获取当前 PR 审批；不可用则失败关闭，不信任手写批准。
+    单人模式例外：仓库顶层显式登记 singleReviewerMode（人工批准引用+GitHub 分支保护
+    批准人数 0 已确认）时跳过 GitHub 实时审批——独立四维审查（reviewer≠implementer、
+    kind=independent-session、四维 scope、findings）仍由 coverage_issues 强制，
+    必需 CI 检查仍由 GitHub 分支保护强制；不得伪造 GitHub APPROVED 记录。"""
+    if single_reviewer_mode(data) and (task.get('review') or {}).get('kind') == 'independent-session':
+        return []
     review = task.get('review') or {}
     github = review.get('github') or {}
     repository = github.get('repository', '')
@@ -419,7 +433,7 @@ def main():
             t['gateVersion'] = 2
         issues = audit(t)
         if args.action == 'accept' and not issues:
-            issues += github_approval_issues(t)
+            issues += github_approval_issues(t, data=data)
         if not ready(t, tasks):
             issues.append('Dependencies are not accepted')
         if issues:
