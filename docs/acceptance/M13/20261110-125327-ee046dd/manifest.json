@@ -66,6 +66,10 @@
     {
       "path": "logs/page-designer-race-output.txt",
       "sha256": "ab12b900c4614092ed8e6c166d804bbbe9078eef8e1d1db06b5542b559e72ccc"
+    },
+    {
+      "path": "review.md",
+      "sha256": "9cfdea2723d8bc0e05c8986bd395f284f28f3c55feae628de11842f667897cbb"
     }
   ]
 }

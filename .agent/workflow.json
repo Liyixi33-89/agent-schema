@@ -480,10 +480,19 @@
       ],
       "review": {
         "required": true,
-        "approved": false,
+        "approved": true,
+        "commit": "ee046dda1c06387a73a11ee0fb1b7db10b2e2e85",
+        "reviewer": "independent-review-session",
+        "implementedBy": "implementation-session-f42b4e21",
         "kind": "independent-session",
-        "reviewer": null,
-        "approvalReference": null,
+        "approvalReference": "docs/acceptance/M13/20261110-125327-ee046dd/review.md",
+        "report": "docs/acceptance/M13/20261110-125327-ee046dd/review.md",
+        "scope": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
         "coverage": [
           "requirements",
           "code",
@@ -494,15 +503,25 @@
           {
             "blocking": false,
             "status": "resolved",
-            "summary": "向导 Switch 后挂载致 generate 静默丢失（实现缺陷，4c5b398 修复，C1 补验实证）"
+            "summary": "F1 单测计数口径：矩阵登记 27/27，实际 designer-store.test.ts 28 项（重跑 28/28 PASS）——覆盖无缺口，口径已修正"
           },
           {
             "blocking": false,
-            "status": "open",
-            "summary": "独立批准待真实独立评审人补签：本轮全部验收门禁（需求矩阵/场景/产物来源/部署探测）已过，但 review 为实现者整理，不构成独立批准（单人模式，GitHub 独立审批暂缓）"
+            "status": "resolved",
+            "summary": "F2 C2 拖拽双形态：本轮归档实证 CDP 真实鼠标主路径 isTrusted=true，回退路径未触发"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F3 doSave 依赖重建竞态：savingRef 同步锁覆盖，单标签页无缺口；多标签并发属编辑锁延后项（spec §2 登记）"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F4 公网面未认证探针 401 降级判定如实记录"
           }
         ],
-        "note": "2026-11-09 实现者整理：验收链完整（54+20 场景、双端受控构建、运行实例身份核对）；缺独立批准——保持 implemented 直至独立评审完成"
+        "note": "四维审查通过（需求 8/8、实现抽查一致、测试结果断言含负例、证据同源同版含部署端身份一致）；GitHub 实时审批由 accept 门禁独立验证"
       },
       "gateVersion": 2,
       "implementedBy": "implementation-session-f42b4e21",
