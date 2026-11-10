@@ -109,16 +109,26 @@ echo "member added"
 
 # 权限点授予：页面域判定走 sys_role_permission 权限点（PagePermGate）而非角色码——
 # 成员 API 只写 sys_user_role，developer/app_admin 需显式授 page:design / app:publish
-# （幂等；直连本机 PG——服务器验收栈专用）
-PGOK=$(sudo -u postgres psql -d schema_acceptance -tAc "
+# （幂等；直连本机 PG——服务器验收栈专用；失败必须显式暴露，禁止吞错报成功）
+PGOUT=$(APP_ID_VALUE=$APP_ID sudo -u postgres psql -d schema_acceptance -tA <<PGSQL
 INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action)
-SELECT r.id, 'ACTION', 0, 'page:design' FROM sys_role r WHERE r.tenant_id=1 AND r.app_id=$APP_ID AND r.code='developer'
+SELECT r.id, 'ACTION', 0, 'page:design' FROM sys_role r WHERE r.tenant_id=1 AND r.app_id=\${APP_ID_VALUE} AND r.code='developer'
 ON CONFLICT DO NOTHING;
 INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action)
-SELECT r.id, 'ACTION', 0, 'app:publish' FROM sys_role r WHERE r.tenant_id=1 AND r.app_id=$APP_ID AND r.code IN ('developer','app_admin')
+SELECT r.id, 'ACTION', 0, 'app:publish' FROM sys_role r WHERE r.tenant_id=1 AND r.app_id=\${APP_ID_VALUE} AND r.code IN ('developer','app_admin')
 ON CONFLICT DO NOTHING;
-" 2>/dev/null || true)
-echo "perms seeded"
+SELECT 'page:design', count(*) FROM sys_role_permission rp JOIN sys_role r ON r.id=rp.role_id
+WHERE r.tenant_id=1 AND r.app_id=\${APP_ID_VALUE} AND rp.action='page:design';
+SELECT 'app:publish', count(*) FROM sys_role_permission rp JOIN sys_role r ON r.id=rp.role_id
+WHERE r.tenant_id=1 AND r.app_id=\${APP_ID_VALUE} AND rp.action='app:publish';
+PGSQL
+)
+if [ $? -ne 0 ]; then echo "PERM SEED FAIL: psql exit non-zero"; exit 1; fi
+DESIGN_CNT=$(echo "$PGOUT" | sed -n 's/^page:design|\([0-9]*\)$/\1/p')
+PUBLISH_CNT=$(echo "$PGOUT" | sed -n 's/^app:publish|\([0-9]*\)$/\1/p')
+[ -n "$DESIGN_CNT" ] && [ "$DESIGN_CNT" -ge 1 ] || { echo "PERM SEED FAIL: page:design 未落库"; exit 1; }
+[ -n "$PUBLISH_CNT" ] && [ "$PUBLISH_CNT" -ge 1 ] || { echo "PERM SEED FAIL: app:publish 未落库"; exit 1; }
+echo "perms seeded (page:design=$DESIGN_CNT app:publish=$PUBLISH_CNT)"
 
 PUB=$(api POST /api/apps/$APP_ID/publish '{"changelog":"M13 验收首次发布"}')
 echo "publish: $(echo $PUB | head -c 120)"

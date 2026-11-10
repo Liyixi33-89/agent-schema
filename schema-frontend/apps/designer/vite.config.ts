@@ -7,5 +7,5 @@ import { defineConfig } from 'vite';
 const ACCEPT = process.env.ACCEPT_BASE === '1';
 export default defineConfig({
   base: ACCEPT ? '/accept/designer/' : '/designer/',
-  build: { chunkSizeWarningLimit: 1600 },
+  build: { chunkSizeWarningLimit: 1600, outDir: ACCEPT ? 'dist-accept' : 'dist' },
 });

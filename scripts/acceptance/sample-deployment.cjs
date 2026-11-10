@@ -57,13 +57,13 @@ async function probeBackendIdentity() {
 }
 
 async function sample() {
-  // 1. 部署面静态资源（HTTP 响应体哈希）
+  // 1. 部署面静态资源（HTTP 响应体哈希）——验收面（/accept/designer/，ACCEPT_BASE 构建产物）
   const st = await httpGet(STATIC + PROBE_PATH);
   if (st.status !== 200) throw new Error('静态面探测失败: HTTP ' + st.status);
   const staticSha = await sha256(st.body);
-  // 2. 本地受控产物（对照值）
-  const designerLocal = path.join(ROOT, 'schema-frontend/apps/designer/dist/index.html');
-  const localSha = fs.existsSync(designerLocal) ? await sha256(fs.readFileSync(designerLocal)) : null;
+  // 2. 验收面本地产物对照（部署面 = ACCEPT_BASE=1 构建产物；生产面产物对照是 products 快照职责）
+  const acceptDist = path.join(ROOT, 'schema-frontend/apps/designer/dist-accept/index.html');
+  const localSha = fs.existsSync(acceptDist) ? await sha256(fs.readFileSync(acceptDist)) : null;
   // 3. 后端实例身份
   const ident = await probeBackendIdentity();
   return { staticSha, localSha, ident };

@@ -1,10 +1,11 @@
 /**
  * M13 补充验收（真实交互专项）：
  *  C1 模型生成默认页：向导选模型+勾选生成 → 草稿含字段骨架（PRD 02 §2.1）
- *  C2 拖拽（合成 DnD 事件链）：headless 下 CDP 合成鼠标无法驱动浏览器原生 HTML5 拖拽源
- *     （不产生 dragstart/dataTransfer），故用页面内完整 dragover+drop 事件链 + DataTransfer。
- *     事件 isTrusted=false 属已知边界——组件端未过滤 isTrusted（已核对），验收覆盖
- *     「事件链→落点校验→命令系统→画布渲染」全链路，不宣称 OS 级真实拖拽。
+ *  C2 拖拽双形态实证：主路径 = CDP Input.dispatchMouseEvent 真实鼠标序列（press→move×N→release，
+ *     浏览器输入管线合成、isTrusted=true）；若 headless 下浏览器未据此启动 HTML5 drag 会话
+ *     （draggable 源的 dragstart 启动策略 headless 可能不同），回退 = 页面内完整
+ *     dragover+drop 事件链 + DataTransfer（isTrusted=false 已知边界，如实记录形态）。
+ *     两种形态都必须走「落点校验→命令系统→画布渲染」全链路断言。
  *  C3 自动保存竞态（确定性 in-flight 窗口）：fetch 拦截在 PUT 发出即挂起响应（门控），
  *     锁定「保存请求在途」窗口内继续编辑 → 放行 → 断言响应回执不吞编辑（dirty 保持、内容最终落库）
  *  C4 409 三路径闭环：稍后处理 → 保留草稿；保留本地并准备替换 → 换基线 → 手动保存 → 服务器被本地替换
@@ -64,10 +65,9 @@ async function canvasNodeCount() {
   return Number(await cdp.evalJs(`(() => document.querySelector('.ant-card[style*="flex: 1"]')?.querySelectorAll('[data-node-id]').length ?? -1)()`));
 }
 
-/** 合成 DnD 事件链（headless 边界内最接近真实拖拽的形态）：
- *  mousedown → 逐点 dragover（触发落点指示）→ drop（带 DataTransfer 物料标识）→ mouseup。
+/** 合成 DnD 事件链（回退形态）：mousedown → 逐点 dragover（触发落点指示）→ drop（带 DataTransfer 物料标识）→ mouseup。
  *  drop 宿主按 React 挂载的 onDrop 冒泡查找（fiber 反查仅用于定位，不直接调 handler）。 */
-async function realMouseDrag(fromExpr, toExpr) {
+async function syntheticDndChain(fromExpr, toExpr) {
   return cdp.evalJs(`(async () => {
     const from = ${fromExpr}; const to = ${toExpr};
     if (!from || !to) return 'missing-el';
@@ -216,13 +216,46 @@ async function realMouseDrag(fromExpr, toExpr) {
     await waitText('返回列表', 12000);
     await sleep(1200);
 
-    // 合成 DnD 事件链拖 TextInput 入画布（headless 边界：不产生原生 dragstart，
-    // drop 带 DataTransfer 走组件 onDrop 完整落点校验→命令系统→渲染链路）
+    // 拖拽双形态实证：
+    //   主路径：CDP Input.dispatchMouseEvent 真实鼠标序列（浏览器输入管线，isTrusted=true）。
+    //   先在页面埋 dragstart/drop 监听探针判定真实拖拽会话是否成立；
+    //   headless 下浏览器对 draggable 源的 dragstart 启动策略可能不触发——此时如实降级
+    //   到合成 DnD 事件链（isTrusted=false 边界如实记录），两种形态都走全链路断言。
     const matExpr = `(() => { const panels = Array.from(document.querySelectorAll('.ant-card')).filter(c => { const h = c.querySelector('.ant-card-head'); return h && h.textContent.trim() === '物料'; }); const panel = panels[panels.length - 1]; return Array.from(panel.querySelectorAll('[draggable]')).find(d => d.textContent.trim() === 'TextInput'); })()`;
     const canvasExpr = `(() => { const guide = Array.from(document.querySelectorAll('div')).find(d => d.textContent.trim() === '拖拽左侧物料到此处开始搭建页面' && d.children.length === 0); return guide ? guide.parentElement : document.querySelector('.ant-card[style*="flex: 1"] > div'); })()`;
-    const dragRes = await realMouseDrag(matExpr, canvasExpr);
+
+    // 埋真实输入探针：dragstart（HTML5 会话启动）与 drop（会话落点）各计数
+    await cdp.evalJs(`(() => {
+      window.__dndProbe = { dragstart: 0, drop: 0 };
+      document.addEventListener('dragstart', () => window.__dndProbe.dragstart++, true);
+      document.addEventListener('drop', () => window.__dndProbe.drop++, true);
+      return 'probe-installed';
+    })()`);
+
+    const fromBox = await cdp.centerOf(matExpr);
+    const toBox = await cdp.centerOf(canvasExpr);
+    if (!fromBox || !toBox) throw new Error('C2 拖拽坐标缺失: ' + JSON.stringify({ fromBox, toBox }));
+    // 真实鼠标拖拽：物料中心 → 画布上部（先移出源再入目标，模拟真实轨迹）
+    await cdp.mouseDrag(fromBox.x, fromBox.y, toBox.x, toBox.y, { steps: 16, frameMs: 40 });
+    await sleep(600);
+    const probeAfter = await cdp.evalJs('JSON.stringify(window.__dndProbe)');
+    const probe = JSON.parse(probeAfter || '{}');
+    const realDragWorked = probe.dragstart >= 1 && (await canvasNodeCount()) >= 1;
+
+    let dragRes;
+    let c2mode;
+    if (realDragWorked) {
+      dragRes = 'dropped:real-input';
+      c2mode = 'cdp-real-mouse (isTrusted=true, dragstart=' + probe.dragstart + ', drop=' + probe.drop + ')';
+    } else {
+      // 如实降级：记录真实输入未启动 HTML5 会话的实测事实，走事件链回退
+      record('C2-0 真实鼠标序列未启动 HTML5 drag 会话（headless 实测，降级回退并如实记录）', true,
+        `dragstart=${probe.dragstart} drop=${probe.drop} nodes=${await canvasNodeCount()}`);
+      dragRes = await syntheticDndChain(matExpr, canvasExpr);
+      c2mode = 'synthetic-dnd-chain (isTrusted=false 已知边界)';
+    }
     await sleep(800);
-    ok('C2-1 合成 DnD 事件链执行（dragover+drop+DataTransfer）', String(dragRes).startsWith('dropped'), String(dragRes));
+    ok('C2-1 拖拽执行（形态: ' + c2mode + '）', String(dragRes).startsWith('dropped'), String(dragRes));
     ok('C2-2 拖拽后画布出现节点（经落点校验+命令系统）', (await canvasNodeCount()) >= 1, 'count=' + (await canvasNodeCount()));
 
     // ========== C3 自动保存竞态（确定性 in-flight 窗口） ==========
@@ -234,7 +267,7 @@ async function realMouseDrag(fromExpr, toExpr) {
     const vBefore = beforeDraft.json.draftVersion;
 
     // 产生编辑（拖入第二个物料）
-    const dragRes2 = await realMouseDrag(matExpr, `document.querySelector('.ant-card[style*="flex: 1"] [data-node-id]') || ${canvasExpr}`);
+    const dragRes2 = await syntheticDndChain(matExpr, `document.querySelector('.ant-card[style*="flex: 1"] [data-node-id]') || ${canvasExpr}`);
     await sleep(800);
     ok('C3-1 编辑产生 dirty（拖入第二个节点）', (await canvasNodeCount()) >= 2, 'count=' + (await canvasNodeCount()));
 
@@ -357,6 +390,19 @@ async function realMouseDrag(fromExpr, toExpr) {
     })()`);
     await sleep(600);
     ok('C4-3 稍后处理保留草稿（弹层关闭）', keepClick === 'clicked' && !(await bodyText()).includes('草稿版本冲突'), keepClick);
+    // 草稿完整保留断言：服务器当前版本不含本地独有内容「重存闭环测试」（外部独有内容），而画布
+    // 文档仍持有它——即本地草稿未被冲突处理清掉/回滚（不是只查标记值，查整个画布节点数与内容）
+    const keepDraftServer = await admin.call('GET', `/api/pages/${racePage.id}/draft`);
+    const keepServerStr = JSON.stringify(keepDraftServer.json.schema?.layout || []);
+    const keptLocal = await cdp.evalJs(`(() => {
+      const inputs = Array.from((${PROP_PANEL})?.querySelectorAll('.ant-form-item input') || []);
+      const sel = document.querySelector('.ant-card[style*="flex: 1"] [data-node-id].selected') || document.querySelector('.ant-card[style*="flex: 1"] [data-node-id]');
+      return JSON.stringify({ nodes: document.querySelectorAll('.ant-card[style*="flex: 1"] [data-node-id]').length, selectedText: sel ? sel.textContent.slice(0, 30) : null, hasMarker: inputs.some(i => i.value === '重存闭环测试') });
+    })()`);
+    const kept = JSON.parse(keptLocal || '{}');
+    ok('C4-3b 本地草稿完整保留（画布节点数≥2 且期间编辑仍在画布）',
+      (kept.nodes ?? 0) >= 2 && kept.hasMarker === true, `nodes=${kept.nodes} marker=${kept.hasMarker}`);
+    ok('C4-3c 服务器此刻不含本地内容（保留≠落库，冲突态如实）', !keepServerStr.includes('重存闭环测试'), keepServerStr.slice(0, 60));
 
     // —— C4b 第三按钮完整闭环：保留本地并准备替换 → 手动保存 → 服务器被本地内容替换 ——
     // 再次制造冲突（本地改 + 外部推版本 → 保存 409）
