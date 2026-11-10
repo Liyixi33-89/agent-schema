@@ -16,7 +16,7 @@ HOST=111.231.57.177
 USER=root
 KEY=/mnt/c/Users/v_liyixili/.ssh/id_rsa
 REMOTE_TMP=/tmp/accept-deploy-$RUN_ID
-WEBROOT=/var/www/accept/designer
+WEBROOT=/opt/schema/staging/accept/designer
 LOCAL_DIST="$ROOT/schema-frontend/apps/designer/dist-accept"
 
 SSH="ssh -i $KEY -o StrictHostKeyChecking=accept-new $USER@$HOST"
