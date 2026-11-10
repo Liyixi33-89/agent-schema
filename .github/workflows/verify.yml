@@ -47,6 +47,11 @@ jobs:
         working-directory: schema-frontend
         run: pnpm install --frozen-lockfile
 
+      # M14 build-service Node 工脚本依赖（acorn+esbuild）——红线同判门禁需要
+      - name: Install build-worker dependencies
+        working-directory: schema-platform/build-module/node
+        run: npm ci --no-fund --no-audit
+
       # 与本地跑同一份脚本、同一套检查——AI 代码与人写代码无豁免通道
       - name: Run verify pipeline (commit level)
         shell: pwsh
