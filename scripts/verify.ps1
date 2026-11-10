@@ -215,7 +215,8 @@ if (Test-Path $contractDir) {
             $buildMod = Join-Path $be 'build-module'
             if (Test-Path (Join-Path $buildMod 'pom.xml')) {
                 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'node 不可用——红线同判门禁不可跳过' }
-                mvn -q -pl build-module test "-Dtest=RedlineVectorTest"
+                # -am 带兄弟模块（SNAPSHOT 未装仓时 -pl 单跑依赖解析失败——M12 已沉淀同款坑）
+                mvn -q -pl build-module -am test "-Dtest=RedlineVectorTest" "-Dsurefire.failIfNoSpecifiedTests=false"
                 if ($LASTEXITCODE -ne 0) { throw "红线向量同判退出码 $LASTEXITCODE" }
             }
         } finally { Pop-Location }
