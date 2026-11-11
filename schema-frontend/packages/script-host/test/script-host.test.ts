@@ -207,6 +207,66 @@ describe('ScriptHost 执行器', () => {
     expect(bridge.calls.some((c) => c.op === 'form.get')).toBe(true);
   });
 
+  it('宿主拒绝非法 op，即使桥实现允许任意操作', async () => {
+    const dispatch = vi.fn(async () => ({ ok: true }));
+    const worker = new FakeWorker({ onLoad: () => 1 });
+    const post = worker.postMessage.bind(worker);
+    worker.postMessage = (message: unknown) => {
+      const msg = message as { type: string; err?: string };
+      if (msg.type === 'run') {
+        const listeners = (worker as unknown as { listeners: Set<(e: { data: unknown }) => void> }).listeners;
+        for (const listener of [...listeners]) listener({ data: { type: 'ctx-call', id: 'illegal', op: 'fs.read', args: [] } });
+      } else if (msg.type === 'ctx-result') {
+        expect(msg.err).toContain('不在白名单');
+      }
+      post(message);
+    };
+    const host = new ScriptHost({ loadModule: async () => ({}), createWorker: () => worker, bridge: { dispatch } });
+    const result = await host.run('onLoad', {}, new Map([['onLoad', binding]]));
+    expect(result.ok).toBe(true);
+    expect(dispatch).not.toHaveBeenCalled();
+    host.dispose();
+  });
+
+  it('消息桥拒绝转为钩子错误而不是挂起超时', async () => {
+    const mod = {
+      onLoad: async (_p: unknown, ctx: { form: { get(k: string): Promise<unknown> } }) => ctx.form.get('amount'),
+    } as unknown as HookModule;
+    const { host } = makeHost(mod, { bridge: { dispatch: async () => { throw new Error('bridge rejected'); } } });
+    const result = await host.run('onLoad', {}, new Map([['onLoad', binding]]));
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('bridge rejected');
+    expect(result.terminated).not.toBe(true);
+    host.dispose();
+  });
+
+  it('卸载立即取消在途调用且不重建 Worker', async () => {
+    const { host, created } = makeHost({ onLoad: () => 1 }, { silent: true, hardMs: 10000 });
+    const first = host.run('onLoad', {}, new Map([['onLoad', binding]]));
+    const second = host.run('onLoad', {}, new Map([['onLoad', binding]]));
+    host.dispose();
+    const results = await Promise.all([first, second]);
+    expect(results.every((r) => !r.ok && r.error === 'disposed')).toBe(true);
+    expect(created.length).toBe(2);
+    expect(created.every((w) => w.terminated)).toBe(true);
+    for (const worker of created) {
+      expect((worker as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0);
+    }
+  });
+
+  it('并发执行各自释放消息监听', async () => {
+    const { host, created } = makeHost({ onLoad: () => 7 });
+    const results = await Promise.all([
+      host.run('onLoad', {}, new Map([['onLoad', binding]])),
+      host.run('onLoad', {}, new Map([['onLoad', { ...binding, contentHash: 'h2' }]])),
+    ]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    for (const worker of created) {
+      expect((worker as unknown as { listeners: Set<unknown> }).listeners.size).toBe(0);
+    }
+    host.dispose();
+  });
+
   it('钩子未导出返回错误（模块无该钩子）', async () => {
     const { host } = makeHost({ afterSubmit: () => 1 } as unknown as HookModule);
     const r = await host.run('onLoad', {}, new Map([['onLoad', binding]]));
