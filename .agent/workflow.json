@@ -715,16 +715,81 @@
       "spec": ".agent/workflow.md",
       "acceptance": [
         {
-          "id": "script-isolation",
-          "requirement": "受控消息桥、token 隔离、死循环 terminate 后页面可交互、扫描编译 hash 回写",
-          "evidence": {
-            "commit": "3d41186c8fc19ee801f0114c5771b4d51f34b736",
-            "command": "powershell -File scripts/verify.ps1 -Level commit",
-            "report": "docs/acceptance/M14/20261110-165800-3d41186/report.md",
-            "suite": "verify-commit",
-            "passed": true
-          },
-          "note": "2026-11-10 运行链修复后重建证据：消息桥/ready 握手/静态快照/编译超时四阻断缺陷已修（单测 35→39）；PageSchema.scripts 持久化闭环与真实浏览器 G7 证据遗留，M14 维持 implemented——详见 report.md 遗留登记"
+          "id": "redline-scan",
+          "requirement": "红线扫描：违规源码拒绝编译，合法源码成功",
+          "scenarioIds": ["RED-POS-合法源码编译通过", "RED-NEG-self.fetch 拒绝 ENV_ESCAPE", "RED-NEG-向量负样本双端同判"],
+          "implementation": ["packages/script-host/src/redline-scanner.ts", "packages/script-host/contract/redlines.json"],
+          "test": ["packages/script-host/test/redline-scanner.test.ts", "schema-platform RedlineVectorTest"],
+          "negativeCases": ["self.fetch 环境逃逸", "window/document 引用", "eval/Function 动态执行"],
+          "acceptanceScript": "accept-g7-browser.cjs A 段 / accept-g7-api.cjs",
+          "evidence": null
+        },
+        {
+          "id": "build-pipeline",
+          "requirement": "编译链路：产物生成、hash 回写、失败与超时可观察",
+          "scenarioIds": ["BLD-产物生成与 contentHash 回写", "BLD-编译失败错误可观察", "BLD-超时并发边界（NodeBuildWorker）"],
+          "implementation": ["schema-platform/build-module NodeBuildWorker.java", "bootstrap BuildController"],
+          "test": ["build-module 单测", "PageServiceIT 编译链路"],
+          "negativeCases": ["进程挂起超时可判定", "stderr 满缓冲死锁"],
+          "acceptanceScript": "accept-g7-browser.cjs A1（POST /api/build/pages/1/code）",
+          "evidence": null
+        },
+        {
+          "id": "worker-isolation",
+          "requirement": "Worker 隔离：凭证不进入 Worker，未授权能力被拒绝",
+          "scenarioIds": ["ISO-token 不进 Worker（宿主代理 api.call）", "ISO-运行期能力剥夺 fetch/XHR/eval/Function", "ISO-op 白名单外拒绝"],
+          "implementation": ["packages/script-host/src/worker-bootstrap.ts（neuter 遮蔽）", "packages/script-host/src/script-host.ts（白名单）"],
+          "test": ["script-host.test.ts 协议镜像", "RedlineVectorTest"],
+          "negativeCases": ["原型链 fetch 遮蔽后不可达", "未注册 API 422", "无凭证 401"],
+          "acceptanceScript": "accept-g7-browser.cjs B 段 / accept-g7-api.cjs",
+          "evidence": null
+        },
+        {
+          "id": "message-bridge",
+          "requirement": "消息桥：form.get/set、toast、api.call 真实往返",
+          "scenarioIds": ["BRG-form.set 写入真实 FormStore", "BRG-ui.toast 渲染进 DOM", "BRG-api.call 宿主代理真实返回"],
+          "implementation": ["apps/runtime/src/useScriptHooks.ts（createRuntimeBridge）", "packages/script-host/src/script-host.ts（attachDispatcher）"],
+          "test": ["script-host.test.ts 桥往返协议镜像"],
+          "negativeCases": ["非法 op 拒收", "畸形 params 按缺省处理"],
+          "acceptanceScript": "accept-g7-browser.cjs B 段（G7PROBE toast 探针）",
+          "evidence": null
+        },
+        {
+          "id": "hard-interrupt",
+          "requirement": "硬中断：死循环被 terminate() 终止，页面仍可操作",
+          "scenarioIds": ["TERM-Worker 死循环 3s 内 terminate", "TERM-主线程保持响应", "TERM-页面无白屏"],
+          "implementation": ["packages/script-host/src/script-host.ts（双通道超时：terminate + 主线程 Promise 拒绝）"],
+          "test": ["script-host.test.ts 终止后不派发"],
+          "negativeCases": ["同步死循环物理终止", "terminate 后页面按钮仍可达"],
+          "acceptanceScript": "accept-g7-browser.cjs B 段死循环验证",
+          "evidence": null
+        },
+        {
+          "id": "page-binding-persistence",
+          "requirement": "页面绑定：保存 → 重开恢复 → runtime 钩子执行",
+          "scenarioIds": ["PERSIST-绑定随草稿保存", "PERSIST-发布携带绑定", "PERSIST-重开 runtime 钩子执行（刷新恢复）"],
+          "implementation": ["packages/schema-protocol PageSchema.scripts（schemaVersion 迁移）", "apps/runtime/src/useScriptHooks.ts", "后端 PageService 保存/发布链路"],
+          "test": ["schema-protocol 105 测试（scripts 字段契约）", "PageServiceIT 8 用例"],
+          "negativeCases": ["409 乐观锁保护", "坏 schema 拒绝渲染"],
+          "acceptanceScript": "accept-g7-browser.cjs A2/C 段",
+          "evidence": null
+        },
+        {
+          "id": "publish-isolation",
+          "requirement": "发布隔离：发布快照含绑定，后续草稿修改不影响已发布页面",
+          "scenarioIds": ["PUB-发布快照含 scripts", "PUB-草稿清空不影响发布版本"],
+          "implementation": ["后端发布快照独立存储（PublishService）", "runtime 只读发布快照"],
+          "test": ["PageServiceIT 发布隔离"],
+          "negativeCases": ["草稿污染发布（发布快照 scripts 为空即 FAIL）"],
+          "acceptanceScript": "accept-g7-browser.cjs C 段尾",
+          "evidence": null
+        }
+      ],
+      "deferred": [
+        {
+          "item": "Monaco 编辑器（编辑期标红）",
+          "reason": "P1 以 scanSource 列表呈现替代",
+          "approval": "待批准——未获批前不排除出验收范围，P2 评估中"
         }
       ],
       "review": null

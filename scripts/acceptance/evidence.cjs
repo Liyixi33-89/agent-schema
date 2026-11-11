@@ -377,7 +377,18 @@ async function probeDeployment(configRel, outputRel, previousRel = null) {
       }
       headers.Cookie = process.env[target.cookieEnv];
     }
-    const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(10000), headers });
+    // 网络抖动单次重试：仅对传输层失败（fetch failed/超时）重试一次；HTTP 状态码错误不重试（如实失败）。
+    // 重试结果覆盖首次——传输失败不产生采样数据，无掩盖风险；探测值仍须通过后续身份/哈希一致性校验。
+    let response;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(10000), headers });
+        break;
+      } catch (e) {
+        if (attempt >= 2) throw new Error('部署探测失败（含重试）: ' + (e && e.message));
+        await new Promise((r) => setTimeout(r, 800));
+      }
+    }
     if (!response.ok) throw new Error('部署探测失败: HTTP ' + response.status);
     if (target.kind === 'backend-identity') {
       const identity = await response.json();

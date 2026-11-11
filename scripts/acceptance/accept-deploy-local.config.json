@@ -1,0 +1,16 @@
+{
+  "targets": [
+    {
+      "name": "runtime-static",
+      "kind": "static",
+      "url": "http://127.0.0.1:8090/runtime/",
+      "artifact": "schema-frontend/apps/runtime/dist/index.html"
+    },
+    {
+      "name": "backend-identity",
+      "kind": "backend-identity",
+      "url": "http://127.0.0.1:18080/api/system/build-identity",
+      "cookieEnv": "ACCEPT_IDENTITY_COOKIE"
+    }
+  ]
+}

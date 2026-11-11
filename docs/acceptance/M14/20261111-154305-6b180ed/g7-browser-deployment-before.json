@@ -1,0 +1,22 @@
+{
+  "sourceCommit": "6b180ed96cf9b3d3f2286f250f2d44ed044a15fc",
+  "unchanged": false,
+  "sampledAt": "2026-11-11T07:43:41.530Z",
+  "targets": [
+    {
+      "name": "runtime-static",
+      "url": "http://127.0.0.1:8090/runtime/",
+      "expected": "07bbd5381d9b2ec161be28459561e2be5484c4d414804041f3195cb5adb08cbc",
+      "before": "07bbd5381d9b2ec161be28459561e2be5484c4d414804041f3195cb5adb08cbc",
+      "method": "http-response-sha256"
+    },
+    {
+      "name": "backend-identity",
+      "url": "http://127.0.0.1:18080/api/system/build-identity",
+      "expected": "6b180ed96cf9b3d3f2286f250f2d44ed044a15fc",
+      "before": "6b180ed96cf9b3d3f2286f250f2d44ed044a15fc",
+      "instanceBefore": "4ff7ce71-6a31-493e-9d77-fff3bdd4e169",
+      "method": "backend-build-identity"
+    }
+  ]
+}
