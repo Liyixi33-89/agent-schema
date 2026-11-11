@@ -25,6 +25,7 @@ import { registerBasicMaterials, defaultWidgetFor } from '@schema/component-mate
 import { materialRegistry, RenderScope } from '@schema/schema-renderer';
 import { RequestClient } from './request';
 import { useScriptHooks } from './useScriptHooks';
+import ListPageHost from './ListPageHost';
 
 // 物料注册（一次性——宿主启动即装载全部基础物料）
 let materialsReady = false;
@@ -94,6 +95,12 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cach
   if (state.phase === 'error') {
     return <Alert type="error" showIcon message="页面加载失败" description={state.message} />;
   }
+  if (state.page.type === 'LIST') {
+    return <ListPageHost key={pageId} client={client} page={state.page} fields={state.fields} />;
+  }
+  if (state.page.type === 'DETAIL' && recordId == null) {
+    return <Alert type="error" showIcon message="详情页面缺少记录 ID" />;
+  }
   return (
     <SchemaFormPage
       key={`${pageId}-${recordId ?? 'new'}`}
@@ -114,6 +121,7 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
   recordId?: string | number;
   onSubmitted?: () => void;
 }): React.ReactElement {
+  const readOnly = page.type === 'DETAIL';
   // FormStore：构造期破环 + 默认值装载 + 初始 effect 求值（M7 三轮收口后行为）
   const store = useMemo(() => new FormStore({
     fields,
@@ -214,7 +222,7 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
       const controlled: Record<string, unknown> = {
         ...props,
         value: store.get(fieldRef),
-        disabled: effect.disabled || props.disabled,
+        disabled: readOnly || effect.disabled || props.disabled,
         options: effect.filteredOptions ?? props.options,
         status: err ? ('error' as const) : undefined,
       };
@@ -239,7 +247,7 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
       );
     };
     return Enhanced as unknown as React.ComponentType<Record<string, unknown>>;
-  }, [resolveComponent, store, page, debounced]);
+  }, [resolveComponent, store, page, debounced, readOnly]);
 
   // 提交（防重 + 三阶段协议 + 服务端错误回填 + 脚本钩子 beforeSubmit/afterSubmit）
   const handleSubmit = useCallback(async () => {
@@ -302,12 +310,12 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
         resolveComponent={enhanceResolve}
         react={{ createElement: React.createElement, useState, useEffect }}
       />
-      <Button type="primary" loading={submitting} onClick={handleSubmit} style={{ marginTop: 16 }}>
+      {!readOnly && <Button type="primary" loading={submitting} onClick={handleSubmit} style={{ marginTop: 16 }}>
         提交
-      </Button>
+      </Button>}
       {/* 自定义动作按钮（onActionClick 钩子调度点——08FE §4.3；CALL_API/OPEN_PAGE 等
           独立语义动作 P2 接线，P1 只渲染钩子可响应的动作按钮触发通知） */}
-      {page.actions.filter((a) => a.type === 'CUSTOM_SCRIPT' || a.type === 'CALL_API').map((a) => (
+      {!readOnly && page.actions.filter((a) => a.type === 'CUSTOM_SCRIPT' || a.type === 'CALL_API').map((a) => (
         <Button key={a.type + ('apiName' in a ? a.apiName : '')} style={{ marginTop: 16, marginLeft: 8 }}
           onClick={() => { void scripts.onActionClick('apiName' in a ? a.apiName : a.type); }}>
           {a.type === 'CALL_API' && 'apiName' in a ? `调用 ${a.apiName}` : a.type}

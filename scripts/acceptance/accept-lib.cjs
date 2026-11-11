@@ -5,11 +5,13 @@
  * - DB 核对通道：经 WSL psql 查询落库（execSync wsl.exe）
  */
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const BASE = 'http://127.0.0.1:8090';
+const BASE = process.env.ACCEPT_BASE_URL || 'http://127.0.0.1:8090';
+const API_PREFIX = (process.env.ACCEPT_API_PREFIX || '').replace(/\/$/, '');
 const results = [];
 let failFast = true;
 
@@ -25,12 +27,15 @@ function ok(name, cond, detail = '') { record(name, cond, detail); }
  *  注意：显式设置 Content-Length——Node http 默认 chunked 会被 Tomcat 拒收 DELETE body(400)。 */
 function request(method, urlPath, { body, headers = {} } = {}) {
   return new Promise((resolve, reject) => {
-    const u = new URL(urlPath, BASE);
+    const target = API_PREFIX && urlPath.startsWith('/api/')
+      ? `${API_PREFIX}${urlPath}` : urlPath;
+    const u = new URL(target, BASE);
+    const transport = u.protocol === 'https:' ? https : http;
     const payload = body == null ? null : (typeof body === 'string' ? body : JSON.stringify(body));
     if (payload != null && headers['Content-Length'] == null) {
       headers = { ...headers, 'Content-Length': Buffer.byteLength(payload) };
     }
-    const req = http.request(u, { method, headers }, (res) => {
+    const req = transport.request(u, { method, headers }, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
@@ -41,6 +46,7 @@ function request(method, urlPath, { body, headers = {} } = {}) {
       });
     });
     req.on('error', reject);
+    req.setTimeout(30000, () => req.destroy(new Error('验收请求超时')));
     if (payload != null) req.write(payload);
     req.end();
   });
