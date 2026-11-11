@@ -14,6 +14,7 @@ import { UsageTracker } from '@schema/usage-tracker';
 import FormPageHost from './FormPageHost';
 import { AppShell, watchTenantChange } from './AppShell';
 import SessionExpired from './SessionExpired';
+import { parseRuntimeHash, type RouteInfo } from './route';
 
 // v0.4 Cookie 通道：正式访问不带 getToken（schema_at 自动携带）；预览页场景由宿主另行注入 Bearer
 /** 会话失效信号桥（模块级——client 回调触发 React 状态切占位组件；App 挂载时接管）。 */
@@ -34,28 +35,8 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') tracker.onVisibilityHidden();
 });
 
-interface RouteInfo {
-  kind: 'app' | 'page' | 'preview';
-  appId?: string;
-  pageId?: string;
-  recordId?: string;
-  grantId?: string;
-}
-
 function parseHash(): RouteInfo | null {
-  const appMatch = location.hash.match(/^#\/app\/(\d+)(?:\/page\/(\d+))?/);
-  if (appMatch) {
-    return appMatch[2]
-      ? { kind: 'app', appId: appMatch[1], pageId: appMatch[2] }
-      : { kind: 'app', appId: appMatch[1] };
-  }
-  const previewMatch = location.hash.match(/^#\/preview\?grant=([A-Za-z0-9-]+)/);
-  if (previewMatch) {
-    return { kind: 'preview', grantId: previewMatch[1] };
-  }
-  const m = location.hash.match(/^#\/page\/(\d+)(?:\/(\d+))?/);
-  if (!m) return null;
-  return { kind: 'page', pageId: m[1], recordId: m[2] };
+  return parseRuntimeHash(location.hash);
 }
 
 /** Schema ETag 缓存读取（页面加载 304 命中——localStorage 按租户键隔离）。 */
@@ -136,7 +117,7 @@ function App(): React.ReactElement {
         onPageSelect={(pageId) => { location.hash = `#/app/${route.appId}/page/${pageId}`; }}
       >
         {route.pageId
-          ? pageHost(route.pageId)
+          ? pageHost(route.pageId, route.recordId)
           : <Typography.Paragraph type="secondary">从左侧菜单选择页面</Typography.Paragraph>}
       </AppShell>
     );
