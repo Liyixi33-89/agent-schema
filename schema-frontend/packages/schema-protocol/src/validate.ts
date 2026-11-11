@@ -184,6 +184,23 @@ export function validatePageSchema(input: unknown): PageSchema {
       }
     }
   }
+  if (input.scripts !== undefined) {
+    const SCRIPT_HOOKS = ['onLoad', 'onFieldChange', 'beforeSubmit', 'afterSubmit', 'onActionClick', 'onBeforeDelete'];
+    if (!Array.isArray(input.scripts)) errs.push('/scripts: 必须为数组');
+    else {
+      const seen = new Set<string>();
+      input.scripts.forEach((s, i) => {
+        const p = `/scripts/${i}`;
+        if (!isObject(s)) { errs.push(`${p}: 必须为对象`); return; }
+        if (typeof s.scriptId !== 'string' || !s.scriptId) errs.push(`${p}/scriptId: 必填`);
+        if (!SCRIPT_HOOKS.includes(String(s.hook))) errs.push(`${p}/hook: 非法钩子名`);
+        if (typeof s.contentHash !== 'string' || !s.contentHash) errs.push(`${p}/contentHash: 必填`);
+        if (typeof s.sourceHash !== 'string' || !s.sourceHash) errs.push(`${p}/sourceHash: 必填`);
+        if (seen.has(String(s.hook))) errs.push(`${p}/hook: 同一钩子至多一条绑定`);
+        seen.add(String(s.hook));
+      });
+    }
+  }
   if (errs.length) throw new SchemaValidationError(errs);
   return input as unknown as PageSchema;
 }

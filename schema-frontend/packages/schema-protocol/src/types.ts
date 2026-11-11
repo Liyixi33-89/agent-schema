@@ -53,5 +53,14 @@ export interface PageSchema {
   id: string; pageKey: string; name: string; type: typeof PAGE_TYPES[number];
   modelId?: string; path: string; layout: LayoutNode[]; dataSource?: DataSourceBinding;
   actions: ActionBinding[]; schemaVersion: number;
+  /** L2 脚本绑定（08FE §2，可选——无脚本页面不携带）；每钩子至多一条，contentHash 为编译产物键。 */
+  scripts?: PageScriptBinding[];
+}
+/** 页面脚本绑定（协议层镜像 08FE §2 ScriptBinding——运行时包 @schema/script-host 同构定义）。 */
+export interface PageScriptBinding {
+  scriptId: string;
+  hook: 'onLoad' | 'onFieldChange' | 'beforeSubmit' | 'afterSubmit' | 'onActionClick' | 'onBeforeDelete';
+  contentHash: string;
+  sourceHash: string;
 }
 export type AnySchema = ModelSchema | PageSchema;

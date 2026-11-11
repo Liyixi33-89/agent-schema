@@ -15,6 +15,82 @@
     "schema": "PageSchema"
   },
   {
+    "name": "with-scripts",
+    "input": {
+      "id": "p1",
+      "pageKey": "page",
+      "name": "Page",
+      "type": "FORM",
+      "path": "/f",
+      "schemaVersion": 1,
+      "layout": [],
+      "actions": [],
+      "scripts": [
+        {
+          "scriptId": "s1",
+          "hook": "beforeSubmit",
+          "contentHash": "h1",
+          "sourceHash": "sh1"
+        }
+      ]
+    },
+    "valid": true,
+    "schema": "PageSchema"
+  },
+  {
+    "name": "bad-script-dup-hook",
+    "input": {
+      "id": "p1",
+      "pageKey": "page",
+      "name": "Page",
+      "type": "FORM",
+      "path": "/f",
+      "schemaVersion": 1,
+      "layout": [],
+      "actions": [],
+      "scripts": [
+        {
+          "scriptId": "s1",
+          "hook": "beforeSubmit",
+          "contentHash": "h1",
+          "sourceHash": "sh1"
+        },
+        {
+          "scriptId": "s2",
+          "hook": "beforeSubmit",
+          "contentHash": "h2",
+          "sourceHash": "sh2"
+        }
+      ]
+    },
+    "valid": false,
+    "semantic": true,
+    "schema": "PageSchema"
+  },
+  {
+    "name": "bad-script-hook",
+    "input": {
+      "id": "p1",
+      "pageKey": "page",
+      "name": "Page",
+      "type": "FORM",
+      "path": "/f",
+      "schemaVersion": 1,
+      "layout": [],
+      "actions": [],
+      "scripts": [
+        {
+          "scriptId": "s1",
+          "hook": "onHack",
+          "contentHash": "h1",
+          "sourceHash": "sh1"
+        }
+      ]
+    },
+    "valid": false,
+    "schema": "PageSchema"
+  },
+  {
     "name": "expr-prop",
     "input": {
       "id": "p1",

@@ -24,6 +24,7 @@ import { migrate, validatePageSchema, type FieldSchema, type PageSchema } from '
 import { registerBasicMaterials, defaultWidgetFor } from '@schema/component-materials';
 import { materialRegistry, RenderScope } from '@schema/schema-renderer';
 import { RequestClient } from './request';
+import { useScriptHooks } from './useScriptHooks';
 
 // 物料注册（一次性——宿主启动即装载全部基础物料）
 let materialsReady = false;
@@ -129,6 +130,10 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [detailLoaded, setDetailLoaded] = useState(recordId == null);
+
+  // M14 页面脚本（08FE §4.3 调度点）：onLoad 挂载完成 / beforeSubmit·afterSubmit 提交前后
+  const scripts = useScriptHooks({ page, store, client, recordId });
+  useEffect(() => { void scripts.onLoad(); }, [scripts]);
   // 详情回填（编辑态）
   useEffect(() => {
     if (recordId == null || detailLoaded) return;
@@ -216,12 +221,19 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
     return Enhanced as unknown as React.ComponentType<Record<string, unknown>>;
   }, [resolveComponent, store, page, debounced]);
 
-  // 提交（防重 + 三阶段协议 + 服务端错误回填）
+  // 提交（防重 + 三阶段协议 + 服务端错误回填 + 脚本钩子 beforeSubmit/afterSubmit）
   const handleSubmit = useCallback(async () => {
     if (!guard.current.enter()) return;
     setSubmitting(true);
     setGlobalError(null);
     try {
+      // beforeSubmit 返回 false 阻断提交；超时按「不阻断」放行（08FE §4.3 韧性原则）
+      const payload = { record: Object.fromEntries([...store.fields.keys()].map((k) => [k, store.get(k)])) };
+      const pre = await scripts.beforeSubmit(payload);
+      if (pre.ok && pre.value === false) {
+        setGlobalError('提交被脚本阻断（beforeSubmit）');
+        return;
+      }
       const transport: SubmitTransport = {
         submit: (payload) => recordId != null
           ? client.update(page.modelId!, recordId, payload)
@@ -248,6 +260,7 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
         return;
       }
       store.publishErrors({});
+      void scripts.afterSubmit({ ...payload, result: { successBehavior: result.successBehavior } });
       onSubmitted?.();
     } catch (e) {
       setGlobalError(e instanceof Error ? e.message : String(e));
@@ -255,7 +268,7 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
       guard.current.leave();
       setSubmitting(false);
     }
-  }, [client, page, recordId, store, onSubmitted]);
+  }, [client, page, recordId, store, onSubmitted, scripts]);
 
   return (
     <Card title={page.name} style={{ maxWidth: 720, margin: '24px auto' }}>

@@ -68,6 +68,13 @@ const dataSourceSchema = z.object({
   }).optional(),
   staticData: z.unknown().optional(),
 });
+const scriptHookEnum = z.enum(['onLoad', 'onFieldChange', 'beforeSubmit', 'afterSubmit', 'onActionClick', 'onBeforeDelete']);
+const pageScriptBindingSchema = z.object({
+  scriptId: z.string().min(1),
+  hook: scriptHookEnum,
+  contentHash: z.string().min(1),
+  sourceHash: z.string().min(1),
+}).strict();
 const pageSchema = z.object({
   id: z.string().min(1),
   pageKey: z.string(),
@@ -79,6 +86,7 @@ const pageSchema = z.object({
   dataSource: dataSourceSchema.optional(),
   actions: z.array(actionBindingSchema),
   schemaVersion: z.number().int().min(1),
+  scripts: z.array(pageScriptBindingSchema).optional(),
 });
 // 语义约束（不进 JSON Schema，与 src/validate.ts 双判一致）：fieldRef 必须有页面模型绑定。
 type ZodNode = { fieldRef?: unknown; children?: ZodNode[] };
@@ -88,14 +96,51 @@ const pageWithBinding = pageSchema.superRefine((page, ctx) => {
   if (!page.modelId && nodesWithFieldRef(page.layout as ZodNode[]).length > 0) {
     ctx.addIssue({ code: 'custom', message: 'fieldRef 需要页面绑定模型' });
   }
+  // scripts 语义约束（与 src/validate.ts 双判一致）：同一钩子至多一条绑定
+  const hooks = ((page as { scripts?: { hook: string }[] }).scripts ?? []).map((s) => s.hook);
+  if (new Set(hooks).size !== hooks.length) {
+    ctx.addIssue({ code: 'custom', message: '同一钩子至多一条脚本绑定' });
+  }
 });
 
 // ===== 双定义一致性断言：同一 fixture 必须双判一致 =====
-const fixtures: Array<{ name: string; input: unknown; valid: boolean }> = [
+const fixtures: Array<{ name: string; input: unknown; valid: boolean; semantic?: boolean }> = [
   {
     name: 'minimal-valid',
     input: { id: 'p1', pageKey: 'page', name: 'Page', type: 'LIST', path: '/x', layout: [], actions: [], schemaVersion: 1 },
     valid: true,
+  },
+  {
+    name: 'with-scripts',
+    input: {
+      id: 'p1', pageKey: 'page', name: 'Page', type: 'FORM', path: '/f', schemaVersion: 1,
+      layout: [], actions: [],
+      scripts: [{ scriptId: 's1', hook: 'beforeSubmit', contentHash: 'h1', sourceHash: 'sh1' }],
+    },
+    valid: true,
+  },
+  {
+    // 同钩子唯一是语义约束（运行时校验器 + zod refine），结构层不拦截——后端结构判定必须为 true
+    name: 'bad-script-dup-hook',
+    input: {
+      id: 'p1', pageKey: 'page', name: 'Page', type: 'FORM', path: '/f', schemaVersion: 1,
+      layout: [], actions: [],
+      scripts: [
+        { scriptId: 's1', hook: 'beforeSubmit', contentHash: 'h1', sourceHash: 'sh1' },
+        { scriptId: 's2', hook: 'beforeSubmit', contentHash: 'h2', sourceHash: 'sh2' },
+      ],
+    },
+    valid: false,
+    semantic: true,
+  },
+  {
+    name: 'bad-script-hook',
+    input: {
+      id: 'p1', pageKey: 'page', name: 'Page', type: 'FORM', path: '/f', schemaVersion: 1,
+      layout: [], actions: [],
+      scripts: [{ scriptId: 's1', hook: 'onHack', contentHash: 'h1', sourceHash: 'sh1' }],
+    },
+    valid: false,
   },
   {
     name: 'expr-prop',
@@ -215,5 +260,5 @@ writeFileSync(resolve(here, '../contract/schema-fixtures.json'), `${JSON.stringi
   ...fixtures.map((f) => ({ ...f, schema: 'PageSchema' })),
   ...modelFixtures.map((f) => ({ ...f, schema: 'ModelSchema' })),
 ], null, 2)}\n`, 'utf8');
-const semanticCount = fixtures.filter((f) => (f as { semantic?: boolean }).semantic).length;
+const semanticCount = fixtures.filter((f) => f.semantic).length;
 console.log(`[export-schema] ${fixtures.length} fixtures 双判一致（语义样本 ${semanticCount} 条），导出 ${Object.keys(exported.definitions).length} 组定义 -> ${outFile}`);

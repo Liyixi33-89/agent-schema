@@ -104,7 +104,7 @@ class SchemaContractTest {
         Map<String, Boolean> verdicts = (Map<String, Boolean>) GSON.fromJson(root.get("fixtureVerdicts"),
                 new TypeToken<Map<String, Boolean>>() {}.getType());
         assertNotNull(verdicts);
-        assertEquals(12, verdicts.size(), "fixture 判定表应含 12 条（结构 11 + 语义 1）");
+        assertEquals(15, verdicts.size(), "fixture 判定表应含 15 条（结构 13 + 语义 2）");
         assertEquals(Boolean.TRUE, verdicts.get("field-ref-with-model-bound"));
         assertEquals(Boolean.TRUE, verdicts.get("field-ref-without-embedded-fields"));
         assertEquals(Boolean.TRUE, verdicts.get("field-ref-deep-nested-valid"));
@@ -117,5 +117,9 @@ class SchemaContractTest {
         assertEquals(Boolean.FALSE, verdicts.get("bad-action"));
         assertEquals(Boolean.FALSE, verdicts.get("oversize-pagination"));
         assertEquals(Boolean.FALSE, verdicts.get("bad-component-name"));
+        // M14 页面脚本绑定样本（08FE §2）：结构 2 + 语义 1
+        assertEquals(Boolean.TRUE, verdicts.get("with-scripts"));
+        assertEquals(Boolean.FALSE, verdicts.get("bad-script-hook"));
+        assertEquals(Boolean.FALSE, verdicts.get("bad-script-dup-hook"));
     }
 }

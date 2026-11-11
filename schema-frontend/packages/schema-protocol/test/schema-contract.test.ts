@@ -92,6 +92,12 @@ describe('fixtures validate against exported json-schema (zod parity)', () => {
     children: z.array(z.lazy(() => layoutNode)).optional(),
     fieldRef: z.string().min(1).optional(),
   }));
+  const scriptBinding = z.object({
+    scriptId: z.string().min(1),
+    hook: z.enum(['onLoad', 'onFieldChange', 'beforeSubmit', 'afterSubmit', 'onActionClick', 'onBeforeDelete']),
+    contentHash: z.string().min(1),
+    sourceHash: z.string().min(1),
+  });
   const page = z.object({
     id: z.string().min(1), pageKey: z.string(), name: z.string(), type: z.enum(PAGE_TYPES),
     modelId: z.string().optional(), path: z.string().startsWith('/'),
@@ -107,12 +113,16 @@ describe('fixtures validate against exported json-schema (zod parity)', () => {
       staticData: z.unknown().optional(),
     }).optional(),
     actions: z.array(actionBinding), schemaVersion: z.number().int().min(1),
-  // 语义精化须与 scripts/export-schema.ts 的 pageWithBinding 保持同判（fieldRef 需要模型绑定）。
+    scripts: z.array(scriptBinding).optional(),
+  // 语义精化须与 scripts/export-schema.ts 的 pageWithBinding 保持同判（fieldRef 需要模型绑定；
+  // scripts 同钩子唯一）。
   }).superRefine((p, ctx) => {
     type Node = { fieldRef?: unknown; children?: Node[] };
     const refs = (nodes: Node[]): Node[] =>
       nodes.flatMap((n) => [n, ...(n.children ? refs(n.children) : [])]).filter((n) => n.fieldRef !== undefined);
     if (!p.modelId && refs(p.layout as Node[]).length > 0) ctx.addIssue({ code: 'custom', message: 'fieldRef 需要页面绑定模型' });
+    const hooks = ((p as { scripts?: { hook: string }[] }).scripts ?? []).map((s) => s.hook);
+    if (new Set(hooks).size !== hooks.length) ctx.addIssue({ code: 'custom', message: '同一钩子至多一条脚本绑定' });
   });
   const schemas: Record<string, z.ZodType<unknown>> = { PageSchema: page, ModelSchema: model };
 
