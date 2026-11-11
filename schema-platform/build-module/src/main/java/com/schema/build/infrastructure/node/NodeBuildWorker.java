@@ -101,8 +101,15 @@ public class NodeBuildWorker {
                     .redirectErrorStream(false);
             proc = pb.start();
             String request = Json.write(new Request(sourceCode, redlinesPath.toString()));
-            proc.getOutputStream().write(request.getBytes(StandardCharsets.UTF_8));
-            proc.getOutputStream().close();
+            final long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+            final Process inputProcess = proc;
+            CompletableFuture<Void> inputWrite = CompletableFuture.runAsync(() -> {
+                try (var out = inputProcess.getOutputStream()) {
+                    out.write(request.getBytes(StandardCharsets.UTF_8));
+                } catch (java.io.IOException e) {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            });
 
             // stderr 并发排空（防管道缓冲区满导致子进程写阻塞——同步 readAllBytes 会先卡死）
             final Process p = proc;
@@ -123,15 +130,17 @@ public class NodeBuildWorker {
                 }
             });
 
-            boolean finished = proc.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
+            boolean finished = proc.waitFor(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
             if (!finished) {
                 proc.destroyForcibly().waitFor(2, TimeUnit.SECONDS);
                 return new BuildTask.Result(false, null,
                         List.of(new BuildTask.CompileError(null, null,
                                 "编译超时 %dms（已终止）".formatted(timeoutMs), "BUILD_TIMEOUT")), (int) timeoutMs);
             }
+            inputWrite.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+            stdoutDrain.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+            String errText = stderr.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
             if (proc.exitValue() != 0) {
-                String errText = stderr.getNow("");
                 return new BuildTask.Result(false, null,
                         List.of(new BuildTask.CompileError(null, null,
                                 "编译进程异常退出 code=%d%s".formatted(proc.exitValue(),
@@ -139,7 +148,12 @@ public class NodeBuildWorker {
             }
             String stdout = stdoutBuf.toString(StandardCharsets.UTF_8);
             return parseResponse(stdout);
+        } catch (java.util.concurrent.TimeoutException e) {
+            return new BuildTask.Result(false, null,
+                    List.of(new BuildTask.CompileError(null, null,
+                            "编译超时 %dms（已终止）".formatted(timeoutMs), "BUILD_TIMEOUT")), (int) timeoutMs);
         } catch (Exception e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             log.warn("build-worker 调度失败: {}", e.getMessage());
             return new BuildTask.Result(false, null,
                     List.of(new BuildTask.CompileError(null, null,

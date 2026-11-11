@@ -74,14 +74,29 @@ self.onmessage = async (e) => {
 };
 `;
 
+/** Worker 句柄：dispose 终止 Worker 并释放 Blob URL（幂等）——真实 Worker 无释放钩子，包装层统一回收。 */
+export interface ScriptWorkerHandle {
+  worker: Worker;
+  dispose(): void;
+}
+
 /** 构造真实 Worker（Blob 入口 + 产物 import）；init 握手由 ScriptHost 驱动（构造期不发送——
  *  消息监听挂载先于 init，避免 ready 早于监听就绪被丢弃）。 */
-export function createScriptWorker(artifactUrl?: string, staticUser?: unknown, staticPage?: unknown): Worker {
+export function createScriptWorker(artifactUrl?: string, staticUser?: unknown, staticPage?: unknown): ScriptWorkerHandle {
   const blob = new Blob([WORKER_BOOTSTRAP], { type: 'text/javascript' });
-  const worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
+  const blobUrl = URL.createObjectURL(blob);
+  const worker = new Worker(blobUrl, { type: 'module' });
   if (artifactUrl !== undefined) {
     // 兼容旧调用（构造期直发 init）；新链路由 ScriptHost 统一 postMessage init
     worker.postMessage({ type: 'init', artifactUrl, staticUser, staticPage });
   }
-  return worker;
+  let disposed = false;
+  return {
+    worker,
+    dispose(): void {
+      if (disposed) return;
+      disposed = true;
+      try { worker.terminate(); } finally { URL.revokeObjectURL(blobUrl); }
+    },
+  };
 }

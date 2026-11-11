@@ -98,8 +98,16 @@ export default function ScriptPanel({ api, pageId }: { api: ApiClient; pageId: s
           return r;
         },
       },
-      createWorker: () => wrapWorker(createScriptWorker()),
-      artifactUrl: () => artifactUrl,
+      createWorker: () => {
+        const handle = createScriptWorker();
+        const wrapped = wrapWorker(handle.worker);
+        return {
+          postMessage: (m: unknown) => wrapped.postMessage(m),
+          terminate: () => handle.dispose(), // 终止同时释放 Blob URL
+          addEventListener: wrapped.addEventListener,
+          removeEventListener: wrapped.removeEventListener,
+        };
+      },      artifactUrl: () => artifactUrl,
       staticUser: { id: 'mock-user', roles: ['developer'] },
       staticPage: { params: {}, query: {}, mode: 'design' },
       warnMs: 500,

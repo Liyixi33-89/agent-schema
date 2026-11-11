@@ -4,6 +4,7 @@
  * - 超时硬中断：worker.terminate() 真终止同步死循环（Promise.race/AbortSignal 做不到）
  * - 钩子异常不白屏：run() 永不抛出，返回 { ok:false } 页面继续
  */
+import { BRIDGE_OPS } from './types';
 import type { HookName, HookModule, HookResult, ScriptBinding, ScriptContext } from './types';
 
 export interface ScriptHostOptions {
@@ -56,6 +57,7 @@ export class ScriptHost {
   private readonly hardMs: number;
   private readonly options: ScriptHostOptions;
   private disposed = false;
+  private readonly activeCalls = new Set<AbortController>();
 
   constructor(options: ScriptHostOptions) {
     this.options = options;
@@ -89,25 +91,37 @@ export class ScriptHost {
   private async runOnWorker(entry: PoolEntry, hook: HookName, payload: unknown, binding: ScriptBinding, started: number, tempWorker: boolean): Promise<HookResult> {
     entry.busy = true;
     let terminated = false;
+    let dispatcher: ReturnType<ScriptHost['attachDispatcher']> | undefined;
+    const cancellation = new AbortController();
+    this.activeCalls.add(cancellation);
+    let rejectCancellation!: (reason: Error) => void;
+    const cancelled = new Promise<never>((_, reject) => { rejectCancellation = reject; });
+    const abort = (): void => {
+      entry.worker.terminate();
+      rejectCancellation(new Error('disposed'));
+    };
+    cancellation.signal.addEventListener('abort', abort, { once: true });
     try {
       // 常驻分派器统一处理 ready/ctx-call/hook-done 三类消息；init 由宿主显式驱动——
       // ready 后再发 run（消除异步 import 竞态）；ctx-call 由桥分派并回执 ctx-result。
-      const dispatcher = this.attachDispatcher(entry.worker);
+      dispatcher = this.attachDispatcher(entry.worker);
       entry.worker.postMessage({
         type: 'init',
         artifactUrl: this.options.artifactUrl?.(binding.contentHash),
         staticUser: this.options.staticUser,
         staticPage: this.options.staticPage,
       });
-      const ready = await this.awaitReady(entry.worker, dispatcher.ready);
+      const ready = await this.awaitReady(entry.worker, Promise.race([dispatcher.ready, cancelled]));
       if (!ready.ok) {
+        terminated = true;
+        entry.worker.terminate();
         return { ok: false, error: ready.err ?? 'worker 初始化失败', durationMs: Date.now() - started };
       }
       // ⚠️ 超时硬中断双通道（08FE §4.3）：
       //   ① worker.terminate() —— 真终止执行线程（同步死循环被物理停止）
       //   ② 主线程 Promise 超时拒绝 —— terminate 只杀 worker，不会让本 await settle；
       //      缺②时即使 worker 已死，主线程 await 也永久挂起（事件循环被 pending Promise 卡住）
-      const callPromise = this.invoke(entry.worker, hook, payload, binding);
+      const callPromise = this.invoke(entry.worker, hook, payload, binding, cancellation.signal);
       let hardTimer: ReturnType<typeof setTimeout> | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {
         hardTimer = setTimeout(() => {
@@ -119,20 +133,27 @@ export class ScriptHost {
       let warned = false;
       const warnTimer = setTimeout(() => { warned = true; }, this.warnMs); // warn：日志告警（08FE §4.3）
       try {
-        const result = await Promise.race([callPromise, timeoutPromise]);
+        const result = await Promise.race([callPromise, timeoutPromise, cancelled]);
         return { ...result, durationMs: Date.now() - started, warned };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e), durationMs: Date.now() - started, warned, terminated };
       } finally {
         if (hardTimer) clearTimeout(hardTimer);
         clearTimeout(warnTimer);
+        cancellation.signal.removeEventListener('abort', abort);
+        cancellation.abort();
       }
     } catch (e) {
+      terminated = true;
+      entry.worker.terminate();
       return { ok: false, error: e instanceof Error ? e.message : String(e), durationMs: Date.now() - started };
     } finally {
-      entry.worker.removeEventListener('message', this.currentListener ?? (() => {}));
-      this.currentListener = undefined;
-      if (terminated || tempWorker) {
+      dispatcher?.cleanup();
+      cancellation.signal.removeEventListener('abort', abort);
+      this.activeCalls.delete(cancellation);
+      if (this.disposed) {
+        entry.worker.terminate();
+      } else if (terminated || tempWorker) {
         entry.worker.terminate(); // 终止后重建（复用池位语义）或丢弃临时 worker
         if (!tempWorker) {
           this.pool.set(binding.contentHash, { worker: this.options.createWorker(binding.contentHash), busy: false });
@@ -143,16 +164,14 @@ export class ScriptHost {
     }
   }
 
-  /** 当前挂载的常驻 message 监听（runOnWorker finally 卸载）。 */
-  private currentListener: ((e: { data: unknown }) => void) | undefined;
-
   /**
    * 常驻消息分派器（08FE §4.2 桥的真实接线）：
    * - ready：init 完成信号（Promise 化握手）
    * - ctx-call：Worker 发起的桥调用 → bridge.dispatch（op 白名单在此校验）→ 回执 ctx-result
    * - hook-done：由 invoke 的一次性监听消费；此分派器转发兜底（不重复 resolve）
    */
-  private attachDispatcher(worker: WorkerLike): { ready: Promise<{ ok: boolean; err?: string }> } {
+  private attachDispatcher(worker: WorkerLike): { ready: Promise<{ ok: boolean; err?: string }>; cleanup(): void } {
+    let active = true;
     let resolveReady!: (r: { ok: boolean; err?: string }) => void;
     const ready = new Promise<{ ok: boolean; err?: string }>((resolve) => { resolveReady = resolve; });
     const listener = (e: { data: unknown }): void => {
@@ -161,36 +180,56 @@ export class ScriptHost {
       if (msg.type === 'ready') {
         resolveReady({ ok: msg.ok, err: msg.err });
       } else if (msg.type === 'ctx-call') {
-        void this.options.bridge.dispatch(msg.op, msg.args).then((r) => {
-          worker.postMessage({ type: 'ctx-result', id: msg.id, ok: r.ok, result: r.result, err: r.err });
+        if (typeof msg.id !== 'string' || typeof msg.op !== 'string' || !Array.isArray(msg.args)) return;
+        if (!BRIDGE_OPS.some((op) => op === msg.op)) {
+          worker.postMessage({ type: 'ctx-result', id: msg.id, ok: false, err: `op 不在白名单: ${msg.op}` });
+          return;
+        }
+        void Promise.resolve().then(() => this.options.bridge.dispatch(msg.op, msg.args)).then((r) => {
+          if (active && !this.disposed) worker.postMessage({ type: 'ctx-result', id: msg.id, ok: r.ok, result: r.result, err: r.err });
+        }).catch((e: unknown) => {
+          if (active && !this.disposed) worker.postMessage({ type: 'ctx-result', id: msg.id, ok: false, err: e instanceof Error ? e.message : String(e) });
         });
       } else if (msg.type === 'hook-done') {
         resolveReady({ ok: true }); // 钩子先于 ready 完成的兜底（正常序 ready 必先到）
       }
     };
     worker.addEventListener('message', listener);
-    this.currentListener = listener;
-    return { ready };
+    return { ready, cleanup: () => { active = false; worker.removeEventListener('message', listener); } };
   }
 
   /** 等待 init 完成（ready 消息或已加载短路）；超时防 Worker 构造即挂死。 */
   private async awaitReady(_worker: WorkerLike, ready: Promise<{ ok: boolean; err?: string }>): Promise<{ ok: boolean; err?: string }> {
-    return Promise.race([
-      ready,
-      new Promise<{ ok: false; err: string }>((resolve) => setTimeout(() => resolve({ ok: false, err: 'worker 初始化超时' }), 5_000)),
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        ready,
+        new Promise<{ ok: false; err: string }>((resolve) => {
+          timer = setTimeout(() => resolve({ ok: false, err: 'worker 初始化超时' }), 5_000);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
-  private invoke(worker: WorkerLike, hook: HookName, payload: unknown, binding: ScriptBinding): Promise<{ ok: boolean; value?: unknown; warned?: boolean }> {
+  private invoke(worker: WorkerLike, hook: HookName, payload: unknown, binding: ScriptBinding, signal: AbortSignal): Promise<{ ok: boolean; value?: unknown; warned?: boolean }> {
     return new Promise((resolve, reject) => {
       const onMessage = (e: { data: unknown }): void => {
         const data = e.data as { type?: string; ok?: boolean; value?: unknown; err?: string };
         if (data?.type === 'hook-done') {
           worker.removeEventListener('message', onMessage);
+          signal.removeEventListener('abort', onAbort);
           if (data.ok) resolve({ ok: true, value: data.value });
           else reject(new Error(data.err ?? 'hook failed'));
         }
       };
+      const onAbort = (): void => {
+        worker.removeEventListener('message', onMessage);
+        signal.removeEventListener('abort', onAbort);
+        reject(new Error('execution cancelled'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
       worker.addEventListener('message', onMessage);
       worker.postMessage({ type: 'run', hook, payload, scriptId: binding.scriptId });
     });
@@ -214,6 +253,8 @@ export class ScriptHost {
   /** 页面卸载 dispose：池回收 + 进行中调用放弃（归还前 terminate 防僵尸）。 */
   dispose(): void {
     this.disposed = true;
+    for (const call of this.activeCalls) call.abort();
+    this.activeCalls.clear();
     for (const entry of this.pool.values()) entry.worker.terminate();
     this.pool.clear();
     this.poolOrder.length = 0;

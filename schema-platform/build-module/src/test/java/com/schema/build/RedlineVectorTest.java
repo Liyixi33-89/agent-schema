@@ -111,6 +111,33 @@ class RedlineVectorTest {
     }
 
     @Test
+    void nonReadingProcessCannotBlockInputBeyondDeadline(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("build-worker.mjs"), "setInterval(() => {}, 1000);");
+        Files.writeString(dir.resolve("redlines.json"), "{}");
+        var stalled = new NodeBuildWorker("node", dir.toString(), 500);
+        var result = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+                java.time.Duration.ofSeconds(5), () -> stalled.compile("x".repeat(2_000_000)));
+        assertTrue(!result.success());
+        assertTrue(result.errors().stream().anyMatch(e -> "BUILD_TIMEOUT".equals(e.code())));
+    }
+
+    @Test
+    void largeStdoutAndStderrAreFullyDrained(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("build-worker.mjs"), """
+                process.stdin.resume();
+                process.stdin.on('end', () => {
+                  process.stderr.write('e'.repeat(200000));
+                  process.stdout.write(JSON.stringify({ok:false, errors:[{message:'m'.repeat(200000), code:'DRAIN_TEST'}]}));
+                });
+                """);
+        Files.writeString(dir.resolve("redlines.json"), "{}");
+        var draining = new NodeBuildWorker("node", dir.toString(), 5000);
+        var result = draining.compile("test");
+        assertTrue(!result.success());
+        assertTrue(result.errors().stream().anyMatch(e -> "DRAIN_TEST".equals(e.code())));
+    }
+
+    @Test
     void artifactImmutableByHash() {
         // 同源码两次编译 contentHash 一致（产物不可变——04BE §2.3④）
         var src = "export function onLoad(ctx) { return ctx.page.params; }";
