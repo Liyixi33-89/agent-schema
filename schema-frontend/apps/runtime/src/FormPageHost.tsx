@@ -113,6 +113,11 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cach
   );
 }
 
+/** 详情不存在时不显示旧数据：详情加载 404 视为终态错误（区别于网络抖动可重试）。 */
+function DetailMissing(): React.ReactElement {
+  return <Alert type="warning" showIcon message="记录不存在" description="该记录可能已被删除，请返回列表刷新查看" />;
+}
+
 /** 已装载页面渲染 + 提交闭环。 */
 function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
   client: RequestClient;
@@ -122,6 +127,8 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
   onSubmitted?: () => void;
 }): React.ReactElement {
   const readOnly = page.type === 'DETAIL';
+  // 详情不存在终态（404）：不回填旧值、不渲染半空表单
+  const [detailMissing, setDetailMissing] = useState(false);
   // FormStore：构造期破环 + 默认值装载 + 初始 effect 求值（M7 三轮收口后行为）
   const store = useMemo(() => new FormStore({
     fields,
@@ -174,6 +181,12 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
         store.refreshEffects();
         store.publishErrors({});
       } catch (e) {
+        if (cancelled) return;
+        // 详情页 404：终态缺失而非网络错误——展示缺失占位，不回填不渲染旧数据
+        if (e instanceof ServerError && e.code === 'NOT_FOUND') {
+          setDetailMissing(true);
+          return;
+        }
         setGlobalError(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setDetailLoaded(true);
@@ -302,21 +315,25 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
 
   return (
     <Card title={page.name} style={{ maxWidth: 720, margin: '24px auto' }}>
+      {detailMissing && <DetailMissing />}
       {globalError ? <Alert type="error" showIcon closable message={globalError} style={{ marginBottom: 16 }} /> : null}
-      <SchemaRenderer
+      {!detailMissing && <SchemaRenderer
         page={page}
         scope={store.scope}
         fields={new Map(fields.map((f) => [f.key, f]))}
         resolveComponent={enhanceResolve}
         react={{ createElement: React.createElement, useState, useEffect }}
-      />
+      />}
       {!readOnly && <Button type="primary" loading={submitting} onClick={handleSubmit} style={{ marginTop: 16 }}>
         提交
       </Button>}
       {/* 自定义动作按钮（onActionClick 钩子调度点——08FE §4.3；CALL_API/OPEN_PAGE 等
-          独立语义动作 P2 接线，P1 只渲染钩子可响应的动作按钮触发通知） */}
-      {!readOnly && page.actions.filter((a) => a.type === 'CUSTOM_SCRIPT' || a.type === 'CALL_API').map((a) => (
+          独立语义动作 P2 接线，P1 只渲染钩子可响应的动作按钮触发通知）。
+          只读详情页保留 CUSTOM_SCRIPT/CALL_API 按钮（布局自带按钮仍可触发——脚本影响业务
+          不因宿主隐藏提交而失效；DELETE 写操作只读态禁用）。 */}
+      {page.actions.filter((a) => a.type === 'CUSTOM_SCRIPT' || a.type === 'CALL_API').map((a) => (
         <Button key={a.type + ('apiName' in a ? a.apiName : '')} style={{ marginTop: 16, marginLeft: 8 }}
+          disabled={detailMissing}
           onClick={() => { void scripts.onActionClick('apiName' in a ? a.apiName : a.type); }}>
           {a.type === 'CALL_API' && 'apiName' in a ? `调用 ${a.apiName}` : a.type}
         </Button>
