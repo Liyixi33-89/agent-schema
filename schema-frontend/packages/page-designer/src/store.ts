@@ -5,7 +5,7 @@
  * 快照策略（04FE §3）：结构共享不可用时退化为 JSON 快照拷贝——200 节点规模实测 < 1ms，
  * 不引入 immer（规格 §2「不做」：现有栈内自实现）。
  */
-import type { FieldSchema, LayoutNode, PageSchema, PropValue } from '@schema/schema-protocol';
+import type { FieldSchema, LayoutNode, PageSchema, PageScriptBinding, PropValue } from '@schema/schema-protocol';
 
 /** 撤销栈容量（PRD 02 §3 R6）。 */
 export const HISTORY_LIMIT = 50;
@@ -15,6 +15,7 @@ export type DesignerCommand =
   | { type: 'moveWithin'; parentId: string | null; fromIndex: number; toIndex: number }
   | { type: 'updateProps'; nodeId: string; patch: Record<string, PropValue> }
   | { type: 'updatePageProps'; patch: Partial<Pick<PageSchema, 'name' | 'path'>> }
+  | { type: 'updateScripts'; scripts: PageScriptBinding[] }
   | { type: 'delete'; nodeId: string };
 
 interface HistoryEntry {
@@ -257,6 +258,11 @@ export class DesignerStore {
       }
       case 'updatePageProps': {
         Object.assign(doc, cmd.patch);
+        break;
+      }
+      case 'updateScripts': {
+        // 整体替换（编译成功回写唯一入口）；同钩子唯一性由协议校验器保证
+        doc.scripts = clone(cmd.scripts);
         break;
       }
       case 'delete': {

@@ -1209,6 +1209,44 @@
             "schemaVersion": {
               "type": "integer",
               "minimum": 1
+            },
+            "scripts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "scriptId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "hook": {
+                    "type": "string",
+                    "enum": [
+                      "onLoad",
+                      "onFieldChange",
+                      "beforeSubmit",
+                      "afterSubmit",
+                      "onActionClick",
+                      "onBeforeDelete"
+                    ]
+                  },
+                  "contentHash": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sourceHash": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "scriptId",
+                  "hook",
+                  "contentHash",
+                  "sourceHash"
+                ],
+                "additionalProperties": false
+              }
             }
           },
           "required": [
@@ -1619,6 +1657,9 @@
   },
   "fixtureVerdicts": {
     "minimal-valid": true,
+    "with-scripts": true,
+    "bad-script-dup-hook": false,
+    "bad-script-hook": false,
     "expr-prop": true,
     "bad-action": false,
     "oversize-pagination": false,

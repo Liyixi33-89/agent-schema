@@ -12,7 +12,7 @@ import React from 'react';
 import { Alert, Button, Descriptions, Input, message, Select, Space, Tag, Typography } from 'antd';
 import {
   createMockBridge, createScriptWorker, HOOK_NAMES, scanSource,
-  ScriptHost, type HookName, type HookResult, type MessageBridge, type ScanViolation,
+  ScriptHost, type HookName, type HookResult, type MessageBridge, type ScanViolation, type ScriptBinding,
 } from '@schema/script-host';
 import { ApiClient, ApiError } from './api';
 
@@ -26,15 +26,18 @@ const SAMPLE = `export async function beforeSubmit(payload, ctx) {
 }
 `;
 
-export default function ScriptPanel({ api, pageId }: { api: ApiClient; pageId: string }): React.ReactElement {
+export default function ScriptPanel({ api, pageId, initialScripts, onScriptsBound }:
+  { api: ApiClient; pageId: string; initialScripts?: ScriptBinding[]; onScriptsBound?: (scripts: ScriptBinding[]) => void }): React.ReactElement {
   const [source, setSource] = React.useState<string>(SAMPLE);
-  const [hook, setHook] = React.useState<HookName>('beforeSubmit');
+  const [hook, setHook] = React.useState<HookName>(initialScripts?.[0]?.hook ?? 'beforeSubmit');
   const [saving, setSaving] = React.useState(false);
   const [built, setBuilt] = React.useState<{ contentHash: string; reused?: boolean } | null>(null);
   const [buildErrors, setBuildErrors] = React.useState<Array<{ line?: number; message: string; code?: string }> | null>(null);
   const [running, setRunning] = React.useState(false);
   const [runResult, setRunResult] = React.useState<HookResult | null>(null);
   const [logs, setLogs] = React.useState<string[]>([]);
+  /** 已绑定的页面脚本（打开时从 PageSchema.scripts 恢复；编译成功后回写宿主保存链路）。 */
+  const [bound, setBound] = React.useState<ScriptBinding[] | null>(initialScripts?.length ? initialScripts : null);
 
   // 编辑期实时扫描（第一道闸——开发者体验层；与保存期/服务端同规则 redlines.json）
   const violations: ScanViolation[] = React.useMemo(() => {
@@ -52,7 +55,13 @@ export default function ScriptPanel({ api, pageId }: { api: ApiClient; pageId: s
     try {
       const r = await api.buildPageCode(pageId, source);
       setBuilt(r);
-      message.success(`编译成功${r.reused ? '（复用既有产物）' : ''}`);
+      // 绑定回写（08FE §2 保存流程）：编译成功才更新绑定；失败保留旧版可用产物（轨道 B 兜底）
+      const sourceHash = await sha256Of(source);
+      const next: ScriptBinding[] = (bound ?? []).filter((b) => b.hook !== hook);
+      next.push({ scriptId: bound?.find((b) => b.hook === hook)?.scriptId ?? `script-${hook}-${Date.now().toString(36)}`, hook, contentHash: r.contentHash, sourceHash });
+      setBound(next);
+      onScriptsBound?.(next);
+      message.success(`编译成功${r.reused ? '（复用既有产物）' : ''}，已绑定 ${hook}`);
       return r;
     } catch (e) {
       if (e instanceof ApiError && (e.code === 'SECURITY_BLOCKED' || e.code === 'COMPILE_FAILED')) {
@@ -234,6 +243,13 @@ function wrapWorker(worker: Worker): {
 /** 产物端点（04BE §A.5 artifactUrl 回显优先；此处兜底拼同源相对路径——服务端按会话租户绑定）。 */
 function artifactUrlOf(contentHash: string): string {
   return `/api/build/artifacts/current/${contentHash}.js`;
+}
+
+/** 源码 SHA-256（审计「哪版源码」——08FE §2 sourceHash；浏览器原生 SubtleCrypto）。 */
+async function sha256Of(text: string): Promise<string> {
+  const data = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function formatLog(args: unknown[]): string {

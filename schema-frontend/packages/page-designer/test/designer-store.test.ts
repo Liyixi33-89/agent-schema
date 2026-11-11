@@ -319,6 +319,15 @@ describe('大纲树（T6）', () => {
       { id: 'inner', componentName: 'TextInput', label: 'TextInput', depth: 1 },
     ]);
   });
+  it('updateScripts 整体替换且可撤销（编译成功回写唯一入口）', () => {
+    const store = new DesignerStore(page());
+    const scripts = [{ scriptId: 's1', hook: 'beforeSubmit' as const, contentHash: 'h1', sourceHash: 'sh1' }];
+    store.execute({ type: 'updateScripts', scripts }, '绑定脚本');
+    expect(store.document.scripts).toEqual(scripts);
+    expect(store.dirty).toBe(true);
+    store.undo();
+    expect(store.document.scripts).toBeUndefined();
+  });
 });
 
 import { PANEL_MATERIALS } from '../src';

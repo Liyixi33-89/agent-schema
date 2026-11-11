@@ -112,6 +112,9 @@ importers:
       '@schema/schema-renderer':
         specifier: workspace:*
         version: link:../../packages/schema-renderer
+      '@schema/script-host':
+        specifier: workspace:*
+        version: link:../../packages/script-host
       '@schema/usage-tracker':
         specifier: workspace:*
         version: link:../../packages/usage-tracker
