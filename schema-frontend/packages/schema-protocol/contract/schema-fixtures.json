@@ -30,7 +30,8 @@
           "scriptId": "s1",
           "hook": "beforeSubmit",
           "contentHash": "h1",
-          "sourceHash": "sh1"
+          "sourceHash": "sh1",
+          "source": "export function beforeSubmit(p, ctx) { return true; }"
         }
       ]
     },

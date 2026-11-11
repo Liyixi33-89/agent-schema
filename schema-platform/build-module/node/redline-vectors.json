@@ -24,6 +24,8 @@
     { "id": "bad-with", "source": "export function onLoad(ctx) { with (ctx) { return 1; } }", "allowed": false, "rule": "WITH_STMT" },
     { "id": "bad-global-assignment", "source": "export function onLoad(ctx) { leaked = 42; return leaked; }", "allowed": false, "rule": "GLOBAL_ASSIGNMENT" },
     { "id": "bad-import-not-whitelisted", "source": "import axios from 'axios';\nexport function onLoad(ctx) { return 1; }", "allowed": false, "rule": "IMPORT_WHITELIST" },
-    { "id": "bad-import-nested-path", "source": "import { x } from '@schema/script-sdk/../escape';\nexport function onLoad(ctx) { return x; }", "allowed": false, "rule": "IMPORT_WHITELIST" }
+    { "id": "bad-import-nested-path", "source": "import { x } from '@schema/script-sdk/../escape';\nexport function onLoad(ctx) { return x; }", "allowed": false, "rule": "IMPORT_WHITELIST" },
+    { "id": "bad-self-fetch", "source": "export async function onLoad(ctx) { const r = await self.fetch('/api/data/1/query', { method: 'POST', credentials: 'include' }); return r.ok; }", "allowed": false, "rule": "ENV_ESCAPE" },
+    { "id": "bad-self-alias", "source": "export function onLoad(ctx) { const g = self; return typeof g.fetch; }", "allowed": false, "rule": "ENV_ESCAPE" }
   ]
 }

@@ -30,6 +30,10 @@ export interface ScriptHooks {
   beforeSubmit: (payload: { record: Record<string, unknown> }) => Promise<HookResult>;
   afterSubmit: (payload: { record: Record<string, unknown>; result: unknown }) => Promise<HookResult>;
   onActionClick: (actionKey: string) => Promise<HookResult>;
+  /** 字段变化通知（宿主节流后调度——08FE §4.3「表单字段变更钩子节流 50ms」）。 */
+  notifyFieldChange: (fieldKey: string, value: unknown) => void;
+  /** 是否绑定 onFieldChange（宿主据此决定是否订阅字段变化）。 */
+  hasFieldChangeHook: boolean;
 }
 
 /** 真实消息桥（op 白名单 BRIDGE_OPS 之外一律拒收——08FE §4.2）。 */
@@ -134,7 +138,9 @@ export function useScriptHooks({ page, store, client, recordId }: ScriptHooksOpt
           };
           return wrapped;
         },
-        artifactUrl: (hash: string) => `/api/build/artifacts/current/${hash}.js`,
+        // ⚠️ 必须绝对 URL：Worker 从 blob: URL 启动，import() 的解析基是 blob URL，
+        // 相对路径 '/api/...' 会解析为 blob:http://host/api/... 直接失败（ready ok:false）。
+        artifactUrl: (hash: string) => `${location.origin}/api/build/artifacts/current/${hash}.js`,
         staticPage: {
           params: { pageId: String(page.id) },
           query: Object.fromEntries(new URLSearchParams(location.search)),
@@ -159,6 +165,25 @@ export function useScriptHooks({ page, store, client, recordId }: ScriptHooksOpt
     return host.run(hook, payload, bindings);
   }, [ensureHost, bindings]);
 
+  // onFieldChange 50ms 节流（08FE §4.3：快速输入不逐击调度 Worker；尾沿保证最终值必达）
+  const pendingField = React.useRef<{ key: string; value: unknown } | null>(null);
+  const throttleTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasFieldChangeHook = bindings.has('onFieldChange');
+  const notifyFieldChange = React.useCallback((fieldKey: string, value: unknown): void => {
+    if (!hasFieldChangeHook) return;
+    pendingField.current = { key: fieldKey, value };
+    if (throttleTimer.current != null) return; // 已有待发定时器——只更新待发值（尾沿合并）
+    throttleTimer.current = setTimeout(() => {
+      throttleTimer.current = null;
+      const p = pendingField.current;
+      pendingField.current = null;
+      if (p) void run('onFieldChange', { fieldKey: p.key, value: p.value, values: undefined });
+    }, 50);
+  }, [hasFieldChangeHook, run]);
+  React.useEffect(() => () => {
+    if (throttleTimer.current != null) clearTimeout(throttleTimer.current);
+  }, []);
+
   return React.useMemo(() => ({
     enabled,
     // 挂载完成（08FE §4.3 调度点）
@@ -166,5 +191,7 @@ export function useScriptHooks({ page, store, client, recordId }: ScriptHooksOpt
     beforeSubmit: (payload) => run('beforeSubmit', payload),
     afterSubmit: (payload) => run('afterSubmit', payload),
     onActionClick: (actionKey) => run('onActionClick', { actionKey }),
-  }), [enabled, run, page.id, recordId]);
+    notifyFieldChange,
+    hasFieldChangeHook,
+  }), [enabled, run, page.id, recordId, notifyFieldChange, hasFieldChangeHook]);
 }

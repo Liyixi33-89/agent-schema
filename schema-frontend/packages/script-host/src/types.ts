@@ -18,6 +18,8 @@ export interface ScriptBinding {
   hook: HookName;
   contentHash: string;
   sourceHash: string;
+  /** 源码原文（可选——设计器编辑态恢复用；运行时不消费）。 */
+  source?: string;
 }
 
 /** 主线程消息桥 op 白名单（08FE §4.2——新增 op = 安全评审 + 本表登记）。 */

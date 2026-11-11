@@ -1237,6 +1237,9 @@
                   "sourceHash": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "source": {
+                    "type": "string"
                   }
                 },
                 "required": [

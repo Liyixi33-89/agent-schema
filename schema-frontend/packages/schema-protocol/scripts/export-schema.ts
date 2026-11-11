@@ -74,6 +74,7 @@ const pageScriptBindingSchema = z.object({
   hook: scriptHookEnum,
   contentHash: z.string().min(1),
   sourceHash: z.string().min(1),
+  source: z.string().optional(), // 设计器编辑态源码恢复（运行时不消费——加载只认 contentHash）
 }).strict();
 const pageSchema = z.object({
   id: z.string().min(1),
@@ -115,7 +116,7 @@ const fixtures: Array<{ name: string; input: unknown; valid: boolean; semantic?:
     input: {
       id: 'p1', pageKey: 'page', name: 'Page', type: 'FORM', path: '/f', schemaVersion: 1,
       layout: [], actions: [],
-      scripts: [{ scriptId: 's1', hook: 'beforeSubmit', contentHash: 'h1', sourceHash: 'sh1' }],
+      scripts: [{ scriptId: 's1', hook: 'beforeSubmit', contentHash: 'h1', sourceHash: 'sh1', source: 'export function beforeSubmit(p, ctx) { return true; }' }],
     },
     valid: true,
   },

@@ -133,7 +133,27 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
 
   // M14 页面脚本（08FE §4.3 调度点）：onLoad 挂载完成 / beforeSubmit·afterSubmit 提交前后
   const scripts = useScriptHooks({ page, store, client, recordId });
-  useEffect(() => { void scripts.onLoad(); }, [scripts]);
+  // 编辑态 onLoad 等详情回填完成后再触发（创建态 detailLoaded 初值即 true 立即触发）——
+  // 不等待时钩子读到的表单值是空的（详情回填是异步 effect，早于它执行的 onLoad 拿不到记录）
+  useEffect(() => {
+    if (!detailLoaded) return;
+    void scripts.onLoad();
+  }, [scripts, detailLoaded]);
+  // 字段变化通知（onFieldChange 绑定时订阅 store 写入——50ms 节流在 hook 内实现）
+  useEffect(() => {
+    if (!scripts.hasFieldChangeHook) return;
+    return store.scope.subscribe([...store.fields.keys()], () => {
+      // scope 只给变更信号不带键值——逐字段比对快照找出变更键（字段数有限，开销可忽略）
+      for (const key of store.fields.keys()) {
+        const cur = store.get(key);
+        if (!Object.is(cur, fieldSnapshot.current.get(key))) {
+          fieldSnapshot.current.set(key, cur);
+          scripts.notifyFieldChange(key, cur);
+        }
+      }
+    });
+  }, [scripts, store]);
+  const fieldSnapshot = useRef(new Map<string, unknown>());
   // 详情回填（编辑态）
   useEffect(() => {
     if (recordId == null || detailLoaded) return;
@@ -260,8 +280,10 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
         return;
       }
       store.publishErrors({});
-      void scripts.afterSubmit({ ...payload, result: { successBehavior: result.successBehavior } });
-      onSubmitted?.();
+      // afterSubmit 等待钩子完成再回调宿主（onSubmitted 常触发刷新/跳转——提前回调会卸载
+      // 页面中断钩子执行；钩子失败/超时按「不阻断」韧性原则放行成功路径）
+      void scripts.afterSubmit({ ...payload, result: { successBehavior: result.successBehavior } })
+        .finally(() => onSubmitted?.());
     } catch (e) {
       setGlobalError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -283,6 +305,14 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
       <Button type="primary" loading={submitting} onClick={handleSubmit} style={{ marginTop: 16 }}>
         提交
       </Button>
+      {/* 自定义动作按钮（onActionClick 钩子调度点——08FE §4.3；CALL_API/OPEN_PAGE 等
+          独立语义动作 P2 接线，P1 只渲染钩子可响应的动作按钮触发通知） */}
+      {page.actions.filter((a) => a.type === 'CUSTOM_SCRIPT' || a.type === 'CALL_API').map((a) => (
+        <Button key={a.type + ('apiName' in a ? a.apiName : '')} style={{ marginTop: 16, marginLeft: 8 }}
+          onClick={() => { void scripts.onActionClick('apiName' in a ? a.apiName : a.type); }}>
+          {a.type === 'CALL_API' && 'apiName' in a ? `调用 ${a.apiName}` : a.type}
+        </Button>
+      ))}
     </Card>
   );
 }
