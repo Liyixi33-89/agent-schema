@@ -60,7 +60,7 @@ M15 业务套件中的 designer 全链回归即为现行有效覆盖证明。
 | expenseDate | 日期 | date | required | 既有种子 |
 | category | 类型 | enum | required；options: 差旅/办公用品/招待/培训/其他 | **本轮新增** |
 | attachments | 附件 | multiFile | 可选，单文件 ≤10MB（M9 文件服务既有约束） | **本轮新增** |
-| remark | 备注 | textarea | 可选 | 既有种子 |
+| remark | 备注 | text | 可选；控件使用 TextArea，textarea 不属于字段类型枚举 | 既有种子 |
 
 新增字段走 M12 已验的两段式保存（precheck→token→saveSchema），版本 v2→v3/v4。
 
@@ -88,18 +88,21 @@ M15 业务套件中的 designer 全链回归即为现行有效覆盖证明。
 登记表单页绑定一段合法 L2 脚本（走既有编译链路 contentHash 回写）：
 
 ```js
-// onLoad：页面载入提示
-hooks.onLoad(() => { ui.toast('报销登记就绪'); });
-// onFieldChange('amount')：金额变化实时提示（大额预警）
-hooks.onFieldChange('amount', ({ value }) => {
-  if (Number(value) > 50000) ui.toast('金额超过 50000，请确认');
-});
-// onBeforeSubmit：提交前查询注册 API（真实 api.call 代理）
-hooks.onBeforeSubmit(async ({ form }) => {
-  const rows = await api.call('expense-records', { page: 1, size: 1 });
-  form.set('remark', form.get('remark') || ('已有记录 ' + rows.total + ' 条'));
+export async function onLoad(payload, ctx) {
+  await ctx.ui.toast('报销登记就绪', 'info');
   return true;
-});
+}
+export async function onFieldChange(payload, ctx) {
+  const amount = Number(await ctx.form.get('amount'));
+  if (amount > 50000) await ctx.ui.toast('金额超过 50000，请确认', 'warning');
+  return true;
+}
+export async function beforeSubmit(payload, ctx) {
+  const rows = await ctx.api.call('expense-records', { page: 1, size: 1 });
+  const remark = await ctx.form.get('remark');
+  if (!remark) await ctx.form.set('remark', '已有记录 ' + rows.total + ' 条');
+  return true;
+}
 ```
 
 `expense-records` 为 M14 已验的注册名代理通道（g7-api 6/6）；红线负例（self.fetch）沿用既有向量不重跑编译期，
@@ -140,7 +143,7 @@ M15 断言：**发布动作产生对应埋点事件记录**（服务端可查）
 
 ## 6. 部署方案（公网验收环境）
 
-- 环境：111.231.57.177（既有验收栈：nginx + systemd schema-platform + /opt/schema/web）；只更新验收面，不开放生产；
+- 环境分离：主站由 schema-platform（18080）及 /opt/schema/current/web 服务；公网验收面由 /accept/api/ 代理独立后端（18081），静态目录为 /opt/schema/staging/accept/{designer,runtime}。先只读确认验收后端启动方式、数据库与编译 Worker 配置；不得以主站发布代替验收面更新，不开放生产；
 - 部署 SHA：受控构建登记（evidence.cjs build——前端三应用 bundle + 后端 jar 含 build-source.txt 身份注入）；
 - 数据库迁移核查：对比部署前后 Flyway 版本表；有新迁移则先在备份上验证兼容性；
 - 备份：部署前 pg_dump 全量 + 旧 jar/web 目录归档（/var/backups/ 模式沿用）；
@@ -152,10 +155,10 @@ M15 断言：**发布动作产生对应埋点事件记录**（服务端可查）
 
 - [ ] T1 核对台账缺口（M12 missing=1 定性 + mvp-demo/security 证据空确认）
 - [ ] T2 本规格评审定版（human-lead 确认字段基线）
-- [ ] T3 受控构建双端产物（前端三应用 + 后端身份注入 jar）
-- [ ] T4 公网部署（备份→上传→迁移核查→启动→冒烟→deployment 采样）
-- [ ] T5 mvp-demo 套件编写与执行（六场景正负例，CDP record() 形态）
-- [ ] T6 security 套件执行（六类攻防公网核验）
+- [ ] T3 编写可重复的 mvp-demo/security 套件，目标地址与账号由环境注入；先在本地执行真实业务主链及安全负例，设计者与业务用户分离，不用管理员替代权限验证
+- [ ] T4 修复本轮部署阻断项（前端路径、验收后端/编译 Worker 身份、资源加载检查、备份与迁移回滚边界），受控构建双端产物
+- [ ] T5 公网验收面部署（备份→上传→迁移核查→启动→冒烟→deployment 采样），不得更新主站冒充验收面部署
+- [ ] T6 对固定部署版本复跑同一套 mvp-demo/security 场景，保留完整正负例及实际退出码
 - [ ] T7 缺陷最小修复 + 回归 + 新版本重验（如发现）
 - [ ] T8 归档（report/products/deployment/截图/日志 + M12 缺口说明）+ 四维独立审查 + 台账 accepted
 
