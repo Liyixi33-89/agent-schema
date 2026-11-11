@@ -707,7 +707,7 @@
     {
       "id": "M14",
       "title": "L2 Worker 隔离与最小编译链路",
-      "status": "implemented",
+      "status": "accepted",
       "priority": 10,
       "dependsOn": [
         "M6-M7"
@@ -992,7 +992,8 @@
           ]
         }
       ],
-      "implementedBy": "implementation-session-f42b4e21"
+      "implementedBy": "implementation-session-f42b4e21",
+      "gateVersion": 2
     },
     {
       "id": "M15",

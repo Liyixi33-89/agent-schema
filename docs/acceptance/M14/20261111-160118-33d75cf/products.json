@@ -8,7 +8,17 @@
       "path": "schema-frontend/apps/designer/dist-accept/index.html",
       "sha256": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
       "bytes": 391,
-      "collectedAt": "2026-11-11T08:12:15.328Z",
+      "collectedAt": "2026-11-11T08:13:50.035Z",
+      "method": "local-file-sha256"
+    },
+    {
+      "name": "accept-backend",
+      "sourceCommit": "33d75cf2e31774016b6e2b95dede44c391b95f4e",
+      "runtimeVersion": "33d75cf",
+      "path": "schema-platform/bootstrap/target/bootstrap-0.1.0-SNAPSHOT.jar",
+      "sha256": "68ef793c5ed3b91b719ba103c2c49f3055d05530410aa2601a26234e8fef0b0b",
+      "bytes": 24988255,
+      "collectedAt": "2026-11-11T08:13:50.094Z",
       "method": "local-file-sha256"
     }
   ]
