@@ -1,0 +1,18 @@
+PASS  G7 登录::凭证三件套  -- at=true rt=true csrf=true body零凭证=true
+PASS  RED-POS 合法源码（死循环）编译通过  -- HTTP 200（保存期不拦截，终止兜底在运行期——架构口径）
+PASS  RED-NEG self.fetch 源码保存期被红线拒绝（ENV_ESCAPE）  -- HTTP 422
+PASS  BLD-测试脚本编译成功（产物生成 + contentHash 回写）  -- HTTP 200 hash=8a0a779ecbd1e070…
+PASS  PERSIST-脚本绑定随草稿保存  -- HTTP 200（4 钩子绑定）
+PASS  PERSIST-发布携带脚本绑定  -- HTTP 200
+PASS  BRG-消息桥真实往返（onLoad → ui.toast 渲染进 DOM）  -- toast=G7PROBE OK:total=0
+PASS  BRG-api.call 宿主代理真实返回（token 不进 Worker）  -- G7PROBE OK:total=0
+PASS  ISO-运行期能力剥夺（原型链遮蔽后 fetch/XHR/eval/Function 均不可达）  -- 四能力面全部不可达
+PASS  ISO-onFieldChange 连续输入 5 次后页面存活（50ms 节流不炸页面）  -- 页面存活（节流合并计数由 hook 单测覆盖）
+PASS  TERM-页面可交互（提交按钮可达）  -- 提交按钮在 DOM 可达
+PASS  TERM-Worker 死循环可 terminate，主线程保持响应  -- terminate 3001ms，主线程 alive
+PASS  TERM-页面无白屏（标题元素仍在）  -- 标题: 报销登记
+PASS  ISO-页面无预期外 console 错误  -- 0 条
+PASS  PERSIST-重开 runtime 钩子执行（刷新恢复闭环）  -- toast 复现: G7PROBE OK:total=0
+PASS  PUB-草稿清空不影响发布版本（发布快照独立）  -- 发布快照 scripts=4 条
+
+=== g7-browser 验收: 16/16 PASS ===

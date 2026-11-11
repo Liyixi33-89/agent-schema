@@ -1,0 +1,32 @@
+[
+  {
+    "name": "登录验收账号::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "API-注册名清单含 expense-records",
+    "pass": true,
+    "detail": "expense-records"
+  },
+  {
+    "name": "API-expense-records 查询真实返回数据（非 mock）",
+    "pass": true,
+    "detail": "list=0 total=0"
+  },
+  {
+    "name": "API-未注册名 422 API_NOT_REGISTERED",
+    "pass": true,
+    "detail": "HTTP 422"
+  },
+  {
+    "name": "API-畸形 params 按缺省分页返回 200（负例容错）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "API-无凭证访问 401（token 隔离）",
+    "pass": true,
+    "detail": "HTTP 401"
+  }
+]
