@@ -196,6 +196,7 @@ export function validatePageSchema(input: unknown): PageSchema {
         if (!SCRIPT_HOOKS.includes(String(s.hook))) errs.push(`${p}/hook: 非法钩子名`);
         if (typeof s.contentHash !== 'string' || !s.contentHash) errs.push(`${p}/contentHash: 必填`);
         if (typeof s.sourceHash !== 'string' || !s.sourceHash) errs.push(`${p}/sourceHash: 必填`);
+        if (s.source !== undefined && typeof s.source !== 'string') errs.push(`${p}/source: 可选，必须为字符串`);
         if (seen.has(String(s.hook))) errs.push(`${p}/hook: 同一钩子至多一条绑定`);
         seen.add(String(s.hook));
       });

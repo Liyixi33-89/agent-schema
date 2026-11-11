@@ -62,5 +62,7 @@ export interface PageScriptBinding {
   hook: 'onLoad' | 'onFieldChange' | 'beforeSubmit' | 'afterSubmit' | 'onActionClick' | 'onBeforeDelete';
   contentHash: string;
   sourceHash: string;
+  /** 源码原文（可选——设计器重开恢复编辑态用；运行时不消费，加载只认 contentHash）。 */
+  source?: string;
 }
 export type AnySchema = ModelSchema | PageSchema;

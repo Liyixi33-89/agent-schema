@@ -3,6 +3,11 @@
  * 入口脚本由 Blob URL 构造（同源 dedicated worker）；产物经 import() 动态加载——
  * 产物响应头 CSP connect-src 'none' 不影响 import()（script-src 域，04BE §2.5②）。
  *
+ * ⚠️ 2026-11-11 G7 复核修正：Blob URL Worker 的 CSP 继承宿主文档，产物响应头 CSP
+ * 只约束「以该 URL 新建 Worker」，不能约束已运行 Worker 内的 fetch——connect-src 'none'
+ * 对本链路不生效。运行期网络隔离改由本脚本顶部的 delete 族承担（能力面物理剥夺）；
+ * 产物响应头 CSP 保留为纵深防御层（约束以产物 URL 直接新建 Worker 的路径）。
+ *
  * 协议（与 ScriptHost.invoke 对齐）：
  *   入 → { type:'init', artifactUrl | source, staticUser, staticPage }
  *   入 → { type:'run', hook, payload }
@@ -11,6 +16,18 @@
  *   入 → { type:'ctx-result', id, ok, result?, err? }
  */
 export const WORKER_BOOTSTRAP = `
+// 能力面剥夺（08FE §4 运行期隔离加固）：在加载客户产物之前，剥夺 WorkerGlobalScope
+// 的网络与执行面能力——静态扫描被绕过时（别名/反射/原型链），运行时兜底仍不可达。
+// ⚠️ 关键：fetch/XHR/eval 等定义在 WorkerGlobalScope.prototype（原型链），
+// delete self.x 只删自有属性不遮原型——必须在 self 上定义同名属性（shadowing）：
+// get 恒 undefined，且不可重定义（configurable:false）——客户代码无法用
+// Object.defineProperty 覆写回真函数，也无法 delete 后从原型链重新解析。
+const neuter = (names) => { for (const n of names) {
+  try { Object.defineProperty(self, n, { value: undefined, writable: false, configurable: false }); }
+  catch (e) { /* 已冻结场景（重复 init）——忽略 */ }
+} };
+neuter(['fetch', 'XMLHttpRequest', 'WebSocket', 'eval', 'Function', 'importScripts',
+        'localStorage', 'sessionStorage', 'navigator', 'location']);
 const waiting = new Map();
 let mod = null;
 let staticUser = undefined;

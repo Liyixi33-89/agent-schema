@@ -418,7 +418,7 @@ function PageCanvas({ api, app, pageId, initialDraftVersion, onExit }: CanvasPro
           <Drawer title="L2 脚本（测试台）" open width={720} destroyOnClose
             onClose={() => setScriptOpen(false)}>
             <ScriptPanel api={api} pageId={pageId}
-              initialScripts={doc?.scripts?.map((s) => ({ scriptId: s.scriptId, hook: s.hook, contentHash: s.contentHash, sourceHash: s.sourceHash }))}
+              initialScripts={doc?.scripts?.map((s) => ({ scriptId: s.scriptId, hook: s.hook, contentHash: s.contentHash, sourceHash: s.sourceHash, source: s.source }))}
               onScriptsBound={(scripts) => {
                 // 经命令系统回写（可撤销唯一入口）；后续保存把 scripts 随 PageSchema 落库
                 execute({ type: 'updateScripts', scripts }, `绑定脚本 ${scripts.length} 个钩子`);

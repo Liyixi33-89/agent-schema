@@ -28,7 +28,12 @@ const SAMPLE = `export async function beforeSubmit(payload, ctx) {
 
 export default function ScriptPanel({ api, pageId, initialScripts, onScriptsBound }:
   { api: ApiClient; pageId: string; initialScripts?: ScriptBinding[]; onScriptsBound?: (scripts: ScriptBinding[]) => void }): React.ReactElement {
-  const [source, setSource] = React.useState<string>(SAMPLE);
+  // 重开恢复（G7 复核补入）：绑定携带 source 时恢复源码编辑态——否则重开显示 SAMPLE，
+  // 用户误以为脚本是样例；绑定回写时随 sourceHash 一并携带源码原文
+  const [source, setSource] = React.useState<string>(initialScripts?.[0]?.source ?? SAMPLE);
+  // 源码版本控制（G7 复核补入）：编辑过程中源码改动后未重编译，保存绑定会把旧 hash 与
+  // 新源码错配——编辑即失效上次编译结果，强制重新编译才能绑定
+  const [sourceDirty, setSourceDirty] = React.useState(false);
   const [hook, setHook] = React.useState<HookName>(initialScripts?.[0]?.hook ?? 'beforeSubmit');
   const [saving, setSaving] = React.useState(false);
   const [built, setBuilt] = React.useState<{ contentHash: string; reused?: boolean } | null>(null);
@@ -55,10 +60,12 @@ export default function ScriptPanel({ api, pageId, initialScripts, onScriptsBoun
     try {
       const r = await api.buildPageCode(pageId, source);
       setBuilt(r);
+      setSourceDirty(false);
       // 绑定回写（08FE §2 保存流程）：编译成功才更新绑定；失败保留旧版可用产物（轨道 B 兜底）
       const sourceHash = await sha256Of(source);
+      const prev = bound?.find((b) => b.hook === hook);
       const next: ScriptBinding[] = (bound ?? []).filter((b) => b.hook !== hook);
-      next.push({ scriptId: bound?.find((b) => b.hook === hook)?.scriptId ?? `script-${hook}-${Date.now().toString(36)}`, hook, contentHash: r.contentHash, sourceHash });
+      next.push({ scriptId: prev?.scriptId ?? `script-${hook}-${Date.now().toString(36)}`, hook, contentHash: r.contentHash, sourceHash, source });
       setBound(next);
       onScriptsBound?.(next);
       message.success(`编译成功${r.reused ? '（复用既有产物）' : ''}，已绑定 ${hook}`);
@@ -143,7 +150,7 @@ export default function ScriptPanel({ api, pageId, initialScripts, onScriptsBoun
       <Input.TextArea
         rows={12}
         value={source}
-        onChange={(e) => { setSource(e.target.value); setBuilt(null); }}
+        onChange={(e) => { setSource(e.target.value); setBuilt(null); setSourceDirty(true); }}
         spellCheck={false}
         style={{ fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12 }}
       />
@@ -240,9 +247,10 @@ function wrapWorker(worker: Worker): {
   };
 }
 
-/** 产物端点（04BE §A.5 artifactUrl 回显优先；此处兜底拼同源相对路径——服务端按会话租户绑定）。 */
+/** 产物端点（04BE §A.5 artifactUrl 回显优先；此处兜底拼同源绝对路径——服务端按会话租户绑定）。
+ *  ⚠️ 必须绝对 URL：Worker 从 blob: URL 启动，import() 相对路径以 blob URL 为基解析直接失败。 */
 function artifactUrlOf(contentHash: string): string {
-  return `/api/build/artifacts/current/${contentHash}.js`;
+  return `${location.origin}/api/build/artifacts/current/${contentHash}.js`;
 }
 
 /** 源码 SHA-256（审计「哪版源码」——08FE §2 sourceHash；浏览器原生 SubtleCrypto）。 */

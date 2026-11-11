@@ -133,6 +133,7 @@ function ruleForIdentifier(name: string, config: RedlineConfig): string {
   return 'ENV_ESCAPE';
 }
 
+
 /** 白名单匹配：精确包名或其子路径（@scope/pkg、@scope/pkg/sub）；裸相对/绝对路径不在白名单语义内；含 .. 穿越直接拒。 */
 function isWhitelisted(spec: string, config: RedlineConfig): boolean {
   if (spec.includes('..')) return false;
