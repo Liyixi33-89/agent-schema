@@ -707,7 +707,7 @@
     {
       "id": "M14",
       "title": "L2 Worker 隔离与最小编译链路",
-      "status": "implemented",
+      "status": "accepted",
       "priority": 10,
       "dependsOn": [
         "M6-M7"
@@ -715,19 +715,285 @@
       "spec": ".agent/workflow.md",
       "acceptance": [
         {
-          "id": "script-isolation",
-          "requirement": "受控消息桥、token 隔离、死循环 terminate 后页面可交互、扫描编译 hash 回写",
+          "id": "g7-api",
+          "requirement": "脚本 API 注册名代理通道（真实数据/未注册 422/无凭证 401/畸形容错）",
+          "suite": "g7-api",
+          "command": "node scripts/acceptance/accept-g7-api.cjs",
+          "report": "docs/acceptance/M14/20261111-160118-33d75cf/report.md",
+          "commit": "33d75cf2e31774016b6e2b95dede44c391b95f4e",
+          "passed": true,
+          "provenance": "products.json",
+          "stability": "g7-api-product-check.json",
+          "deployment": "g7-browser-deployment.json",
           "evidence": {
-            "commit": "3d41186c8fc19ee801f0114c5771b4d51f34b736",
-            "command": "powershell -File scripts/verify.ps1 -Level commit",
-            "report": "docs/acceptance/M14/20261110-165800-3d41186/report.md",
-            "suite": "verify-commit",
-            "passed": true
+            "command": "node scripts/acceptance/accept-g7-api.cjs",
+            "report": "docs/acceptance/M14/20261111-160118-33d75cf/report.md",
+            "commit": "33d75cf2e31774016b6e2b95dede44c391b95f4e",
+            "suite": "g7-api",
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "g7-api-product-check.json",
+            "deployment": "g7-browser-deployment.json"
           },
-          "note": "2026-11-10 运行链修复后重建证据：消息桥/ready 握手/静态快照/编译超时四阻断缺陷已修（单测 35→39）；PageSchema.scripts 持久化闭环与真实浏览器 G7 证据遗留，M14 维持 implemented——详见 report.md 遗留登记"
+          "scenarios": [
+            "登录验收账号::凭证三件套",
+            "API-注册名清单含 expense-records",
+            "API-expense-records 查询真实返回数据（非 mock）",
+            "API-未注册名 422 API_NOT_REGISTERED",
+            "API-畸形 params 按缺省分页返回 200（负例容错）",
+            "API-无凭证访问 401（token 隔离）"
+          ]
+        },
+        {
+          "id": "g7-browser",
+          "requirement": "G7 浏览器主套件（红线/编译/隔离/消息桥/硬中断/绑定持久化/发布隔离 七域 16 场景）",
+          "suite": "g7-browser",
+          "command": "node scripts/acceptance/accept-g7-browser.cjs",
+          "report": "docs/acceptance/M14/20261111-160118-33d75cf/report.md",
+          "commit": "33d75cf2e31774016b6e2b95dede44c391b95f4e",
+          "passed": true,
+          "provenance": "products.json",
+          "stability": "g7-api-product-check.json",
+          "deployment": "g7-browser-deployment.json",
+          "evidence": {
+            "command": "node scripts/acceptance/accept-g7-browser.cjs",
+            "report": "docs/acceptance/M14/20261111-160118-33d75cf/report.md",
+            "commit": "33d75cf2e31774016b6e2b95dede44c391b95f4e",
+            "suite": "g7-browser",
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "g7-api-product-check.json",
+            "deployment": "g7-browser-deployment.json"
+          },
+          "scenarios": [
+            "G7 登录::凭证三件套",
+            "RED-POS 合法源码（死循环）编译通过",
+            "RED-NEG self.fetch 源码保存期被红线拒绝（ENV_ESCAPE）",
+            "BLD-测试脚本编译成功（产物生成 + contentHash 回写）",
+            "PERSIST-脚本绑定随草稿保存",
+            "PERSIST-发布携带脚本绑定",
+            "BRG-消息桥真实往返（onLoad → ui.toast 渲染进 DOM）",
+            "BRG-api.call 宿主代理真实返回（token 不进 Worker）",
+            "ISO-运行期能力剥夺（原型链遮蔽后 fetch/XHR/eval/Function 均不可达）",
+            "ISO-onFieldChange 连续输入 5 次后页面存活（50ms 节流不炸页面）",
+            "TERM-页面可交互（提交按钮可达）",
+            "TERM-Worker 死循环可 terminate，主线程保持响应",
+            "TERM-页面无白屏（标题元素仍在）",
+            "ISO-页面无预期外 console 错误",
+            "PERSIST-重开 runtime 钩子执行（刷新恢复闭环）",
+            "PUB-草稿清空不影响发布版本（发布快照独立）"
+          ]
         }
       ],
-      "review": null
+      "deferred": [
+        {
+          "id": "M14-MONACO",
+          "item": "Monaco 编辑器（编辑期红线标红）",
+          "reason": "P1 以 scanSource 列表呈现替代",
+          "status": "deferred",
+          "approvedBy": "human-lead",
+          "reference": "2026-11-10 M14 实现评审：Monaco 编辑器体验增强列入 P2 待办，P1 验收以扫描列表红线呈现为准",
+          "owner": "designer-session",
+          "workPackage": "M14"
+        }
+      ],
+      "review": {
+        "required": true,
+        "approved": true,
+        "commit": "33d75cf2e31774016b6e2b95dede44c391b95f4e",
+        "reviewer": "independent-review-session",
+        "implementedBy": "implementation-session-f42b4e21",
+        "kind": "independent-session",
+        "approvalReference": "docs/acceptance/M14/20261111-160118-33d75cf/review.md",
+        "report": "docs/acceptance/M14/20261111-160118-33d75cf/review.md",
+        "scope": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "coverage": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "findings": [
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F1 上轮证据形态缺陷（console.log 断言不进结果文件）本轮修复——16 断言全部 record() 可归档，归档含 result.json 哈希"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F2 公网验收面未部署 33d75cf——本地栈证据链完整（identity verifiable），公网面随 M15 端到端轮统一更新"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F3 Monaco 延期项有 human-lead 批准出处（2026-11-10 实现评审），P1 以 scanSource 列表呈现替代"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F4 死循环源码保存期不拦截为架构口径（静态不可判定终止性），运行期 terminate 兜底实测 3s 内生效"
+          }
+        ],
+        "note": "四维审查通过（需求 6/6 真源可溯、代码抽查 defineProperty 原型链遮蔽与双通道 terminate、测试 45+105+8/8+6/6 单测与 22 验收断言含负例、证据同源同版干净树终验轮）；单人模式 GitHub 实时审批豁免登记于 singleReviewerMode"
+      },
+      "requirements": [
+        {
+          "id": "M14-REDLINE",
+          "source": "docs/PRD-低代码平台产品规划.md §5.1 门禁 G7 + docs/技术方案-前端(React).md §2 脚本隔离（08FE §8）",
+          "condition": "违规源码（环境逃逸/全局引用/动态执行）保存期被红线拒绝，合法源码编译通过",
+          "risk": "high",
+          "status": "passed",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [
+            "schema-platform/bootstrap/src/main/resources/contract/redlines.json",
+            "schema-platform/build-module 红线扫描（NodeBuildWorker 前置）"
+          ],
+          "tests": [
+            "schema-platform RedlineVectorTest（向量双端同判）",
+            "packages/script-host/test/redline-scanner.test.ts"
+          ],
+          "negativeTests": [
+            "self.fetch → 422 ENV_ESCAPE",
+            "负样本向量双端同判（redline-vectors.json）"
+          ],
+          "checks": [
+            "g7-api",
+            "g7-browser"
+          ]
+        },
+        {
+          "id": "M14-BUILD",
+          "source": "docs/PRD-低代码平台产品规划.md §5.1 门禁 G7 + docs/技术方案-前端(React).md §2 脚本隔离（08FE §8）",
+          "condition": "编译产物生成、contentHash 回写、失败与超时可观察",
+          "risk": "high",
+          "status": "passed",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [
+            "schema-platform/build-module NodeBuildWorker.java（超时/失败隔离）",
+            "schema-platform/bootstrap BuildController"
+          ],
+          "tests": [
+            "build-module 单测",
+            "PageServiceIT 编译链路"
+          ],
+          "negativeTests": [
+            "进程挂起超时可判定",
+            "stderr 满缓冲不死锁"
+          ],
+          "checks": [
+            "g7-browser"
+          ]
+        },
+        {
+          "id": "M14-ISO",
+          "source": "docs/PRD-低代码平台产品规划.md §5.1 门禁 G7 + docs/技术方案-前端(React).md §2 脚本隔离（08FE §8）",
+          "condition": "凭证不进入 Worker；未授权能力（fetch/XHR/eval/Function/op 白名单外）运行期被剥夺或拒绝",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "interaction": "native",
+          "implementation": [
+            "packages/script-host/src/worker-bootstrap.ts（defineProperty 原型链遮蔽）",
+            "packages/script-host/src/script-host.ts（op 白名单 + 宿主代理 api.call）"
+          ],
+          "tests": [
+            "packages/script-host/test/script-host.test.ts"
+          ],
+          "negativeTests": [
+            "无凭证 401",
+            "未注册 API 422",
+            "畸形 params 缺省容错"
+          ],
+          "checks": [
+            "g7-api",
+            "g7-browser"
+          ]
+        },
+        {
+          "id": "M14-BRIDGE",
+          "source": "docs/PRD-低代码平台产品规划.md §5.1 门禁 G7 + docs/技术方案-前端(React).md §2 脚本隔离（08FE §8）",
+          "condition": "消息桥 form.get/set、ui.toast、api.call 真实往返（真实操作→界面结果）",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "interaction": "native",
+          "implementation": [
+            "apps/runtime/src/useScriptHooks.ts（createRuntimeBridge）",
+            "packages/script-host/src/script-host.ts（attachDispatcher）"
+          ],
+          "tests": [
+            "script-host.test.ts 桥往返协议镜像"
+          ],
+          "negativeTests": [
+            "非法 op 拒收",
+            "死循环期间主线程保持响应"
+          ],
+          "checks": [
+            "g7-browser"
+          ]
+        },
+        {
+          "id": "M14-TERM",
+          "source": "docs/PRD-低代码平台产品规划.md §5.1 门禁 G7 + docs/技术方案-前端(React).md §2 脚本隔离（08FE §8）",
+          "condition": "同步死循环被 terminate() 硬中断，页面仍可操作无白屏",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "interaction": "native",
+          "implementation": [
+            "packages/script-host/src/script-host.ts（双通道超时：terminate + 主线程拒绝）"
+          ],
+          "tests": [
+            "script-host.test.ts 终止后不派发"
+          ],
+          "negativeTests": [
+            "死循环 3s 内终止",
+            "终止后提交按钮仍可达"
+          ],
+          "checks": [
+            "g7-browser"
+          ]
+        },
+        {
+          "id": "M14-PERSIST",
+          "source": "docs/PRD-低代码平台产品规划.md §5.1 门禁 G7 + docs/技术方案-前端(React).md §2 脚本隔离（08FE §8）",
+          "condition": "页面绑定保存→重开恢复→runtime 钩子执行（刷新恢复闭环）",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "interaction": "native",
+          "implementation": [
+            "packages/schema-protocol PageSchema.scripts",
+            "apps/runtime/src/useScriptHooks.ts",
+            "后端 PageService 保存/发布链路"
+          ],
+          "tests": [
+            "schema-protocol 105 契约测试",
+            "PageServiceIT 8 用例"
+          ],
+          "negativeTests": [
+            "409 乐观锁保护",
+            "发布快照独立（草稿清空不污染发布）"
+          ],
+          "checks": [
+            "g7-browser"
+          ]
+        }
+      ],
+      "implementedBy": "implementation-session-f42b4e21",
+      "gateVersion": 2
     },
     {
       "id": "M15",

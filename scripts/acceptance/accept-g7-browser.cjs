@@ -59,24 +59,20 @@ async function main() {
   // 死循环样本：保存期不拦截（静态不可判定终止性——架构上靠运行期 terminate 兜底，
   // 运行期终止验证在 B 段浏览器套件）；此处验证它可正常编译（产物存在）后跳过绑定。
   const rDead = await admin.call('POST', `/api/build/pages/${PAGE_ID}/code`, { sourceCode: DEADLOOP_SRC });
-  if (rDead.status !== 200) {
-    throw new Error(`死循环源码编译异常（保存期本不拦截，预期 200）: HTTP ${rDead.status} ${rDead.raw.slice(0, 160)}`);
-  }
-  console.log('PASS  死循环源码可编译（终止兜底在运行期——架构口径确认）');
+  ok('RED-POS 合法源码（死循环）编译通过', rDead.status === 200,
+    `HTTP ${rDead.status}${rDead.status !== 200 ? ' ' + rDead.raw.slice(0, 140) : '（保存期不拦截，终止兜底在运行期——架构口径）'}`);
 
   const rSelf = await admin.call('POST', `/api/build/pages/${PAGE_ID}/code`, { sourceCode: SELF_FETCH_SRC });
-  if (rSelf.status !== 422) {
-    throw new Error(`self.fetch 源码未被拒: HTTP ${rSelf.status} ${rSelf.raw.slice(0, 160)}`);
-  }
-  console.log('PASS  self.fetch 源码保存期被红线拒绝（ENV_ESCAPE）');
+  ok('RED-NEG self.fetch 源码保存期被红线拒绝（ENV_ESCAPE）', rSelf.status === 422,
+    `HTTP ${rSelf.status}${rSelf.status !== 422 ? ' ' + rSelf.raw.slice(0, 140) : ''}`);
 
   // 合法测试脚本编译
   const rBuild = await admin.call('POST', `/api/build/pages/${PAGE_ID}/code`, { sourceCode: TEST_SCRIPT });
-  if (rBuild.status !== 200 || !rBuild.json || !rBuild.json.contentHash) {
-    throw new Error(`测试脚本编译失败: HTTP ${rBuild.status} ${rBuild.raw.slice(0, 300)}`);
-  }
+  const buildOk = rBuild.status === 200 && !!(rBuild.json && rBuild.json.contentHash);
+  ok('BLD-测试脚本编译成功（产物生成 + contentHash 回写）', buildOk,
+    `HTTP ${rBuild.status} hash=${rBuild.json && rBuild.json.contentHash ? rBuild.json.contentHash.slice(0, 16) + '…' : '缺失'}`);
+  if (!buildOk) throw new Error('测试脚本编译失败: ' + rBuild.raw.slice(0, 240));
   const contentHash = rBuild.json.contentHash;
-  console.log(`PASS  测试脚本编译成功 contentHash=${contentHash.slice(0, 16)}…`);
 
   // ---------- A2 绑定保存 + 发布 ----------
   // 草稿契约：GET {schema, draftVersion}；PUT {schema, baseDraftVersion}（乐观锁）
@@ -95,12 +91,14 @@ async function main() {
   }));
   schema.scripts = scripts;
   const rSave = await admin.call('PUT', `/api/pages/${PAGE_ID}/draft`, { schema, baseDraftVersion });
-  if (rSave.status !== 200) throw new Error(`保存脚本绑定失败: HTTP ${rSave.status} ${rSave.raw.slice(0, 240)}`);
-  console.log('PASS  脚本绑定随草稿保存');
+  ok('PERSIST-脚本绑定随草稿保存', rSave.status === 200,
+    `HTTP ${rSave.status}${rSave.status !== 200 ? ' ' + rSave.raw.slice(0, 200) : `（${hooks.length} 钩子绑定）`}`);
+  if (rSave.status !== 200) throw new Error('保存脚本绑定失败');
 
   const rPub = await admin.call('POST', `/api/apps/${APP_ID}/publish`, { pageIds: [PAGE_ID], changelog: 'G7 验收脚本绑定' });
-  if (rPub.status !== 200) throw new Error(`发布失败: HTTP ${rPub.status} ${rPub.raw.slice(0, 240)}`);
-  console.log('PASS  页面发布成功（脚本绑定进入发布版本）');
+  ok('PERSIST-发布携带脚本绑定', rPub.status === 200,
+    `HTTP ${rPub.status}${rPub.status !== 200 ? ' ' + rPub.raw.slice(0, 200) : ''}`);
+  if (rPub.status !== 200) throw new Error('发布失败');
 
   // ---------- B 浏览器验证 ----------
   await cdp.launch();
@@ -125,12 +123,14 @@ async function main() {
       await new Promise((r) => setTimeout(r, 500));
     }
     await cdp.shot('g7-page-loaded');
-    if (!probe) throw new Error('onLoad 探针未出现（消息桥往返失败或脚本未执行）');
-    console.log(`PASS  消息桥真实往返（onLoad → ui.toast 带出: ${probe.slice(0, 60)}）`);
+    ok('BRG-消息桥真实往返（onLoad → ui.toast 渲染进 DOM）', !!probe,
+      probe ? 'toast=' + probe.slice(0, 60) : '探针未出现（消息桥往返失败或脚本未执行）');
+    if (!probe) throw new Error('onLoad 探针未出现');
     await cdp.shot('g7-probe-toast');
 
-    if (!probe.includes('OK:total=')) throw new Error('api.call 失败: ' + probe);
-    console.log('PASS  api.call 宿主代理真实返回（' + probe.slice(0, 50) + '）');
+    const apiOk = !!probe && probe.includes('OK:total=');
+    ok('BRG-api.call 宿主代理真实返回（token 不进 Worker）', apiOk,
+      apiOk ? probe.slice(0, 50) : 'api.call 失败: ' + probe);
 
     // 运行期能力剥夺验证：构造与 worker-bootstrap 同款遮蔽（defineProperty shadowing）
     // 后探测。⚠️ fetch 等定义在 WorkerGlobalScope.prototype——delete 无效，必须遮蔽。
@@ -146,10 +146,10 @@ async function main() {
       });
     })()`);
     const cap = JSON.parse(capProbe);
-    if (cap.hasFetch || cap.hasXHR || cap.hasEval || cap.hasFn) {
-      throw new Error('运行期能力剥夺失败: ' + capProbe);
-    }
-    console.log('PASS  运行期能力剥夺（原型链遮蔽后 fetch/XHR/eval/Function 均不可达）');
+    const capOk = !cap.hasFetch && !cap.hasXHR && !cap.hasEval && !cap.hasFn;
+    ok('ISO-运行期能力剥夺（原型链遮蔽后 fetch/XHR/eval/Function 均不可达）', capOk,
+      capOk ? '四能力面全部不可达' : '能力剥夺失败: ' + capProbe);
+    if (!capOk) throw new Error('运行期能力剥夺失败');
 
     // onFieldChange 节流验证：连续快速输入 5 次（30ms 间隔），50ms 节流合并后 g7_fc_count
     // 增量应远小于 5（尾沿合并——每次触发只保留最新值）；计数字段不渲染改为验证页面存活
@@ -162,14 +162,17 @@ async function main() {
     }
     await new Promise((r) => setTimeout(r, 800)); // 节流窗 + Worker 执行
     const fcAlive = await cdp.evalJs(`(() => { const b = document.querySelector('button'); return b ? 'alive' : 'dead'; })()`);
-    console.log(`INFO  onFieldChange 连续输入 5 次后页面状态: ${fcAlive}（节流合并由 hook 单测覆盖计数）`);
+    // 页面存活为硬断言（节流计数精理由 hook 单测覆盖——50ms 尾沿合并断言在 script-host.test.ts）
+    ok('ISO-onFieldChange 连续输入 5 次后页面存活（50ms 节流不炸页面）', fcAlive === 'alive',
+      fcAlive === 'alive' ? '页面存活（节流合并计数由 hook 单测覆盖）' : '页面死亡');
 
     // beforeSubmit=false 阻断验证：注入 window 可用标记不可行（隔离生效）——改用 UI 提交
     // 真实提交一次：脚本允许提交（probe 无泄漏）→ afterSubmit 执行
     // ⚠️ antd 双字按钮渲染带空格（「提 交」）——匹配须归一化空白（既有坑位沉淀）
     const rBefore = await cdp.evalJs(`(() => { const els = document.querySelectorAll('button'); const submit = Array.from(els).find(b => (b.textContent || '').replace(/[\\s\\u3000]+/g, '').includes('提交')); return submit ? 'found' : 'missing'; })()`);
+    ok('TERM-页面可交互（提交按钮可达）', rBefore === 'found',
+      rBefore === 'found' ? '提交按钮在 DOM 可达' : '提交按钮未找到');
     if (rBefore !== 'found') throw new Error('提交按钮未找到');
-    console.log('PASS  页面可交互（提交按钮可达）');
 
     // 死循环终止验证：直接在页面上下文创建 ScriptHost 死循环实例（runtime 打包含 ScriptHost 类）
     // 通过 dynamic import 加载产物 URL 同款 hash —— 简化：页面内联构造 Worker 死循环由 terminate 验证
@@ -189,18 +192,20 @@ async function main() {
       return JSON.stringify({ killed, alive });
     })()`);
     const dlp = JSON.parse(dlProbe);
+    ok('TERM-Worker 死循环可 terminate，主线程保持响应', dlp.alive === 'alive' && dlp.killed > 0,
+      `terminate ${dlp.killed}ms，主线程 ${dlp.alive}`);
     if (dlp.alive !== 'alive') throw new Error('死循环期间主线程无响应');
-    console.log(`PASS  Worker 死循环可 terminate（${dlp.killed}ms 内），主线程保持响应`);
     await cdp.shot('g7-after-deadloop');
 
     // 页面无白屏：标题元素仍在
     const title = await cdp.evalJs(`(() => { const t = document.querySelector('.ant-card-head-title, h1, h2'); return t ? t.textContent : null; })()`);
+    ok('TERM-页面无白屏（标题元素仍在）', !!title,
+      title ? '标题: ' + String(title).slice(0, 30) : '标题元素消失');
     if (!title) throw new Error('页面白屏：标题元素消失');
-    console.log(`PASS  页面无白屏（标题: ${String(title).slice(0, 30)}）`);
 
     const errs = cdp.errors().filter((e) => !String(e).includes('g7-')); // 脚本日志的预期 error 排除
-    console.log(`INFO  页面 console 错误（非预期）: ${errs.length} 条`);
-    if (errs.length > 0) console.log('      ' + errs.slice(0, 3).join(' | ').slice(0, 240));
+    ok('ISO-页面无预期外 console 错误', errs.length === 0,
+      errs.length === 0 ? '0 条' : errs.length + ' 条: ' + errs.slice(0, 3).join(' | ').slice(0, 200));
   } finally {
     await cdp.close();
   }
@@ -224,8 +229,9 @@ async function main() {
       if (probe2) break;
       await new Promise((r) => setTimeout(r, 500));
     }
+    ok('PERSIST-重开 runtime 钩子执行（刷新恢复闭环）', !!probe2,
+      probe2 ? 'toast 复现: ' + probe2.slice(0, 50) : '刷新后脚本未执行（持久化断链）');
     if (!probe2) throw new Error('刷新后脚本未执行（持久化断链）');
-    console.log('PASS  刷新后发布版本脚本仍执行（持久化闭环）');
     await cdp.shot('g7-refresh-restored');
   } finally {
     await cdp.close();
@@ -240,8 +246,9 @@ async function main() {
   if (rSave2.status !== 200) throw new Error(`草稿清空脚本失败: HTTP ${rSave2.status}`);
   const rPubSchema = await admin.call('GET', `/api/runtime/pages/${PAGE_ID}`);
   const pubScripts = rPubSchema.json && rPubSchema.json.scripts;
+  ok('PUB-草稿清空不影响发布版本（发布快照独立）', !!(pubScripts && pubScripts.length),
+    pubScripts && pubScripts.length ? `发布快照 scripts=${pubScripts.length} 条` : '发布版本 scripts 为空（草稿污染发布）');
   if (!pubScripts || !pubScripts.length) throw new Error('发布版本 scripts 为空（草稿污染发布）');
-  console.log(`PASS  草稿清空不影响发布版本（发布快照 scripts=${pubScripts.length} 条）`);
 
   summary('g7-browser');
 }

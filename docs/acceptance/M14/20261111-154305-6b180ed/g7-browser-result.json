@@ -1,0 +1,82 @@
+[
+  {
+    "name": "G7 登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "RED-POS 合法源码（死循环）编译通过",
+    "pass": true,
+    "detail": "HTTP 200（保存期不拦截，终止兜底在运行期——架构口径）"
+  },
+  {
+    "name": "RED-NEG self.fetch 源码保存期被红线拒绝（ENV_ESCAPE）",
+    "pass": true,
+    "detail": "HTTP 422"
+  },
+  {
+    "name": "BLD-测试脚本编译成功（产物生成 + contentHash 回写）",
+    "pass": true,
+    "detail": "HTTP 200 hash=8a0a779ecbd1e070…"
+  },
+  {
+    "name": "PERSIST-脚本绑定随草稿保存",
+    "pass": true,
+    "detail": "HTTP 200（4 钩子绑定）"
+  },
+  {
+    "name": "PERSIST-发布携带脚本绑定",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "BRG-消息桥真实往返（onLoad → ui.toast 渲染进 DOM）",
+    "pass": true,
+    "detail": "toast=G7PROBE OK:total=0"
+  },
+  {
+    "name": "BRG-api.call 宿主代理真实返回（token 不进 Worker）",
+    "pass": true,
+    "detail": "G7PROBE OK:total=0"
+  },
+  {
+    "name": "ISO-运行期能力剥夺（原型链遮蔽后 fetch/XHR/eval/Function 均不可达）",
+    "pass": true,
+    "detail": "四能力面全部不可达"
+  },
+  {
+    "name": "ISO-onFieldChange 连续输入 5 次后页面存活（50ms 节流不炸页面）",
+    "pass": true,
+    "detail": "页面存活（节流合并计数由 hook 单测覆盖）"
+  },
+  {
+    "name": "TERM-页面可交互（提交按钮可达）",
+    "pass": true,
+    "detail": "提交按钮在 DOM 可达"
+  },
+  {
+    "name": "TERM-Worker 死循环可 terminate，主线程保持响应",
+    "pass": true,
+    "detail": "terminate 3012ms，主线程 alive"
+  },
+  {
+    "name": "TERM-页面无白屏（标题元素仍在）",
+    "pass": true,
+    "detail": "标题: 报销登记"
+  },
+  {
+    "name": "ISO-页面无预期外 console 错误",
+    "pass": true,
+    "detail": "0 条"
+  },
+  {
+    "name": "PERSIST-重开 runtime 钩子执行（刷新恢复闭环）",
+    "pass": true,
+    "detail": "toast 复现: G7PROBE OK:total=0"
+  },
+  {
+    "name": "PUB-草稿清空不影响发布版本（发布快照独立）",
+    "pass": true,
+    "detail": "发布快照 scripts=4 条"
+  }
+]

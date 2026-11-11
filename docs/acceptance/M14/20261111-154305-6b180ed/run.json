@@ -1,0 +1,32 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M14",
+  "runId": "20261111-154305-6b180ed",
+  "startedAt": "2026-11-11T07:43:05.584Z",
+  "sourceCommit": "6b180ed96cf9b3d3f2286f250f2d44ed044a15fc",
+  "workingTreeClean": false,
+  "environment": {
+    "os": "win32",
+    "node": "v24.14.1"
+  },
+  "suites": {
+    "g7-api": {
+      "command": "node scripts/acceptance/accept-g7-api.cjs",
+      "startedAt": "2026-11-11T07:43:05.717Z",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-11T07:43:06.236Z"
+    },
+    "g7-browser": {
+      "command": "node scripts/acceptance/accept-g7-browser.cjs",
+      "startedAt": "2026-11-11T07:43:41.641Z",
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-11T07:44:02.594Z"
+    }
+  }
+}

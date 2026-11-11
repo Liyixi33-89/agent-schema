@@ -1,0 +1,21 @@
+{
+  "sourceCommit": "6b180ed96cf9b3d3f2286f250f2d44ed044a15fc",
+  "unchanged": true,
+  "checkedAt": "2026-11-11T07:43:06.235Z",
+  "products": [
+    {
+      "name": "designer-accept",
+      "path": "schema-frontend/apps/designer/dist-accept/index.html",
+      "sourceCommit": "6b180ed96cf9b3d3f2286f250f2d44ed044a15fc",
+      "sha256": "28cd68af915aa5731f2dac6e81154738ca9fdea13dd43f6ed1dcbab23da02843",
+      "bytes": 391
+    },
+    {
+      "name": "accept-backend",
+      "path": "schema-platform/bootstrap/target/bootstrap-0.1.0-SNAPSHOT.jar",
+      "sourceCommit": "6b180ed96cf9b3d3f2286f250f2d44ed044a15fc",
+      "sha256": "db309978f97f7bb1cf433c79e2efd929babf2821265fac5fffe7dc68ce7906d9",
+      "bytes": 24988256
+    }
+  ]
+}

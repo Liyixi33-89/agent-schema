@@ -1,0 +1,8 @@
+PASS  登录验收账号::凭证三件套  -- at=true rt=true csrf=true body零凭证=true
+PASS  API-注册名清单含 expense-records  -- expense-records
+PASS  API-expense-records 查询真实返回数据（非 mock）  -- list=0 total=0
+PASS  API-未注册名 422 API_NOT_REGISTERED  -- HTTP 422
+PASS  API-畸形 params 按缺省分页返回 200（负例容错）  -- HTTP 200
+PASS  API-无凭证访问 401（token 隔离）  -- HTTP 401
+
+=== g7-api 验收: 6/6 PASS ===

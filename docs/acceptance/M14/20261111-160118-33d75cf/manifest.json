@@ -1,0 +1,95 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M14",
+  "runId": "20261111-160118-33d75cf",
+  "startedAt": "2026-11-11T08:01:18.669Z",
+  "finishedAt": "2026-11-11T08:02:46.666Z",
+  "sourceCommit": "33d75cf2e31774016b6e2b95dede44c391b95f4e",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "win32",
+    "node": "v24.14.1"
+  },
+  "suites": {
+    "g7-api": {
+      "command": "node scripts/acceptance/accept-g7-api.cjs",
+      "startedAt": "2026-11-11T08:01:18.791Z",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-11T08:01:19.308Z"
+    },
+    "g7-browser": {
+      "command": "node scripts/acceptance/accept-g7-browser.cjs",
+      "startedAt": "2026-11-11T08:01:29.020Z",
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-11T08:01:49.709Z"
+    }
+  },
+  "files": [
+    {
+      "path": "report.md",
+      "sha256": "462a4805a70c3bca4aa822143ce6d4524f9f251fa417f0262881df2d779b1fdf"
+    },
+    {
+      "path": "run.json",
+      "sha256": "34118d96fa8aece89b00e18de4020f550a25e8fdfd40b8c557780f4c72545605"
+    },
+    {
+      "path": "products.json",
+      "sha256": "f05e423b47f89adb56a580ecccfe62a2164954d2b87e096f24d45185039d47ad"
+    },
+    {
+      "path": "g7-api-result.json",
+      "sha256": "77d4bc7de805c909bca1c75a4fe446ce335e46e3e046ffd1c91b7d0c6ad4861e"
+    },
+    {
+      "path": "g7-api-product-check.json",
+      "sha256": "920588c8041ca0371da7bb541a17b46b2fc785b4a5a483cef65317403b371120"
+    },
+    {
+      "path": "g7-browser-result.json",
+      "sha256": "acbb9c47ebe2c47549412af9b15ca4918e8b36b92ab04651631ba0c7f17e5ba0"
+    },
+    {
+      "path": "g7-browser-deployment.json",
+      "sha256": "5826ae5533d580ac5a57d3f07ef2e8d7d09a6bfc4cc20c19045489ca0dac932e"
+    },
+    {
+      "path": "g7-browser-deployment-before.json",
+      "sha256": "90df22cf8ed2ea85868295c049e725e749e826b9f44f2257ed558cee2eb03e4c"
+    },
+    {
+      "path": "logs/g7-api-output.txt",
+      "sha256": "d8a6c4c622a09d8bba2df840fa662901e5cf7b281d10ceffc82e11a618d9fa7d"
+    },
+    {
+      "path": "logs/g7-browser-output.txt",
+      "sha256": "349337a331606de34627f41d12166d9ae3e8b5b190fab8fd8ce2d1e084a3c321"
+    },
+    {
+      "path": "shots/g7-browser/01-g7-page-loaded.png",
+      "sha256": "afaf736e098fc4b4e5d26c60583f3d8e9cac9bd7e0eafdb2a6c22eab43a4ae40"
+    },
+    {
+      "path": "shots/g7-browser/02-g7-probe-toast.png",
+      "sha256": "afaf736e098fc4b4e5d26c60583f3d8e9cac9bd7e0eafdb2a6c22eab43a4ae40"
+    },
+    {
+      "path": "shots/g7-browser/03-g7-after-deadloop.png",
+      "sha256": "80c484138f48c702bdb2085cbed2d775673a194b952851f00fce7b4f1a272ceb"
+    },
+    {
+      "path": "shots/g7-browser/04-g7-refresh-restored.png",
+      "sha256": "afaf736e098fc4b4e5d26c60583f3d8e9cac9bd7e0eafdb2a6c22eab43a4ae40"
+    },
+    {
+      "path": "review.md",
+      "sha256": "81e71dca07dee7bfff8116fdc2e25ce15abd2e67acf05bd3fca897156f46d4e7"
+    }
+  ]
+}
