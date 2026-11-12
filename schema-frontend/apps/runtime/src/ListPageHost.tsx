@@ -60,12 +60,13 @@ export function resolveOpenTarget(
   const action = page.actions.find((a): a is Extract<PageSchema['actions'][number], { type: 'OPEN_PAGE' }> => a.type === 'OPEN_PAGE');
   if (!action) return { ok: false, reason: 'no-action' };
   const recordId = action.queryMapping?.recordId;
-  // queryMapping.recordId 支持字面量与 {kind:'field',source:'id'} 两形态；缺省取行 id
+  // queryMapping.recordId 支持字面量与 {kind:'field',source:'id'} 两形态；缺省取行 _id
+  //（引擎投影键 _id——避开业务字段占用 id；兼容直出 id 的数据源）
   let rowId: string | number | undefined;
   if (recordId == null) {
-    rowId = row.id as string | number | undefined;
+    rowId = (row._id ?? row.id) as string | number | undefined;
   } else if (typeof recordId === 'object' && recordId !== null && (recordId as { kind?: string }).kind === 'field') {
-    const src = (recordId as { source?: string }).source ?? 'id';
+    const src = (recordId as { source?: string }).source ?? '_id';
     rowId = row[src] as string | number | undefined;
   } else {
     rowId = recordId as string | number;
@@ -133,6 +134,9 @@ export default function ListPageHost({ client, page, fields }: {
     page: binding?.pagination?.page ?? 1, size: binding?.pagination?.size ?? 20,
   });
   const [sorter, setSorter] = useState<{ field: string; order: 'asc' | 'desc' }[] | undefined>(binding?.sort);
+  // 服务端排序映射到表格列头（呈现排序态）；_id 代理列不可排序（引擎白名单外）
+  const [sortState, setSortState] = useState<{ columnKey: string; order: 'ascend' | 'descend' | undefined }>(() =>
+    binding?.sort?.length ? { columnKey: binding.sort[0].field, order: binding.sort[0].order === 'asc' ? 'ascend' : 'descend' } : { columnKey: '', order: undefined });
   const [result, setResult] = useState<{ list: Record<string, unknown>[]; total: number }>({ list: [], total: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,26 +178,35 @@ export default function ListPageHost({ client, page, fields }: {
       action={<Button onClick={() => setRetry(value => value + 1)}>重试</Button>} />}
     {rowHint && <Alert type="info" showIcon closable message={rowHint} style={{ marginBottom: 12 }}
       onClose={() => setRowHint(null)} />}
-    <Table<Record<string, unknown>> loading={loading} rowKey={row => String(row.id)}
+    <Table<Record<string, unknown>> loading={loading} rowKey={row => String(row._id ?? row.id)}
       onRow={row => ({
         onDoubleClick: () => openRow(row),
         onClick: () => { /* 单击不定跳转——双击/操作列入口，避免误触 */ },
       })}
       dataSource={error ? [] : result.list}
-      columns={hasOpenAction ? [...columns, {
-        key: '__open__', title: '操作', width: 90, fixed: 'right' as const,
-        render: (_v: unknown, row: Record<string, unknown>) => (
-          <Space size={4}>
-            <Button type="link" size="small" onClick={() => openRow(row)}>打开</Button>
-          </Space>
-        ),
-      }] : columns}
+      columns={(() => {
+        const ops = hasOpenAction ? [...columns, {
+          key: '__open__', title: '操作', width: 90, fixed: 'right' as const,
+          render: (_v: unknown, row: Record<string, unknown>) => (
+            <Space size={4}>
+              <Button type="link" size="small" onClick={() => openRow(row)}>打开</Button>
+            </Space>
+          ),
+        }] : columns;
+        // 服务端排序映射列头排序态（设计态 binding.sort 初值 + 点击切换重查）
+        return ops.map((c) => visibleKeys.has(String(c.key))
+          ? { ...c, sorter: true, sortOrder: sortState.columnKey === c.key ? sortState.order ?? null : null }
+          : { ...c, sorter: false });
+      })()}
       onChange={(_pg, _fil, sort) => {
         const next = Array.isArray(sort) ? sort : [sort];
         const mapped = next
           .filter((s) => s.order && s.field != null)
           .map((s) => ({ field: String(s.field), order: s.order === 'ascend' ? 'asc' as const : 'desc' as const }));
-        setSorter(mapped.length ? mapped : binding?.sort);
+        setSorter(mapped.length ? mapped : undefined);
+        setSortState(mapped.length
+          ? { columnKey: mapped[0].field, order: mapped[0].order === 'asc' ? 'ascend' : 'descend' }
+          : { columnKey: '', order: undefined });
       }}
       pagination={{ current: pagination.page, pageSize: pagination.size, total: result.total,
         showSizeChanger: true,

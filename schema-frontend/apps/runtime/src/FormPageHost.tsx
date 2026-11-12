@@ -206,8 +206,17 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
     return meta?.component as React.ComponentType<Record<string, unknown>> | undefined;
   }, []);
 
-  // 字段包装工厂：组件类型仅在 store/page 变化时重建（错误状态组件内自管理）
+  // 字段包装工厂：组件类型按名缓存（EnhancedCache）——
+  // ⚠️ 实测缺陷（M15 验收发现）：每次 resolve 都 new 组件函数时，NodeView 任何 bump
+  // 都拿到新类型引用 → React 判定类型变化卸载重挂载全树 → 组件内错误状态/订阅
+  // 重建，「提交校验失败但界面零反馈」的静默缺陷由此产生。缓存保证类型引用稳定。
+  const enhancedCache = useMemo(
+    () => new Map<string, React.ComponentType<Record<string, unknown>>>(),
+    [resolveComponent, store, page, debounced, readOnly],
+  );
   const enhanceResolve = useCallback((componentName: string) => {
+    const cached = enhancedCache.get(componentName);
+    if (cached) return cached;
     const base = resolveComponent(componentName);
     if (!base) return undefined;
     const Comp = base as React.ComponentType<Record<string, unknown>>;
@@ -259,8 +268,10 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
         </div>
       );
     };
-    return Enhanced as unknown as React.ComponentType<Record<string, unknown>>;
-  }, [resolveComponent, store, page, debounced, readOnly]);
+    const typed = Enhanced as unknown as React.ComponentType<Record<string, unknown>>;
+    enhancedCache.set(componentName, typed);
+    return typed;
+  }, [resolveComponent, store, page, debounced, readOnly, enhancedCache]);
 
   // 提交（防重 + 三阶段协议 + 服务端错误回填 + 脚本钩子 beforeSubmit/afterSubmit）
   const handleSubmit = useCallback(async () => {
