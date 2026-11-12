@@ -1,0 +1,247 @@
+[
+  {
+    "name": "API 管理员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "API 新建模型",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "新建模型返回 id 与 v1",
+    "pass": true,
+    "detail": "id=146 v=1"
+  },
+  {
+    "name": "API 模型详情空字段",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "详情字段数组为空",
+    "pass": true,
+    "detail": "[]"
+  },
+  {
+    "name": "模型落库 v1",
+    "pass": true,
+    "detail": "[\"er_accept_mwdbpp20|1\"]"
+  },
+  {
+    "name": "登录进入工作台",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "「模型」页签就绪",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "画布展示新建模型卡片",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "React Flow 画布渲染（viewport/controls/minimap）",
+    "pass": true,
+    "detail": "{\"viewport\":true,\"nodes\":114,\"zoom\":true,\"minimap\":true,\"pane\":true}"
+  },
+  {
+    "name": "抽屉打开",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "抽屉新增字段入草稿",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "确认弹层含变更清单与影响面",
+    "pass": true,
+    "detail": "保存确认 · 验收模型mwdbpp20变更清单（1 项）新增amount影响面（0 项，按严重度排序）无风险项Cancel确认保存"
+  },
+  {
+    "name": "INFO 档一键保存成功提示",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "保存后落库 v2",
+    "pass": true,
+    "detail": "[\"2\"]"
+  },
+  {
+    "name": "字段 amount 落库（number/ACTIVE）",
+    "pass": true,
+    "detail": "[\"amount|number|ACTIVE\"]"
+  },
+  {
+    "name": "API precheck 签发 token（INFO）",
+    "pass": true,
+    "detail": "mode=INFO"
+  },
+  {
+    "name": "首次保存成功 v3",
+    "pass": true,
+    "detail": "HTTP 200 body={\"version\":3,\"promotedTasks\":[]}"
+  },
+  {
+    "name": "token 重放被拒 422",
+    "pass": true,
+    "detail": "HTTP 422 code=CONFIRM_TOKEN_INVALID"
+  },
+  {
+    "name": "旧 baseVersion 保存 409",
+    "pass": true,
+    "detail": "HTTP 409 code=MODEL_VERSION_CONFLICT sv=3"
+  },
+  {
+    "name": "抽屉字段渲染 amount",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "字段标识/类型禁用态呈现",
+    "pass": true,
+    "detail": "{\"disabledInputs\":1,\"disabledSelect\":true}"
+  },
+  {
+    "name": "删除标记入草稿（撤销按钮出现）",
+    "pass": true,
+    "detail": "{\"found\":true,\"undo\":true,\"text\":\"金额改\\namount\\nnumber\\n修改\\n撤销\"}"
+  },
+  {
+    "name": "删除变更后保存按钮可点",
+    "pass": true,
+    "detail": "{\"found\":true,\"disabled\":false,\"text\":\"保存变更（1 项）\"}"
+  },
+  {
+    "name": "删除保存弹层含删除操作警示",
+    "pass": true,
+    "detail": "保存确认 · 验收模型mwdbpp20变更清单（1 项）删除amount影响面（0 项，按严重度排序）无风险项含删除操作：须逐条确认全部 HIGH 风险后方可保存（删除字段为软删，可通过版本回滚恢复）。我确认删除上述字段（当前无 HIGH 级影响面，删除仍不可撤销——仅可回滚）Cancel确认保存"
+  },
+  {
+    "name": "删除保存成功（v4）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "字段软删落库（DELETED 非物理删）",
+    "pass": true,
+    "detail": "[\"DELETED\"]"
+  },
+  {
+    "name": "重复删除幂等（200 非报错）",
+    "pass": true,
+    "detail": "HTTP 200 code=undefined"
+  },
+  {
+    "name": "≥3 页面引用删字段 → TYPE_MODEL_NAME",
+    "pass": true,
+    "detail": "mode=TYPE_MODEL_NAME sev=HIGH"
+  },
+  {
+    "name": "TYPE_MODEL_NAME 缺 confirmValue 被拒",
+    "pass": true,
+    "detail": "HTTP 422"
+  },
+  {
+    "name": "confirmValue 不等值被拒",
+    "pass": true,
+    "detail": "HTTP 422"
+  },
+  {
+    "name": "模型名等值删除成功 v6",
+    "pass": true,
+    "detail": "HTTP 200 body={\"version\":6,\"promotedTasks\":[]}"
+  },
+  {
+    "name": "版本时间线按钮可用（详情就绪）",
+    "pass": true,
+    "detail": "{\"found\":true,\"disabled\":false}"
+  },
+  {
+    "name": "时间线渲染 v1-v6",
+    "pass": true,
+    "detail": "v62026-11-12T17:06:40.371111+08:00 · 操作者 1-hot_fieldv52026-11-12T17:06:39.982502+08:00 · 操作者 1+hot_field回滚到此版本v42026-11-12T17:06:38.442508+08:00 · 操作者 1-amount回"
+  },
+  {
+    "name": "回滚确认弹层要求输入模型名",
+    "pass": true,
+    "detail": "回滚确认 · 目标 v3正在获取回滚影响面…回滚将以新版本形式还原 v3 的字段定义（数据零操作）； 此后版本的字段变更将被覆盖。请输入完整模型名 验收模型mwdbpp20 确认。Cancel确认回滚"
+  },
+  {
+    "name": "回滚未输入模型名前禁用",
+    "pass": true,
+    "detail": "{\"disabled\":true}"
+  },
+  {
+    "name": "回滚预检影响面呈现",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "回滚确认按钮转可用",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "回滚成功提示（生成新版本）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "回滚生成新版本 v7 落库",
+    "pass": true,
+    "detail": "[\"7\"]"
+  },
+  {
+    "name": "回滚复活 amount 字段（ACTIVE）",
+    "pass": true,
+    "detail": "[\"ACTIVE\"]"
+  },
+  {
+    "name": "rollback_from=3 标记落库",
+    "pass": true,
+    "detail": "[\"3\"]"
+  },
+  {
+    "name": "API 普通成员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "普通成员建模被拒（403）",
+    "pass": true,
+    "detail": "HTTP 403"
+  },
+  {
+    "name": "普通成员 precheck 被拒（403）",
+    "pass": true,
+    "detail": "HTTP 403"
+  },
+  {
+    "name": "跨应用读模型被拒（404 同判）",
+    "pass": true,
+    "detail": "HTTP 404"
+  },
+  {
+    "name": "跨应用 precheck 被拒（404 同判）",
+    "pass": true,
+    "detail": "HTTP 404"
+  },
+  {
+    "name": "跨应用回滚预检被拒（404 同判）",
+    "pass": true,
+    "detail": "HTTP 404"
+  },
+  {
+    "name": "无未捕获 console 错误",
+    "pass": true,
+    "detail": ""
+  }
+]

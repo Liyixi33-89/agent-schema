@@ -1,0 +1,167 @@
+[
+  {
+    "name": "API 管理员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "API 新建模型（九场景）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "前置：amount 落库 v2",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "①连续保存-1：v3 落库",
+    "pass": true,
+    "detail": "[\"3\"]"
+  },
+  {
+    "name": "①连续保存-2：v4 落库且字段集一致",
+    "pass": true,
+    "detail": "[\"amount,remark,seq\"]"
+  },
+  {
+    "name": "①刷新后抽屉字段一致（remark/seq）",
+    "pass": true,
+    "detail": "九场景mwdbqldg · 字段编辑新增字段字段标识/类型创建后不可改；删除走软删（保存时强制高规格确认）。金额amountnumber修改删除备注remarktext修改删除序号seqnumber修改删除"
+  },
+  {
+    "name": "②放弃修改：新增消失",
+    "pass": true,
+    "detail": "九场景mwdbqldg · 字段编辑新增字段字段标识/类型创建后不可改；删除走软删（保存时强制高规格确认）。金额amountnumber修改删除备注remarktext修改删除序号seqnumber修"
+  },
+  {
+    "name": "②放弃修改：删除标记还原（amount 无删除线态）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "②DB 无变更残留（amount 仍 ACTIVE，无 temp_x）",
+    "pass": true,
+    "detail": "[\"ACTIVE\"]"
+  },
+  {
+    "name": "④枚举配置落库",
+    "pass": true,
+    "detail": "[\"[{\\\"label\\\": \\\"甲\\\", \\\"value\\\": \\\"a\\\", \\\"status\\\": \\\"ACTIVE\\\"}, {\\\"label\\\": \\\"乙\\\", \\\"value\\\": \\\"b\\\", \\\"status\\\": \\\"ACTIVE\\\"}, {\\\"label\\\": \\\"丙\\\", \\\"value\\\": \\\"c\\\", \\\"status\\\": \\\"ACTIVE\\\"}]\"]"
+  },
+  {
+    "name": "④新增 relation 时配置表单即时渲染",
+    "pass": true,
+    "detail": "受控类型驱动渲染"
+  },
+  {
+    "name": "④重开后三配置字段在列",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "⑤删除确认弹层呈现（含删除警示）",
+    "pass": true,
+    "detail": "保存确认 · 九场景mwdbqldg变更清单（1 项）删除grade影响面（0 项，按严重度排序）无风险项含删除操作：须逐条确认全部 HIGH 风险后方可保存（删除字段为软删，可通过版本回滚恢复）。我确认删除上述字段（当前无 HIGH 级影"
+  },
+  {
+    "name": "⑤未勾选前确认按钮禁用",
+    "pass": true,
+    "detail": "{\"disabled\":true}"
+  },
+  {
+    "name": "⑤勾选后确认按钮可用",
+    "pass": true,
+    "detail": "{\"disabled\":false}"
+  },
+  {
+    "name": "⑤勾选后才发保存请求（网络断言）",
+    "pass": true,
+    "detail": "before=0 after=1"
+  },
+  {
+    "name": "⑤删除保存成功 v8",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "⑤grade 软删落库",
+    "pass": true,
+    "detail": "[\"DELETED\"]"
+  },
+  {
+    "name": "⑥前置：remark 已删 v9（API 造态）",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "⑥高风险弹层展示真实风险（PAGE_REF→HIGH）",
+    "pass": true,
+    "detail": "保存确认 · 九场景mwdbqldg变更清单（1 项）删除seq影响面（3 项，按严重度排序）HIGH页面引用HIGH页面引用HIGH页面引用高风险操作：请输入完整模型名 九场景mwdbqldg 确认保存。Cancel输入模型名后确认"
+  },
+  {
+    "name": "⑥错误模型名时确认按钮禁用",
+    "pass": true,
+    "detail": "{\"disabled\":true,\"text\":\"输入模型名后确认\"}"
+  },
+  {
+    "name": "⑥正确模型名后确认按钮可用",
+    "pass": true,
+    "detail": "input=九场景mwdbqldg btn={\"disabled\":false,\"text\":\"输入模型名后确认\"}"
+  },
+  {
+    "name": "⑥高风险删除保存成功 v10",
+    "pass": true,
+    "detail": "msg=true db=10"
+  },
+  {
+    "name": "⑥seq 软删落库",
+    "pass": true,
+    "detail": "[\"DELETED\"]"
+  },
+  {
+    "name": "API 普通成员登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "⑦普通成员模型列表 403（读也拒——设计能力判定先行）",
+    "pass": true,
+    "detail": "HTTP 403"
+  },
+  {
+    "name": "⑦普通成员 precheck 被拒 403（设计能力判定）",
+    "pass": true,
+    "detail": "HTTP 403"
+  },
+  {
+    "name": "⑦跨应用读模型 404 同判",
+    "pass": true,
+    "detail": "HTTP 404"
+  },
+  {
+    "name": "⑨画布节点渲染（全应用）",
+    "pass": true,
+    "detail": "{\"edges\":24,\"edgePaths\":24,\"nodes\":115}"
+  },
+  {
+    "name": "⑨全应用关系边完整（DB relation 字段数=画布边数）",
+    "pass": true,
+    "detail": "dbRelations=24 canvasEdges=24"
+  },
+  {
+    "name": "⑨关系边标签呈现（fieldKey · cardinality）",
+    "pass": true,
+    "detail": "rel_target · 1:n"
+  },
+  {
+    "name": "⑧快速切换后选中态一致（无串扰）",
+    "pass": true,
+    "detail": "{\"hasSelected\":true,\"text\":\"收口mwdbcaeder_close_mwdbcaedv5金额number外部字\"}"
+  },
+  {
+    "name": "⑧无未捕获 console 错误",
+    "pass": true,
+    "detail": ""
+  }
+]

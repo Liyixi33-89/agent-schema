@@ -1,0 +1,171 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M12",
+  "runId": "20261112-170616-7359cb8",
+  "startedAt": "2026-11-12T09:06:16.361Z",
+  "finishedAt": "2026-11-12T09:17:03.845Z",
+  "sourceCommit": "7359cb872b367e1cc99dd626363ee8c884b52453",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "win32",
+    "node": "v24.14.1"
+  },
+  "suites": {
+    "er-modeler": {
+      "command": "node scripts/acceptance/accept-er-modeler.cjs",
+      "startedAt": "2026-11-12T09:06:16.733Z",
+      "passed": 49,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-12T09:06:50.013Z"
+    },
+    "er-nine-scenes": {
+      "command": "node scripts/acceptance/accept-er-nine-scenes.cjs",
+      "startedAt": "2026-11-12T09:07:00.842Z",
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-12T09:08:26.604Z"
+    },
+    "m12-closeout": {
+      "command": "node scripts/acceptance/accept-m12-closeout.cjs",
+      "startedAt": "2026-11-12T09:08:48.031Z",
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-12T09:11:24.352Z"
+    }
+  },
+  "files": [
+    {
+      "path": "report.md",
+      "sha256": "5f08b80abc1a1e40f8b157725fa75c1711478f26b358c3729e0ee89ad83751be"
+    },
+    {
+      "path": "review.md",
+      "sha256": "59134ceed41c926442a8247b8ba1c01e13aa4ab87a1e5570bb5a46313af864ee"
+    },
+    {
+      "path": "run.json",
+      "sha256": "c72eeab7cc410dde1e40aa3690b6faa39284440b32b1561cbbfdf7c508e86323"
+    },
+    {
+      "path": "products.json",
+      "sha256": "b195946c01c0e82f5ee108b21932cc4b7c4a41e3b9058780180eb93f1e40bc9f"
+    },
+    {
+      "path": "stability.json",
+      "sha256": "b1c1000f1f0ba364c5ca1d9212cb706d5eb860e1375abd06ff12502c42733604"
+    },
+    {
+      "path": "er-modeler-result.json",
+      "sha256": "61af534dc3c34af63b9a0bd9bf46fa2ea10b3554d52d4510be71f85bc2bf5785"
+    },
+    {
+      "path": "er-modeler-deployment.json",
+      "sha256": "0a06238c15d2110042e7116ab8d4d88d27b5b194e7e2a453dd73a346783100fe"
+    },
+    {
+      "path": "er-modeler-deployment-before.json",
+      "sha256": "e44a02645172e9b7a0cf142daf4cbc0c0d600412c623ff2d37d468101a59604a"
+    },
+    {
+      "path": "er-nine-scenes-result.json",
+      "sha256": "9e9eb6b40ab9b0c28d9476a195fd58135e45d1d0274419730d2b9aa04e3d089e"
+    },
+    {
+      "path": "er-nine-scenes-deployment.json",
+      "sha256": "94f13dd819ce80e571db58a005e94560b2f3d949b688bf17ba5b0145522c49fc"
+    },
+    {
+      "path": "er-nine-scenes-deployment-before.json",
+      "sha256": "9d43cbae9293e26de7f9b85cc2ec88d20f87985a8db7c74de490b51ae1a68c5c"
+    },
+    {
+      "path": "m12-closeout-result.json",
+      "sha256": "371651ac9d798bce46b8e13dc13e81bf80296a14a5071513068eae53fa9e6ac1"
+    },
+    {
+      "path": "m12-closeout-deployment.json",
+      "sha256": "9292ae7dcd31b5df7dac5b7fe8a0459d465a3a9d09e6fd602e43c3a5dd18ba46"
+    },
+    {
+      "path": "m12-closeout-deployment-before.json",
+      "sha256": "6ee99a5b163025f697fde34bcac64c009756e54bd43f98099624446acc1d2de2"
+    },
+    {
+      "path": "logs/er-modeler-output.txt",
+      "sha256": "0da02df53409e8a73462e44774540aff8449bde3be49378a364b6efa1a16e2fc"
+    },
+    {
+      "path": "logs/er-nine-scenes-output.txt",
+      "sha256": "cb713c398f38641838cb2d29b630d4a5d8c9346abebc81b559de6bf07cc8ef1a"
+    },
+    {
+      "path": "logs/m12-closeout-output.txt",
+      "sha256": "a662f87edc79f21141ace8f2d7962297a3e8e68f0a22a2670ea2f92710b0c26c"
+    },
+    {
+      "path": "shots/er-modeler/01-er-canvas.png",
+      "sha256": "073fdb5bf8593b08ce4a190b2f2b9f7398e9dde762ae482a524dc814bc46b469"
+    },
+    {
+      "path": "shots/er-modeler/02-er-drawer-add.png",
+      "sha256": "cce6585c539ec213e5cc39e30bd32ec92b6bcc9279808f86efa88ecda038bbf6"
+    },
+    {
+      "path": "shots/er-modeler/03-er-saved-info.png",
+      "sha256": "e67e315e936c1e486f4bb23bc59fc889cd27a46a94dd5b0f8c3ad8d1b7d14476"
+    },
+    {
+      "path": "shots/er-modeler/04-er-deleted-checkbox.png",
+      "sha256": "4881525fbfe4346257d123d39b2f0c0690f46593b2d19b8e3959fd892da0cc65"
+    },
+    {
+      "path": "shots/er-modeler/05-er-timeline.png",
+      "sha256": "4b631d372a7ac97d53aa59ce3e50a331da99a2282a52bfe4edb3d8cffdbdfec1"
+    },
+    {
+      "path": "shots/er-modeler/06-er-rollback-done.png",
+      "sha256": "c14eaa875dde5f26a997254c15665d684b3d1494524239c8bc5477211d362c07"
+    },
+    {
+      "path": "shots/er-nine-scenes/01-s9-cont-save.png",
+      "sha256": "c8956c7239d77540a7037c73006683c424ca809341038e72b63ae3270803bc14"
+    },
+    {
+      "path": "shots/er-nine-scenes/02-s9-abandon.png",
+      "sha256": "52d660821b2452ac68c454fabaa895da4a0bdcb78a955f7536a56c1f7b5d2d8a"
+    },
+    {
+      "path": "shots/er-nine-scenes/03-s9-config-add.png",
+      "sha256": "ee3ef14fa26e84f5f4a40d9e8993200f799e5088e495f1b0229ba77dc33857dc"
+    },
+    {
+      "path": "shots/er-nine-scenes/04-s9-del-confirm.png",
+      "sha256": "f096c18f8814d300baad26f4715bc94fdaef662026084281a84a3aa6573f9663"
+    },
+    {
+      "path": "shots/er-nine-scenes/05-s9-high-confirm.png",
+      "sha256": "3d6a1ec52af7a30eafcf0d267c21f07131a143820e356b8a948084c55b2a9577"
+    },
+    {
+      "path": "shots/er-nine-scenes/06-s9-relations.png",
+      "sha256": "05e28c9c21109b417e4ac22472e406bf6fc4dd9c30fefc01f419bb91d99b7979"
+    },
+    {
+      "path": "shots/er-nine-scenes/07-s9-async.png",
+      "sha256": "e8b6f5870c34b296d40a2e3868e8fa390d667a2017aa29e6727657fbabeb9370"
+    },
+    {
+      "path": "shots/m12-closeout/01-m12-closeout-final.png",
+      "sha256": "733f548f76853407231555ea5aee7f42314d1111fb9671be6511b8efd35a9691"
+    }
+  ]
+}

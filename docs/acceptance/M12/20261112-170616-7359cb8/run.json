@@ -1,0 +1,44 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M12",
+  "runId": "20261112-170616-7359cb8",
+  "startedAt": "2026-11-12T09:06:16.361Z",
+  "sourceCommit": "7359cb872b367e1cc99dd626363ee8c884b52453",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "win32",
+    "node": "v24.14.1"
+  },
+  "suites": {
+    "er-modeler": {
+      "command": "node scripts/acceptance/accept-er-modeler.cjs",
+      "startedAt": "2026-11-12T09:06:16.733Z",
+      "passed": 49,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-12T09:06:50.013Z"
+    },
+    "er-nine-scenes": {
+      "command": "node scripts/acceptance/accept-er-nine-scenes.cjs",
+      "startedAt": "2026-11-12T09:07:00.842Z",
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-12T09:08:26.604Z"
+    },
+    "m12-closeout": {
+      "command": "node scripts/acceptance/accept-m12-closeout.cjs",
+      "startedAt": "2026-11-12T09:08:48.031Z",
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-12T09:11:24.352Z"
+    }
+  }
+}

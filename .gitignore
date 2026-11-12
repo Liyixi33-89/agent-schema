@@ -27,5 +27,6 @@ scripts/acceptance/out/
 scripts/acceptance/*-result.json
 scripts/acceptance/dbq_exec.sh
 
-# ����ɼ�����Я���ִ� sourceCommit���� run �ݽ�������ʵ��·����
+# 产物采集配置随 run 演进（sourceCommit 每 run 变化）——属证据生成参数而非实现代码
 scripts/acceptance/accept-products-*.config.json
+scripts/acceptance/accept-deploy-*.config.json
