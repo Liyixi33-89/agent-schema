@@ -49,6 +49,7 @@ async function launch(url = 'about:blank') {
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-gpu',
+    '--no-proxy-server',        // 验收环境系统代理会拦截 127.0.0.1 本地探针端口（实测 18095 不可达）
     '--disable-cache',           // 每轮验收强制拉最新产物
     '--disk-cache-size=1',
     '--window-size=1440,900',
