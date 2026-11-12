@@ -126,7 +126,7 @@ class WriteConstraintsIT {
         data.put("qty", 3);
         data.put("price", 7);
         data.put("total", 999999); // 伪造计算字段——必须被重算覆盖
-        long id = TenantContext.with(T1, () -> (Long) engine.create(modelId, data).get("id"));
+        long id = TenantContext.with(T1, () -> Long.parseLong((String) engine.create(modelId, data).get("id")));
 
         Map<String, Object> detail = TenantContext.with(T1, () -> engine.getById(modelId, id));
         assertEquals(21, ((Number) detail.get("total")).intValue(), "计算字段必须按表达式重算（不可伪造）");
@@ -137,7 +137,7 @@ class WriteConstraintsIT {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("qty", 3);
         data.put("price", 7);
-        long id = TenantContext.with(T1, () -> (Long) engine.create(modelId, data).get("id"));
+        long id = TenantContext.with(T1, () -> Long.parseLong((String) engine.create(modelId, data).get("id")));
 
         Map<String, Object> patch = new LinkedHashMap<>();
         patch.put("price", 10);
@@ -229,7 +229,7 @@ class WriteConstraintsIT {
         data.put("price", 5);
         data.put("approver", userId);
         data.put("dept", deptId);
-        long id = TenantContext.with(T1, () -> (Long) engine.create(modelId, data).get("id"));
+        long id = TenantContext.with(T1, () -> Long.parseLong((String) engine.create(modelId, data).get("id")));
         Map<String, Object> detail = TenantContext.with(T1, () -> engine.getById(modelId, id));
         assertEquals(userId.longValue(), ((Number) detail.get("approver")).longValue());
         assertEquals(deptId.longValue(), ((Number) detail.get("dept")).longValue());
