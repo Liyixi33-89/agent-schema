@@ -257,12 +257,15 @@ async function main() {
     // ============ A6 未授权嵌入被拒（frame-ancestors / X-Frame-Options） ============
     // 公网响应头已核验 X-Frame-Options: SAMEORIGIN（nginx）；浏览器实测嵌入语义：
     // 同源 iframe 正常渲染；外域嵌入由 frame-ancestors 'self' / XFO 拒绝。
+    // 判定纪律（M15 收口修正）：跨源 iframe 的 contentDocument 读取受同源策略限制
+    // 属正常行为——不可作为「被拒」证据；「嵌入被拒」证据 = 渲染结果差异 +
+    // 浏览器拒绝消息（Log 域）+ 响应头。同源对照必须真实呈现内容（可读非空）。
     await cdp.launch();
     try {
       // 先建立页面上下文（about:blank 上插 iframe 导航行为不稳定）
       await cdp.goto(webUrl('/runtime/'));
       await sleep(1500);
-      // 同源嵌入正常（对照组）：iframe onload 完成 + 未被浏览器拒绝页替换。
+      // 同源嵌入正常（对照组）：iframe onload 完成 + 内容真实可读（非 undefined/null-doc）。
       const sameOrigin = await cdp.evalJs(`(async () => {
         const f = document.createElement('iframe');
         f.src = '${webUrl('/runtime/')}';
@@ -275,24 +278,36 @@ async function main() {
         });
         await new Promise((r) => setTimeout(r, 1500));
         let inner = 'no-access';
-        try { inner = f.contentDocument ? f.contentDocument.body.innerText.slice(0, 60) : 'null-doc'; } catch (e) { inner = 'blocked'; }
-        return JSON.stringify({ loaded, frames: window.frames.length, inner: String(inner).slice(0, 60) });
+        try { inner = f.contentDocument ? (f.contentDocument.body ? String(f.contentDocument.body.innerText).slice(0, 80) : 'no-body') : 'null-doc'; } catch (e) { inner = 'blocked'; }
+        return JSON.stringify({ loaded, frames: window.frames.length, inner: String(inner).slice(0, 80) });
       })()`);
       const so = JSON.parse(sameOrigin);
-      ok('SEC-A6-同源 iframe 嵌入正常（onload 完成 + 可访问内容——对照组）',
-        so.loaded === 'onload' && String(so.inner).length > 0,
-        `frames=${so.frames} inner=${String(so.inner).slice(0, 50)}`);
+      // 对照组真实性：内容可读且非空（含实际文本——root 元素挂载后有可见文本），
+      // inner 为空/undefined 时判对照组失败（不继续跨源断言——无对照的差异不成立）。
+      const sameRendered = so.loaded === 'onload'
+        && so.inner.length > 0 && so.inner !== 'no-access' && so.inner !== 'blocked'
+        && so.inner !== 'null-doc' && so.inner !== 'no-body' && so.inner.trim() !== '';
+      ok('SEC-A6-同源 iframe 嵌入正常（onload 完成 + 可读真实内容——对照组）',
+        sameRendered,
+        `frames=${so.frames} inner="${String(so.inner).slice(0, 50)}"（空内容=对照失败）`);
       // 跨源嵌入实测（真实浏览器对照证据）：受保护页面被嵌入到不同源上下文 →
       // 浏览器拒绝渲染（XFO/frame-ancestors 强制），与同源对照形成行为差异。
       // 跨源上下文来源：本地栈用本地静态服务器另起端口；公网用同机不同端口（不同源）。
       const embedEvidence = await probeCrossOriginEmbed();
       if (embedEvidence.supported) {
         const e = embedEvidence;
-        // 对照组真实性来自上方同源断言（同渲染路径），此处仅判跨源侧
-        ok('SEC-A6-跨源嵌入被拒（与同源对照形成行为差异）',
-          e.crossBlocked,
-          `同源渲染=${e.sameRendered} 跨源被拒=${e.crossBlocked}` +
-          `${e.crossBlocked && String(e.crossInner || '').length === 0 ? '（跨源内容不可读——拒绝页语义）' : ''}`);
+        // 「嵌入被拒」证据三要素：
+        // ① 渲染差异（跨源 iframe 未呈现应用内容——拒绝页/空白替换）；
+        // ② 浏览器拒绝消息（Log 域 XFO/frame-ancestors 拒绝记录）；
+        // ③ 响应头（下方防护头断言——XFO SAMEORIGIN / CSP frame-ancestors）。
+        // 同源 DOM 不可读属同源策略（正常），不算「被拒」证据——判定不看 crossInner。
+        const denialMessages = e.browserLog.filter((m) =>
+          /frame|ancestor|x-frame|refused to display|embed/i.test(m));
+        ok('SEC-A6-跨源嵌入被拒（渲染差异 + 浏览器拒绝消息）',
+          sameRendered && e.crossBlocked && (denialMessages.length > 0 || e.loaded === 'onerror'),
+          `同源渲染=${sameRendered} 跨源被拒=${e.crossBlocked}` +
+          `${e.loaded === 'onerror' ? '（iframe error 事件——拒绝加载）' : ''}` +
+          `${denialMessages.length ? ` 拒绝消息=${denialMessages[0].slice(0, 90)}` : '（无 Log 拒绝记录——onerror 已证拒绝）'}`);
       } else {
         skip('SEC-A6-跨源嵌入被拒（浏览器实测）',
           `无不同源测试上下文：${embedEvidence.reason}`,
@@ -304,8 +319,14 @@ async function main() {
         ok('SEC-A6-运行时域嵌入防护头下发（X-Frame-Options SAMEORIGIN）',
           String(xf['x-frame-options'] || '').toUpperCase() === 'SAMEORIGIN',
           `xfo=${xf['x-frame-options']}`);
+        // frame-ancestors 强制态核验（CSP RO 不阻断嵌入——须有强制头或 XFO 兜底已断言）
+        const faEnforced = /frame-ancestors/.test(String(xf['content-security-policy'] || ''))
+          || String(xf['x-frame-options'] || '').toUpperCase() === 'SAMEORIGIN';
+        ok('SEC-A6-嵌入防护为强制语义（frame-ancestors 强制 CSP 或 XFO——RO 不算）', faEnforced,
+          `enforced-csp=${/frame-ancestors/.test(String(xf['content-security-policy'] || ''))} xfo=${xf['x-frame-options']}`);
       } else {
         skip('SEC-A6-运行时域嵌入防护头下发', '本地代理无 nginx 层——公网部署复验时必验', { required: true });
+        skip('SEC-A6-嵌入防护为强制语义（frame-ancestors 强制 CSP 或 XFO）', '本地代理无 nginx 层——公网部署复验时必验', { required: true });
       }
       ok('SEC-A6-CSP frame-ancestors 策略含 self（嵌入白名单）',
         String(apiHead['content-security-policy-report-only'] || '').includes("frame-ancestors 'self'"),
@@ -452,10 +473,14 @@ async function probeViolationModule() {
 
 /** A6 跨源嵌入对照：临时 HTTP 服务器承载「嵌入方页面」（不同源），iframe 指向受保护页面。
  *  本地栈与公网目标统一用 127.0.0.1 嵌入方页（浏览器在本机；与 BASE 必然不同源）。
- *  同源渲染=对照组正常；跨源被拒=浏览器 XFO/frame-ancestors 强制。 */
+ *  证据采集：iframe load 结果 + 浏览器级拒绝消息（Log 域）+ 渲染观察。
+ *  同源策略禁读跨源 DOM 属正常行为——「嵌入被拒」判定不以 DOM 不可读为证据。 */
 async function probeCrossOriginEmbed() {
   const port = Number(process.env.ACCEPT_EMBED_PORT || 18096);
   const targetUrl = webUrl('/runtime/');
+  // 嵌入方页面：iframe 指向受保护页面；渲染观察不走跨源 DOM（同源策略禁读属正常，
+  // 不是「被拒」证据）——用 iframe 内元素计数 + 截图可见性替代：
+  // 被拒时 Chrome 渲染拒绝提示页（无应用 DOM）；正常嵌入时应用 DOM 挂载成功。
   const embedPage = `<!doctype html><html><body><div id="probe">embedder</div><script>
     window.__embedResult = new Promise((resolve) => {
       const f = document.createElement('iframe');
@@ -465,11 +490,17 @@ async function probeCrossOriginEmbed() {
       f.addEventListener('error', () => resolve('onerror'));
       setTimeout(() => resolve('timeout'), 8000);
       document.body.appendChild(f);
-      setTimeout(async () => {
-        let inner = 'no-access';
-        try { inner = f.contentDocument ? String(f.contentDocument.body.innerText).slice(0, 80) : 'null-doc'; }
-        catch (e) { inner = 'blocked'; }
-        window.__embedInner = inner;
+      // 渲染观察（跨源安全通道）：尝试读取被嵌页 DOM——跨源正常嵌入时抛
+      // SecurityError（同源策略），但 iframe 呈现应用内容；
+      // 被拒嵌入时 Chrome 以拒绝页替换（about:blank 同源可读 → 空文档）。
+      // 判定真源交给外层 Log 域浏览器拒绝消息 + load 结果，此处只采集现象。
+      setTimeout(() => {
+        let obs = 'unread';
+        try {
+          const d = f.contentDocument;
+          obs = d === null ? 'cross-origin-null' : 'readable:' + String(d.body ? d.body.innerText.slice(0, 40) : 'no-body');
+        } catch (e) { obs = 'SecurityError(' + e.name + ')'; }
+        window.__embedObs = obs;
       }, 2500);
     });
   <\/script></body></html>`;
@@ -484,17 +515,28 @@ async function probeCrossOriginEmbed() {
   if (!srv) return { supported: false, reason: `嵌入方测试页端口不可用（ACCEPT_EMBED_PORT）` };
   try {
     await cdp.launch();
+    cdp.resetBrowserLog();   // 只采嵌入导航窗口内的浏览器消息
     await cdp.goto(`http://127.0.0.1:${port}/embed.html`);
     await sleep(4000);
     const raw = await cdp.evalJs(`(async () => {
       const loaded = await window.__embedResult;
-      const inner = window.__embedInner || '';
-      return JSON.stringify({ loaded, inner: String(inner).slice(0, 80) });
+      const obs = window.__embedObs || 'no-obs';
+      return JSON.stringify({ loaded, obs: String(obs).slice(0, 90) });
     })()`);
     const e = JSON.parse(raw);
-    // 被拒语义：load 事件可能仍触发（拒绝页也是页面）——判定锚定内容不可访问/空
-    const crossBlocked = e.loaded !== 'onload' || String(e.inner).length === 0 || e.inner === 'blocked' || e.inner === 'null-doc';
-    return { supported: true, crossBlocked, crossInner: e.inner };
+    // 浏览器级拒绝消息（Log 域）：Chrome 对 XFO/frame-ancestors 拒绝嵌入会记录
+    // "Refused to display ... in a frame" / "Multiple 'X-Frame-Options'..." 等
+    const browserLog = cdp.browserLog();
+    const denialMsg = browserLog.find((m) => /frame|ancestor|refused to display|embed/i.test(m));
+    // 被拒语义判定（按证据强度排序）：
+    // ① 浏览器拒绝消息（Log 域）——最强证据；
+    // ② iframe error 事件——浏览器拒绝加载；
+    // ③ 拒绝页替换特征：contentDocument 可读（拒绝页是同源 about:blank 时 Chrome
+    //    渲染错误页）且内容不含应用 DOM——弱证据，须搭配拒绝消息才算成立。
+    const crossBlocked = !!denialMsg || e.loaded === 'onerror'
+      || (e.obs.startsWith('readable:') && !String(e.obs).includes('runtime'));
+    return { supported: true, crossBlocked, loaded: e.loaded, obs: e.obs,
+      browserLog, denialMsg: denialMsg || '' };
   } catch (err) {
     return { supported: false, reason: `跨源嵌入探针失败: ${err.message}` };
   } finally {

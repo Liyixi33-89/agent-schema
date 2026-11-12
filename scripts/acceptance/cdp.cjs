@@ -20,6 +20,9 @@ const allSockets = [];       // 全部已建立 WS 连接（泄漏的 WS 会保�
 let msgId = 0;
 const pending = new Map();       // id -> {resolve, reject}
 const consoleErrors = [];        // 页面 console.error / 未捕获异常
+let runtimeEnabled = false;      // Runtime 域启用标记（未启用则 console 事件不推送——恒空假 PASS）
+let logEnabled = false;          // Log 域启用标记（浏览器级消息：XFO/frame-ancestors 拒绝等）
+const browserLogEntries = [];    // Log.entryAdded 采集（拒绝嵌入/拦截类浏览器级证据）
 let screenshotCount = 0;
 let profileDir = null;           // 本轮独立 profile（会话隔离——禁止跨轮残留 Cookie）
 
@@ -48,6 +51,9 @@ async function launch(url = 'about:blank') {
     'about:blank',
   ], { stdio: 'ignore' });
   allBrowsers.push(browser);
+  // 重启后域启用状态归零（新浏览器实例须重新 enable）
+  runtimeEnabled = false;
+  logEnabled = false;
   // 等 CDP 就绪
   for (let i = 0; i < 30; i++) {
     try {
@@ -55,6 +61,12 @@ async function launch(url = 'about:blank') {
       const targets = JSON.parse(await httpGet(`http://127.0.0.1:${PORT}/json/list`));
       const page = targets.find((t) => t.type === 'page');
       await connect(page.webSocketDebuggerUrl);
+      // 连接即启用 Runtime/Log 域：console 错误与浏览器级消息（XFO 拒绝等）默认采集，
+      // 免得每个套件各自记得调 ensure——漏调即恒空假 PASS（M15 收口修复）。
+      await send('Runtime.enable');
+      await send('Log.enable');
+      runtimeEnabled = true;
+      logEnabled = true;
       return;
     } catch { await new Promise((r) => setTimeout(r, 500)); }
   }
@@ -88,6 +100,12 @@ function connect(wsUrl) {
       } else if (msg.method === 'Runtime.exceptionThrown') {
         consoleErrors.push('EXCEPTION: ' + (msg.params.exceptionDetails?.exception?.description
           ?? msg.params.exceptionDetails?.text ?? 'unknown'));
+      } else if (msg.method === 'Log.entryAdded' && logEnabled) {
+        const e = msg.params.entry || {};
+        // 只采集与页面相关的浏览器级消息（network/error 来源），避免噪声淹没
+        if (['network', 'error', 'security'].includes(String(e.source))) {
+          browserLogEntries.push(`${e.source}/${e.level}: ${e.text || ''} ${e.url || ''}`.trim());
+        }
       }
     };
   });
@@ -117,6 +135,27 @@ async function goto(url) {
   await send('Page.navigate', { url });
   await new Promise((r) => setTimeout(r, 1200)); // SPA 初载
 }
+
+/** Runtime 域显式启用（幂等）：console.error / 未捕获异常事件依赖此域推送——
+ *  未启用时 errors() 恒空，console 断言会假 PASS（M15 收口修复）。 */
+async function ensureRuntime() {
+  if (!runtimeEnabled) {
+    await send('Runtime.enable');
+    runtimeEnabled = true;
+  }
+}
+
+/** Log 域显式启用（幂等）：浏览器级消息（XFO/frame-ancestors 拒绝、网络失败）采集前提。 */
+async function ensureLog() {
+  if (!logEnabled) {
+    await send('Log.enable');
+    logEnabled = true;
+  }
+}
+
+/** 浏览器级日志读取（XFO 拒绝嵌入证据通道）。 */
+function browserLog() { return [...browserLogEntries]; }
+function resetBrowserLog() { browserLogEntries.length = 0; }
 
 /** 强制重载（同 hash 路由下 Page.navigate 不触发重载——登出后会话失效验证必需）。 */
 async function reload() {
@@ -241,7 +280,6 @@ async function clearStorage() {
 
 function errors() { return consoleErrors; }
 function resetErrors() { consoleErrors.length = 0; }
-
 async function close() {
   try { ws?.close(); } catch {}
   try { browser?.kill(); } catch {}
@@ -256,4 +294,4 @@ async function close() {
   }
 }
 
-module.exports = { launch, goto, reload, waitFor, evalJs, text, texts, click, fill, mouseClick, mouseDrag, centerOf, clickReact, shot, clearStorage, errors, resetErrors, close, PORT, startNetwork, networkRequests, stopNetwork, send };
+module.exports = { launch, goto, reload, waitFor, evalJs, text, texts, click, fill, mouseClick, mouseDrag, centerOf, clickReact, shot, clearStorage, errors, resetErrors, close, PORT, startNetwork, networkRequests, stopNetwork, send, ensureRuntime, ensureLog, browserLog, resetBrowserLog };
