@@ -31,13 +31,68 @@ function stamp() { return Date.now().toString(36); }
 /** 提交前记录数（负例「不产生记录」断言基线）。 */
 function recordCount() { return Number(dbQuery(`SELECT count(*) FROM biz_model_${MODEL_ID}`)[0]); }
 
+/** 公网目标时浏览器走 /accept/ 前缀静态面（本地代理无前缀）。
+ *  拼接规则：前缀必须以 / 结尾且路径以 / 开头——任何 BASE 丢失分隔符都是坏 URL。 */
+const IS_PUBLIC_TARGET = /127\.0\.0\.1|localhost/.test(BASE) === false;
+const WEB_PREFIX = IS_PUBLIC_TARGET ? '/accept/' : '/';
+const webUrl = (p) => {
+  const suffix = String(p).startsWith('/') ? String(p) : `/${String(p)}`;
+  const joined = `${BASE.replace(/\/$/, '')}${WEB_PREFIX}${suffix.replace(/^\//, '')}`;
+  // 防拼接退化：结果必须含完整前缀（如 /accept/designer/ 而非 /acceptdesigner/）
+  if (IS_PUBLIC_TARGET && !joined.includes('/accept/')) {
+    throw new Error(`webUrl 拼接异常（丢失 /accept/ 前缀）: ${joined}`);
+  }
+  return joined;
+};
+/** 浏览器内 API 基址：公网走 /accept/api（页面路径前缀 /accept 下同源可达）；
+ *  本地代理直通 /api。用于 evalJs 内 fetch 的真实通道（与前端产物 VITE_API_BASE 同构）。 */
+const API_BASE_HTML = IS_PUBLIC_TARGET ? '/accept' : '';
+/** 浏览器身份核验标记（登录后由 loginViaBrowser 断言——业务断言前必须为 true）。 */
+let browserIdentityVerified = false;
+
 async function loginViaBrowser(username, password) {
-  await cdp.goto(`${BASE}/designer/`);
-  await cdp.waitFor('input[placeholder="账号"]', 12000);
+  await cdp.goto(webUrl('/designer/'));
+  await sleep(2500);
+  // 显式身份核验：复用浏览器档案时可能残留上一轮会话——不静默沿用。
+  // 已登录且账号一致 → 继续；账号不一致 → 登出后重新登录；未登录 → 登录。
+  const meProbe = await cdp.evalJs(`(async () => {
+    try {
+      const r = await fetch('${API_BASE_HTML}/api/me', { credentials: 'same-origin' });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return JSON.stringify({ account: j.account, userId: j.userId });
+    } catch (e) { return null; }
+  })()`);
+  if (meProbe && meProbe !== 'null') {
+    const current = JSON.parse(meProbe);
+    if (String(current.account) === String(username)) {
+      browserIdentityVerified = true;   // 身份核验通过（账号一致）
+      return;
+    }
+    // 身份不符 → 登出清场（服务端清 cookie + 前端回登录页）
+    await cdp.evalJs(`fetch('${API_BASE_HTML}/api/auth/logout', { method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' } })`).catch(() => {});
+    await sleep(1200);
+    await cdp.goto(webUrl('/designer/'));
+    await sleep(2000);
+  }
   await cdp.fill('input[placeholder="账号"]', username);
   await cdp.fill('input[placeholder="密码"]', password);
   await cdp.mouseClick('button[type="submit"]');
   await sleep(2200);
+  // 登录后核验身份（防静默失败——必须确认浏览器内当前账号就是目标账号）
+  const after = await cdp.evalJs(`(async () => {
+    try {
+      const r = await fetch('${API_BASE_HTML}/api/me', { credentials: 'same-origin' });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return JSON.stringify({ account: j.account, userId: j.userId });
+    } catch (e) { return null; }
+  })()`);
+  browserIdentityVerified = !!after && after !== 'null' && String(JSON.parse(after).account) === String(username);
+  if (!browserIdentityVerified) {
+    throw new Error(`浏览器身份核验失败：期望 ${username}，实际 ${after || '未登录'}`);
+  }
 }
 
 /** 按表单 label 定位并填值（react 受控组件原生 setter）。 */
@@ -240,10 +295,21 @@ export async function afterSubmit(payload, ctx) { return true; }`;
     await cdp.launch();
     try {
       await loginViaBrowser(bizUser.username, bizUser.password);
+      ok('MVP02-浏览器身份显式核验（当前账号=业务用户，非静默沿用会话）',
+        browserIdentityVerified === true,
+        `identityVerified=${browserIdentityVerified}（登录后 /api/me 账号一致才继续）`);
+      // 浏览器身份与 API 侧 userId 同源核对（双通道一致性）
+      const browserMe = await cdp.evalJs(`(async () => {
+        const r = await fetch('${API_BASE_HTML}/api/me', { credentials: 'same-origin' });
+        return r.ok ? JSON.stringify(await r.json()) : null; })()`);
+      const browserUserId = browserMe ? JSON.parse(browserMe)?.userId : null;
+      ok('MVP02-浏览器会话与 API 侧身份一致（同一业务用户）',
+        String(browserUserId) === String(bizUserId),
+        `browser=${browserUserId} api=${bizUserId}`);
 
       const recTitle = `M15-${st}`;
       const beforeCount = recordCount();
-      await cdp.goto(`${BASE}/runtime/#/page/${PAGE_FORM_ID}`);
+      await cdp.goto(webUrl(`/runtime/#/page/${PAGE_FORM_ID}`));
       await cdp.waitFor('input', 10000);
       await sleep(1500);
       await cdp.shot('m15-form-before');
@@ -292,7 +358,7 @@ export async function afterSubmit(payload, ctx) { return true; }`;
         selfTitles.includes(recTitle), `total=${selfQuery.json?.total} 含本轮=${selfTitles.includes(recTitle)}`);
 
       // ============ MVP-02n 负例：缺必填被拒 + 不产生记录 ============
-      await cdp.goto(`${BASE}/runtime/#/page/${PAGE_FORM_ID}`);
+      await cdp.goto(webUrl(`/runtime/#/page/${PAGE_FORM_ID}`));
       await cdp.waitFor('input', 10000);
       await sleep(1500);
       const beforeNeg = recordCount();
@@ -325,7 +391,7 @@ export async function afterSubmit(payload, ctx) { return true; }`;
       }
 
       // ============ MVP-03 列表查询（消费设计布局） ============
-      await cdp.goto(`${BASE}/runtime/#/page/${listPageId}`);
+      await cdp.goto(webUrl(`/runtime/#/page/${listPageId}`));
       await sleep(2500);
       await cdp.shot('m15-list');
       const listText = await cdp.evalJs('document.body.innerText');

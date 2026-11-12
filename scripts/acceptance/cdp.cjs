@@ -15,6 +15,8 @@ fs.mkdirSync(SHOT_DIR, { recursive: true });
 
 let browser = null;
 let ws = null;
+const allBrowsers = [];       // 全部已启动 Chrome 进程（多次 launch 时 close 逐一清理）
+const allSockets = [];       // 全部已建立 WS 连接（泄漏的 WS 会保持事件循环存活——挂起根因）
 let msgId = 0;
 const pending = new Map();       // id -> {resolve, reject}
 const consoleErrors = [];        // 页面 console.error / 未捕获异常
@@ -45,6 +47,7 @@ async function launch(url = 'about:blank') {
     '--remote-allow-origins=*',
     'about:blank',
   ], { stdio: 'ignore' });
+  allBrowsers.push(browser);
   // 等 CDP 就绪
   for (let i = 0; i < 30; i++) {
     try {
@@ -61,6 +64,7 @@ async function launch(url = 'about:blank') {
 function connect(wsUrl) {
   return new Promise((resolve, reject) => {
     ws = new WebSocket(wsUrl);
+    allSockets.push(ws);
     ws.onopen = () => resolve();
     ws.onerror = (e) => reject(new Error('WS error: ' + e.message));
     ws.onmessage = (ev) => {
@@ -241,9 +245,13 @@ function resetErrors() { consoleErrors.length = 0; }
 async function close() {
   try { ws?.close(); } catch {}
   try { browser?.kill(); } catch {}
+  // 多轮 launch 场景：逐一清理全部实例（泄漏的 WS/进程会保持事件循环存活——套件挂起根因）
+  for (const s of allSockets.splice(0)) { try { s.close(); } catch {} }
+  for (const b of allBrowsers.splice(0)) { try { b.kill(); } catch {} }
   // 等进程退出后清理本轮临时 profile（隔离证据——不留跨轮会话态）
   if (profileDir) {
     const dir = profileDir;
+    profileDir = null;
     setTimeout(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} }, 2000);
   }
 }

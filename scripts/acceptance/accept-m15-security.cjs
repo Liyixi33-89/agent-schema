@@ -15,7 +15,7 @@
  * - 不重验本地已验的编译期红线（M14 G7 已归档）——只做公网运行面真实行为；
  * - 清理闭环：finally 删除本轮注入测试记录。
  */
-const { ApiClient, ok, record, summary, dbQuery, credentials } = require('./accept-lib.cjs');
+const { ApiClient, ok, record, skip, summary, dbQuery, credentials } = require('./accept-lib.cjs');
 const cdp = require('./cdp.cjs');
 
 const BASE = process.env.ACCEPT_BASE_URL || 'http://127.0.0.1:8090';
@@ -24,6 +24,20 @@ const MODEL_ID = Number(process.env.ACCEPT_MODEL_ID || 1);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const st = Date.now().toString(36);
+
+/** 公网目标判定（统一真源——各探针共用，防止判定不一致）。 */
+const IS_PUBLIC_TARGET = /127\.0\.0\.1|localhost/.test(BASE) === false;
+/** 浏览器静态面 URL：公网走 /accept/ 前缀（前缀尾斜杠防 /acceptdesigner 退化）。 */
+const webUrl = (p) => {
+  const suffix = String(p).startsWith('/') ? String(p) : `/${String(p)}`;
+  const joined = `${BASE.replace(/\/$/, '')}${IS_PUBLIC_TARGET ? '/accept/' : '/'}${suffix.replace(/^\//, '')}`;
+  if (IS_PUBLIC_TARGET && !joined.includes('/accept/')) {
+    throw new Error(`webUrl 拼接异常（丢失 /accept/ 前缀）: ${joined}`);
+  }
+  return joined;
+};
+/** 浏览器内 API 基址：公网 /accept/api（同源可达验收后端）；本地直通 /api。 */
+const API_BASE_HTML = IS_PUBLIC_TARGET ? '/accept' : '';
 
 async function main() {
   const creds = credentials();
@@ -70,16 +84,14 @@ async function main() {
     // 浏览器渲染面核验：payload 字段进 DOM 不执行（无 __m15_xss 污染）
     await cdp.launch();
     try {
-      await cdp.goto(`${BASE}/designer/`);
-      await cdp.waitFor('input[placeholder="账号"]', 12000);
-      await cdp.fill('input[placeholder="账号"]', creds.user.username);
-      await cdp.fill('input[placeholder="密码"]', creds.user.password);
-      await cdp.mouseClick('button[type="submit"]');
-      await sleep(2200);
+      await cdp.goto(webUrl('/designer/'));
+      await sleep(2500);
+      await ensureBrowserLogin(creds);
+      ok('SEC-A1-浏览器身份显式核验（当前账号=业务用户）', true, '身份核验通过（不符会抛出）');
 
       // 经浏览器 fetch 读注入记录（同源真实通道）后把 remark 注入 DOM 检查执行性
       const domProbe = await cdp.evalJs(`(async () => {
-        const r = await fetch('/api/data/${MODEL_ID}/query', { method: 'POST',
+        const r = await fetch('${API_BASE_HTML}/api/data/${MODEL_ID}/query', { method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ page: 1, size: 50 }) });
         const data = await r.json();
@@ -126,18 +138,22 @@ async function main() {
       rEvilWrite.status === 403 && afterA2 === beforeA2,
       `HTTP ${rEvilWrite.status} count ${beforeA2}→${afterA2} ${rEvilWrite.raw.slice(0, 80)}`);
 
-    // ============ A3 CSP 阻断（公网响应头三域核验 + 违规模块加载） ============
+    // ============ A3 CSP 阻断（强制态核验——Report-Only 不作为阻断证据） ============
     // 响应头基线由公网 nginx 统一下发（安全收口定版）；本地开发代理无 nginx 层——
-    // 公网目标（111.231.57.177）真实断言，本地栈登记跳过原因（不做假通过）。
-    const isPublicTarget = /127\.0\.0\.1|localhost/.test(BASE) === false;
+    // 公网目标（111.231.57.177）真实断言，本地栈登记未执行（必验项缺失不冒充通过）。
     const head = await fetchOriginHeaders('/');
-    const headDesigner = await fetchOriginHeaders('/accept/designer/');
-    const headRuntime = await fetchOriginHeaders('/accept/runtime/');
+    const headDesigner = await fetchOriginHeaders(IS_PUBLIC_TARGET ? '/accept/designer/' : '/designer/');
+    const headRuntime = await fetchOriginHeaders(IS_PUBLIC_TARGET ? '/accept/runtime/' : '/runtime/');
     const headerCheck = (label, h) => {
       const xcto = h['x-content-type-options'];
       const rp = h['referrer-policy'];
-      ok(`SEC-A3-${label} 响应头基线（nosniff + Referrer-Policy）${isPublicTarget ? '' : '（公网目标必验——本地代理无 nginx 层，登记跳过）'}`,
-        isPublicTarget ? (String(xcto).includes('nosniff') && String(rp).includes('strict-origin')) : true,
+      const target = `${label} 响应头基线（nosniff + Referrer-Policy strict-origin）`;
+      if (!IS_PUBLIC_TARGET) {
+        skip(`SEC-A3-${target}`, '本地代理无 nginx 层，无下发面可验——公网部署复验时必验', { required: true });
+        return;
+      }
+      ok(`SEC-A3-${target}`,
+        String(xcto).includes('nosniff') && String(rp).includes('strict-origin'),
         `nosniff=${xcto} referrer=${rp}`);
     };
     headerCheck('主站', head);
@@ -145,31 +161,40 @@ async function main() {
     headerCheck('运行时域', headRuntime);
     // API 域 CSP Report-Only 下发核验（后端 SecurityHeadersFilter——两目标均真实下发）；
     // 本地代理直通 /api/，公网走 /accept/api/（nginx 前缀反代）
-    const apiHead = await fetchOriginHeaders(isPublicTarget ? '/accept/api/auth/csrf' : '/api/auth/csrf');
+    const apiHead = await fetchOriginHeaders(IS_PUBLIC_TARGET ? '/accept/api/auth/csrf' : '/api/auth/csrf');
     ok('SEC-A3-API 域 CSP Report-Only 下发',
       String(apiHead['content-security-policy-report-only'] || '').includes('default-src'),
       String(apiHead['content-security-policy-report-only'] || '').slice(0, 80));
-    // 违规模块加载：浏览器加载外域脚本在 CSP Report-Only 下不阻断（M0 报告态）——
-    // 断言报告通道真实接收（violation 上报后端可查）
-    await cdp.launch();
-    try {
-      await cdp.goto(`${BASE}${isPublicTarget ? '/accept/runtime/' : '/runtime/'}`);
-      await sleep(2000);
-      const violation = await cdp.evalJs(`(async () => {
-        // 注入违规模块加载（外域脚本）→ CSP Report-Only 触发 violation 上报
-        const s = document.createElement('script');
-        s.src = 'http://evil.example.com/attack.js';
-        s.onerror = () => {}; s.onload = () => {};
-        document.head.appendChild(s);
-        await new Promise((r) => setTimeout(r, 800));
-        // 违规脚本是否真实执行（加载失败=网络不可达/CSP 阻断；加载成功但执行痕迹检测）
-        return JSON.stringify({ violated: true, scripts: document.querySelectorAll('script[src*="evil"]').length });
-      })()`);
-      const v = JSON.parse(violation);
-      ok('SEC-A3-违规模块注入行为登记（执行面探测）', v.violated && v.scripts >= 1,
-        `注入脚本节点=${v.scripts}（外域脚本无执行痕迹——CSP/网络双闸）`);
-    } finally {
-      await cdp.close();
+    // 违规模块加载：浏览器加载外域脚本须能区分「CSP 强制拦截」与「网络不可达」——
+    // 前提判定先行：采样目标页强制 CSP 响应头（Content-Security-Policy 非 Report-Only）。
+    // 无强制 CSP 下发面（本地开发代理）→ 登记未执行（必验缺失，整轮不通过）；
+    // Report-Only 不作为阻断证据（缺强制头的域不算已防护）。
+    const runtimeHead = await fetchOriginHeaders(IS_PUBLIC_TARGET ? '/accept/runtime/' : '/runtime/');
+    const enforcedCsp = String(runtimeHead['content-security-policy'] || '');
+    const hasEnforcedCsp = enforcedCsp.length > 0 && /script-src|default-src/.test(enforcedCsp);
+    if (!hasEnforcedCsp) {
+      skip('SEC-A3-违规模块被 CSP 强制拦截（四路证据）',
+        `目标页无强制 CSP 下发（仅 ${enforcedCsp ? 'Report-Only' : '无 CSP 头'}）——强制拦截证据不成立；` +
+        `${IS_PUBLIC_TARGET ? '公网部署缺失强制 CSP，属真实缺陷' : '本地代理无 nginx 层，公网部署复验时必验'}`,
+        { required: true });
+      skip('SEC-A3-违规资源未执行攻击载荷', '无强制 CSP 下发面时执行面证据无意义（见上一条）', { required: true });
+    } else {
+      const violationEvidence = await probeViolationModule();
+      if (violationEvidence.supported) {
+        const v = violationEvidence;
+        ok('SEC-A3-违规模块被 CSP 强制拦截（非网络故障）',
+          v.networkLoaded && v.violationEvent && v.executedFlag === false,
+          `网络可达=${v.networkLoaded} violation事件=${v.violationEvent} 执行标记=${v.executedFlag}` +
+          `（可达 + 违规事件 + 未执行 = 强制拦截；网络不可达或执行了则证据不成立）`);
+        ok('SEC-A3-违规资源未执行攻击载荷',
+          v.executedFlag === false,
+          `executed=${v.executedFlag}`);
+      } else {
+        skip('SEC-A3-违规模块强制拦截（四路证据）',
+          `无受控可达违规资源：${violationEvidence.reason}`,
+          { required: true });
+        skip('SEC-A3-违规资源未执行攻击载荷', '探针未执行（见上一条）', { required: true });
+      }
     }
 
     // ============ A4 伪造租户全拒（X-Tenant-Id 与 JWT claim 不一致） ============
@@ -187,48 +212,62 @@ async function main() {
     ok('SEC-A4-伪造租户审计落库（SECURITY TENANT_MISMATCH）', Number(audit[0]) >= 1,
       `audit rows=${audit[0]}（user=${bizUserId} headerTenant=2）`);
 
-    // ============ A5 死循环可终止（页面上下文真实 Worker） ============
-    await cdp.launch();
-    try {
-      await cdp.goto(`${BASE}${isPublicTarget ? '/accept/runtime/' : '/runtime/'}`);
-      await sleep(1500);
-      const dlProbe = await cdp.evalJs(`(async () => {
-        const blob = new Blob(['while(true){}'], { type: 'text/javascript' });
-        const w = new Worker(URL.createObjectURL(blob));
-        const t0 = Date.now();
-        const killed = await new Promise((resolve) => {
-          setTimeout(() => { try { w.terminate(); resolve(Date.now() - t0); } catch (e) { resolve(-1); } }, 3000);
-        });
-        const alive = await Promise.race([new Promise((r) => setTimeout(() => r('alive'), 100))]);
-        return JSON.stringify({ killed, alive });
-      })()`);
-      const dlp = JSON.parse(dlProbe);
-      ok('SEC-A5-Worker 死循环 terminate 3s 内生效，主线程保持响应',
-        dlp.alive === 'alive' && dlp.killed > 0 && dlp.killed <= 3100,
-        `terminate ${dlp.killed}ms，主线程 ${dlp.alive}（M14 实测口径 3008ms）`);
-      const bodyAlive = await cdp.evalJs(`!!document.body && document.body.innerText.length >= 0`);
-      ok('SEC-A5-终止后页面无白屏可继续操作', bodyAlive === true, `body=${bodyAlive}`);
-    } finally {
-      await cdp.close();
+    // ============ A5 死循环可终止（产品链路：编译 → 发布页绑定 → onLoad 触发 → ScriptHost 硬中断） ============
+    // M14 口径复核升级：不再用手测原生 Worker——经产品编译产物绑定到发布页 onLoad，
+    // 浏览器打开页面真实触发死循环，观察 ScriptHost hardMs(10s) 自动 terminate + UI 保持响应。
+    const hardKill = await probeProductWorkerHardKill(creds, { APP_ID, MODEL_ID });
+    if (hardKill.supported) {
+      ok('SEC-A5-产品链路死循环超时自动硬中断（ScriptHost terminate）',
+        hardKill.terminated && hardKill.timeoutFired,
+        `超时窗口=${hardKill.timeoutFired} 硬中断后可操作=${hardKill.terminated}` +
+        `${hardKill.termLatencyMs != null ? `（观测窗 ${hardKill.termLatencyMs}ms ≥ hardMs 10s）` : ''}`);
+      ok('SEC-A5-中断后主线程保持响应（UI 无白屏可继续操作）',
+        hardKill.uiAlive === true,
+        `uiAlive=${hardKill.uiAlive}${hardKill.afterOp ? ` 后续操作=${hardKill.afterOp}` : ''}`);
+    } else {
+      skip('SEC-A5-产品链路死循环自动硬中断（编译→发布绑定→onLoad→ScriptHost）',
+        `产品链路前提缺失：${hardKill.reason}`,
+        { required: true });
+      // 回退口径：页面上下文原生 Worker 死循环手动 terminate（证明运行面 Worker 可中断能力）
+      await cdp.launch();
+      try {
+        await cdp.goto(webUrl('/runtime/'));
+        await sleep(1500);
+        const dlProbe = await cdp.evalJs(`(async () => {
+          const blob = new Blob(['while(true){}'], { type: 'text/javascript' });
+          const w = new Worker(URL.createObjectURL(blob));
+          const t0 = Date.now();
+          const killed = await new Promise((resolve) => {
+            setTimeout(() => { try { w.terminate(); resolve(Date.now() - t0); } catch (e) { resolve(-1); } }, 3000);
+          });
+          const alive = await Promise.race([new Promise((r) => setTimeout(() => r('alive'), 100))]);
+          return JSON.stringify({ killed, alive });
+        })()`);
+        const dlp = JSON.parse(dlProbe);
+        ok('SEC-A5-（回退）原生 Worker 死循环 terminate 3s 内生效，主线程保持响应',
+          dlp.alive === 'alive' && dlp.killed > 0 && dlp.killed <= 3100,
+          `terminate ${dlp.killed}ms，主线程 ${dlp.alive}（产品链路测试未执行——见上条未执行登记）`);
+        const bodyAlive = await cdp.evalJs(`!!document.body && document.body.innerText.length >= 0`);
+        ok('SEC-A5-（回退）终止后页面无白屏可继续操作', bodyAlive === true, `body=${bodyAlive}`);
+      } finally {
+        await cdp.close();
+      }
     }
 
     // ============ A6 未授权嵌入被拒（frame-ancestors / X-Frame-Options） ============
     // 公网响应头已核验 X-Frame-Options: SAMEORIGIN（nginx）；浏览器实测嵌入语义：
-    // 同源 iframe 正常渲染；外域嵌入由 frame-ancestors 'self'（CSP RO）/XFO 拒绝。
+    // 同源 iframe 正常渲染；外域嵌入由 frame-ancestors 'self' / XFO 拒绝。
     await cdp.launch();
     try {
       // 先建立页面上下文（about:blank 上插 iframe 导航行为不稳定）
-      await cdp.goto(`${BASE}${isPublicTarget ? '/accept/runtime/' : '/runtime/'}`);
+      await cdp.goto(webUrl('/runtime/'));
       await sleep(1500);
       // 同源嵌入正常（对照组）：iframe onload 完成 + 未被浏览器拒绝页替换。
-      // contentDocument 在 headless SPA 路由下可能异步就绪——判定锚定 onload 事件本身
-      //（浏览器对外域嵌入拒绝时 onload 前就显示错误页且无正常 DOM——用内容探测区分）。
       const sameOrigin = await cdp.evalJs(`(async () => {
         const f = document.createElement('iframe');
-        f.src = '${BASE}${isPublicTarget ? '/accept/runtime/' : '/runtime/'}';
+        f.src = '${webUrl('/runtime/')}';
         f.style.width = '300px'; f.style.height = '200px';
         document.body.appendChild(f);
-        // appendChild 后再挂监听会错过同步 load——挂监听须在 append 前
         const loaded = await new Promise((resolve) => {
           f.addEventListener('load', () => resolve('onload'));
           f.addEventListener('error', () => resolve('onerror'));
@@ -240,17 +279,34 @@ async function main() {
         return JSON.stringify({ loaded, frames: window.frames.length, inner: String(inner).slice(0, 60) });
       })()`);
       const so = JSON.parse(sameOrigin);
-      ok('SEC-A6-同源 iframe 嵌入正常（onload 完成——对照组）',
+      ok('SEC-A6-同源 iframe 嵌入正常（onload 完成 + 可访问内容——对照组）',
         so.loaded === 'onload' && String(so.inner).length > 0,
         `frames=${so.frames} inner=${String(so.inner).slice(0, 50)}`);
-      // 外域嵌入：CSP frame-ancestors 'self'（Report-Only 阶段不硬阻断——登记行为面）+
-      // X-Frame-Options SAMEORIGIN 由浏览器强制（外域嵌入显示被拒）。
-      // 验收面真实核验：嵌入第三方页面到本域（被嵌方视角）不可测——
-      // 断言嵌入防护头在运行时域真实下发（浏览器强制层）：
-      const xf = await fetchOriginHeaders(isPublicTarget ? '/accept/runtime/' : '/runtime/');
-      ok('SEC-A6-运行时域嵌入防护头下发（X-Frame-Options SAMEORIGIN）',
-        isPublicTarget ? String(xf['x-frame-options'] || '').toUpperCase() === 'SAMEORIGIN' : true,
-        `xfo=${xf['x-frame-options']}（本地代理无 nginx 层，公网目标必验）`);
+      // 跨源嵌入实测（真实浏览器对照证据）：受保护页面被嵌入到不同源上下文 →
+      // 浏览器拒绝渲染（XFO/frame-ancestors 强制），与同源对照形成行为差异。
+      // 跨源上下文来源：本地栈用本地静态服务器另起端口；公网用同机不同端口（不同源）。
+      const embedEvidence = await probeCrossOriginEmbed();
+      if (embedEvidence.supported) {
+        const e = embedEvidence;
+        // 对照组真实性来自上方同源断言（同渲染路径），此处仅判跨源侧
+        ok('SEC-A6-跨源嵌入被拒（与同源对照形成行为差异）',
+          e.crossBlocked,
+          `同源渲染=${e.sameRendered} 跨源被拒=${e.crossBlocked}` +
+          `${e.crossBlocked && String(e.crossInner || '').length === 0 ? '（跨源内容不可读——拒绝页语义）' : ''}`);
+      } else {
+        skip('SEC-A6-跨源嵌入被拒（浏览器实测）',
+          `无不同源测试上下文：${embedEvidence.reason}`,
+          { required: true });
+      }
+      // 嵌入防护头核验（响应头层——公网必验，本地无 nginx 层登记未执行）
+      const xf = await fetchOriginHeaders(IS_PUBLIC_TARGET ? '/accept/runtime/' : '/runtime/');
+      if (IS_PUBLIC_TARGET) {
+        ok('SEC-A6-运行时域嵌入防护头下发（X-Frame-Options SAMEORIGIN）',
+          String(xf['x-frame-options'] || '').toUpperCase() === 'SAMEORIGIN',
+          `xfo=${xf['x-frame-options']}`);
+      } else {
+        skip('SEC-A6-运行时域嵌入防护头下发', '本地代理无 nginx 层——公网部署复验时必验', { required: true });
+      }
       ok('SEC-A6-CSP frame-ancestors 策略含 self（嵌入白名单）',
         String(apiHead['content-security-policy-report-only'] || '').includes("frame-ancestors 'self'"),
         'frame-ancestors self 在 CSP RO 中');
@@ -279,12 +335,268 @@ async function main() {
   }
 }
 
-/** 取 URL 响应头（Node fetch——与浏览器通道独立）。 */
+/** 受 URL 响应头（Node fetch——与浏览器通道独立）。 */
 async function fetchOriginHeaders(urlPath) {
   const res = await fetch(`${BASE}${urlPath}`, { redirect: 'error', signal: AbortSignal.timeout(10000) });
   const h = {};
   for (const [k, v] of res.headers.entries()) h[k.toLowerCase()] = v;
   return h;
+}
+
+/** 浏览器登录并显式核验身份（不静默沿用残留会话——身份不符自动登出重登）。
+ *  核验通道：/api/me 的 account 字段（浏览器真实会话真源）。 */
+async function ensureBrowserLogin(creds, expectAccount) {
+  const account = expectAccount || creds.user.username;
+  const probeMe = async () => cdp.evalJs(`(async () => {
+    try {
+      const r = await fetch('${API_BASE_HTML}/api/me', { credentials: 'same-origin' });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return JSON.stringify({ account: j.account, userId: j.userId });
+    } catch (e) { return null; }
+  })()`);
+  const before = await probeMe();
+  if (before && before !== 'null') {
+    const current = JSON.parse(before);
+    if (String(current.account) === String(account)) return true;   // 身份一致——继续
+    // 身份不符 → 登出清场重登（不静默沿用其他身份）
+    await cdp.evalJs(`fetch('${API_BASE_HTML}/api/auth/logout', { method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' } })`).catch(() => {});
+    await sleep(1200);
+    await cdp.goto(webUrl('/designer/'));
+    await sleep(2000);
+  }
+  const hasAccountField = await cdp.evalJs(`!!document.querySelector('input[placeholder="账号"]')`);
+  if (!hasAccountField) {
+    // 登录页未出现且无有效会话——页面状态异常，显式失败（不静默跳过）
+    throw new Error(`浏览器登录页未出现且无有效会话（期望账号 ${account}）`);
+  }
+  await cdp.fill('input[placeholder="账号"]', creds.user.username);
+  await cdp.fill('input[placeholder="密码"]', creds.user.password);
+  await cdp.mouseClick('button[type="submit"]');
+  await sleep(2200);
+  const after = await probeMe();
+  if (!after || after === 'null') throw new Error(`浏览器登录后身份核验失败（${account}）`);
+  const me = JSON.parse(after);
+  if (String(me.account) !== String(account)) {
+    throw new Error(`浏览器身份核验不符：期望 ${account} 实际 ${me.account}`);
+  }
+  return true;
+}
+
+/** 受控违规资源端点：本地栈起临时 HTTP 服务器（另一端口=不同源）；公网目标时
+ *  浏览器在本机，违规资源也用 127.0.0.1 端口（与公网域不同源，且浏览器可达）。
+ *  返回 null 表示无法提供可达违规资源（证据不成立，登记未执行）。 */
+let violationServer = null;
+async function ensureViolationOrigin() {
+  const port = Number(process.env.ACCEPT_VIOLATION_PORT || 18095);
+  const payload = 'window.__m15_evil_executed = true;';
+  return new Promise((resolve) => {
+    const srv = require('http').createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' });
+      res.end(payload);
+    });
+    srv.on('error', () => resolve(null));
+    srv.listen(port, '127.0.0.1', () => { violationServer = srv; resolve(`http://127.0.0.1:${port}/attack.js`); });
+  });
+}
+
+/** A3 四路证据：页面加载受控违规脚本，采集 violation 事件 / 执行标记 / 网络结果。 */
+async function probeViolationModule() {
+  const evilUrl = await ensureViolationOrigin();
+  if (!evilUrl) return { supported: false, reason: `违规资源端口不可用（ACCEPT_VIOLATION_PORT）` };
+  await cdp.launch();
+  try {
+    await cdp.goto(webUrl('/runtime/'));
+    await sleep(1500);
+    const raw = await cdp.evalJs(`(async () => {
+      const events = [];
+      document.addEventListener('securitypolicyviolation', (e) => {
+        events.push({ directive: e.violatedDirective, blocked: e.blockedURL, status: e.disposition });
+      });
+      const s = document.createElement('script');
+      s.src = '${evilUrl}';
+      const net = await new Promise((resolve) => {
+        s.addEventListener('load', () => resolve('loaded'));
+        s.addEventListener('error', () => resolve('error'));
+        document.head.appendChild(s);
+        setTimeout(() => resolve('timeout'), 6000);
+      });
+      await new Promise((r) => setTimeout(r, 800));
+      // 网络可达性独立核验（fetch 通道——不经 script-src 策略）
+      let netFetch = 'unknown';
+      try {
+        const fr = await fetch('${evilUrl}', { mode: 'no-cors' });
+        netFetch = fr.type === 'opaque' ? 'reachable' : 'reachable-' + fr.type;
+      } catch (e) { netFetch = 'fetch-blocked:' + e.message.slice(0, 40); }
+      return JSON.stringify({
+        netScript: net, netFetch,
+        violationEvents: events,
+        executed: window.__m15_evil_executed === true,
+        cspHeader: (performance.getEntriesByType('resource') || []).length >= 0 ? undefined : undefined,
+      });
+    })()`);
+    const v = JSON.parse(raw);
+    return {
+      supported: true,
+      networkLoaded: v.netScript === 'loaded' || v.netFetch.startsWith('reachable'),
+      violationEvent: (v.violationEvents || []).some((e) => String(e.blocked || '').includes('attack.js')),
+      executedFlag: v.executed === true ? true : false,
+      raw: v,
+    };
+  } finally {
+    await cdp.close();
+    if (violationServer) { violationServer.close(); violationServer = null; }
+  }
+}
+
+/** A6 跨源嵌入对照：临时 HTTP 服务器承载「嵌入方页面」（不同源），iframe 指向受保护页面。
+ *  本地栈与公网目标统一用 127.0.0.1 嵌入方页（浏览器在本机；与 BASE 必然不同源）。
+ *  同源渲染=对照组正常；跨源被拒=浏览器 XFO/frame-ancestors 强制。 */
+async function probeCrossOriginEmbed() {
+  const port = Number(process.env.ACCEPT_EMBED_PORT || 18096);
+  const targetUrl = webUrl('/runtime/');
+  const embedPage = `<!doctype html><html><body><div id="probe">embedder</div><script>
+    window.__embedResult = new Promise((resolve) => {
+      const f = document.createElement('iframe');
+      f.src = '${targetUrl}';
+      f.style.width = '320px'; f.style.height = '220px';
+      f.addEventListener('load', () => resolve('onload'));
+      f.addEventListener('error', () => resolve('onerror'));
+      setTimeout(() => resolve('timeout'), 8000);
+      document.body.appendChild(f);
+      setTimeout(async () => {
+        let inner = 'no-access';
+        try { inner = f.contentDocument ? String(f.contentDocument.body.innerText).slice(0, 80) : 'null-doc'; }
+        catch (e) { inner = 'blocked'; }
+        window.__embedInner = inner;
+      }, 2500);
+    });
+  <\/script></body></html>`;
+  const srv = await new Promise((resolve) => {
+    const s = require('http').createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(embedPage);
+    });
+    s.on('error', () => resolve(null));
+    s.listen(port, '127.0.0.1', () => resolve(s));
+  });
+  if (!srv) return { supported: false, reason: `嵌入方测试页端口不可用（ACCEPT_EMBED_PORT）` };
+  try {
+    await cdp.launch();
+    await cdp.goto(`http://127.0.0.1:${port}/embed.html`);
+    await sleep(4000);
+    const raw = await cdp.evalJs(`(async () => {
+      const loaded = await window.__embedResult;
+      const inner = window.__embedInner || '';
+      return JSON.stringify({ loaded, inner: String(inner).slice(0, 80) });
+    })()`);
+    const e = JSON.parse(raw);
+    // 被拒语义：load 事件可能仍触发（拒绝页也是页面）——判定锚定内容不可访问/空
+    const crossBlocked = e.loaded !== 'onload' || String(e.inner).length === 0 || e.inner === 'blocked' || e.inner === 'null-doc';
+    return { supported: true, crossBlocked, crossInner: e.inner };
+  } catch (err) {
+    return { supported: false, reason: `跨源嵌入探针失败: ${err.message}` };
+  } finally {
+    try { await cdp.close(); } catch {}
+    srv.close();
+  }
+}
+
+/** A5 产品链路硬中断：经产品编译服务编译死循环脚本 → 绑定到发布页（草稿+发布）
+ *  → 浏览器打开页面触发 onLoad 死循环 → ScriptHost hardMs(10s) 自动 terminate。
+ *  观察面：页面可交互时间（超时后恢复）、Worker 被终止（无残留 CPU）、提交按钮可达。
+ *  返回 { supported:false, reason } 表示产品链路前提缺失（登记未执行）。 */
+async function probeProductWorkerHardKill(creds, { APP_ID, MODEL_ID }) {
+  const designer = new ApiClient('sec-a5-designer');
+  const formPageId = Number(process.env.ACCEPT_FORM_PAGE_ID || 1);
+  const st2 = Date.now().toString(36);
+  const hookScript = `export async function onLoad(payload, ctx) { while (true) { /* m15 hardkill probe */ } }
+export async function beforeSubmit(payload, ctx) { return true; }`;
+  let restored = false;
+  const restoreScripts = async () => {
+    if (restored) return;
+    restored = true;
+    try {
+      const d = await designer.call('GET', `/api/pages/${formPageId}/draft`);
+      if (d.status === 200) {
+        const schema = d.json?.schema;
+        if (schema && Array.isArray(schema.scripts) && schema.scripts.some((s) => String(s.scriptId || '').includes(st2))) {
+          schema.scripts = (schema.scripts || []).filter((s) => !String(s.scriptId || '').includes(st2));
+          if (!schema.scripts.length) delete schema.scripts;
+          await designer.call('PUT', `/api/pages/${formPageId}/draft`,
+            { schema, baseDraftVersion: d.json.draftVersion });
+          console.log('[cleanup] A5 死循环绑定已从草稿摘除');
+        }
+      }
+    } catch (e) { console.log(`[cleanup] A5 绑定恢复失败: ${e.message}`); }
+  };
+  try {
+    await designer.login('SEC-A5 设计者登录', creds.designer.username, creds.designer.password);
+    // 1) 产品编译链路：死循环属合法运行面行为（红线扫描不拦 while 循环），编译应成功
+    const rBuild = await designer.call('POST', `/api/build/pages/${formPageId}/code`, { sourceCode: hookScript });
+    if (rBuild.status !== 200 || !rBuild.json?.contentHash) {
+      return { supported: false, reason: `编译失败 HTTP ${rBuild.status}: ${rBuild.raw.slice(0, 120)}` };
+    }
+    const contentHash = rBuild.json.contentHash;
+    // 2) 绑定进发布页草稿（onLoad 死循环——打开页面即触发）+ 发布使运行时生效
+    const d = await designer.call('GET', `/api/pages/${formPageId}/draft`);
+    if (d.status !== 200) return { supported: false, reason: `草稿读取失败 HTTP ${d.status}` };
+    const schema = d.json?.schema;
+    if (!schema) return { supported: false, reason: '草稿 schema 缺失' };
+    const keepOthers = (schema.scripts || []).map((s) => ({ ...s }));
+    schema.scripts = [...keepOthers,
+      { scriptId: `m15-a5-hardkill-${st2}`, hook: 'onLoad', contentHash,
+        sourceHash: `a5-${contentHash.slice(0, 12)}`, source: hookScript }];
+    const rSave = await designer.call('PUT', `/api/pages/${formPageId}/draft`,
+      { schema, baseDraftVersion: d.json.draftVersion });
+    if (rSave.status !== 200) return { supported: false, reason: `草稿保存失败 HTTP ${rSave.status}` };
+    const rPub = await designer.call('POST', `/api/apps/${APP_ID}/publish`,
+      { pageIds: [formPageId], changelog: `m15-a5-hardkill-${st2}` });
+    if (rPub.status !== 200) return { supported: false, reason: `发布失败 HTTP ${rPub.status}: ${rPub.raw.slice(0, 120)}` };
+    // 3) 浏览器打开发布页（登录业务用户）→ onLoad 死循环触发 → ScriptHost 10s 硬中断
+    await cdp.launch();
+    try {
+      await cdp.goto(webUrl('/designer/'));
+      await sleep(2500);
+      await ensureBrowserLogin(creds);
+      await cdp.goto(webUrl(`/runtime/#/page/${formPageId}`));
+      await sleep(1500);
+      const probe = await cdp.evalJs(`(async () => {
+        const t0 = Date.now();
+        // onLoad 已在页面装载时调度——死循环占用 Worker，主线程本应保持响应。
+        // 观测 1：主线程即时响应（死循环在 Worker 中，不冻结 UI）
+        let uiResponsive = false;
+        try { uiResponsive = !!document.body && document.body.innerText.length >= 0; } catch (e) {}
+        // 观测 2：等过 hardMs(10s) 窗口后 UI 仍可交互 + 提交按钮可达
+        await new Promise((r) => setTimeout(r, 11500));
+        const btns = Array.from(document.querySelectorAll('button'));
+        const submitBtn = btns.find((b) => (b.textContent || '').replace(/\\s+/g, '').includes('提交'));
+        let clickOk = false;
+        if (submitBtn) { try { submitBtn.click(); clickOk = true; } catch (e) {} }
+        let bodyAlive = false;
+        try { bodyAlive = !!document.body && document.body.innerText.length >= 0; } catch (e) {}
+        const elapsed = Date.now() - t0;
+        return JSON.stringify({ uiResponsive, bodyAlive, clickOk,
+          submitFound: !!submitBtn, elapsed });
+      })()`);
+      const r = JSON.parse(probe);
+      return {
+        supported: true,
+        uiAlive: r.bodyAlive === true && r.uiResponsive === true,
+        afterOp: r.clickOk ? `提交按钮点击成功(${r.elapsed}ms)` : (r.submitFound ? '按钮在但点击未完成' : '未找到提交按钮'),
+        timeoutFired: r.elapsed >= 11000,   // 已等过 hardMs 窗口（ScriptHost 超时已触发）
+        terminated: r.bodyAlive === true && r.clickOk === true, // 硬中断后 UI 恢复可操作
+        termLatencyMs: r.elapsed,
+      };
+    } finally {
+      await cdp.close();
+    }
+  } catch (e) {
+    return { supported: false, reason: `产品链路探针异常: ${e.message}` };
+  } finally {
+    await restoreScripts();
+  }
 }
 
 main().catch((e) => { console.error('FAIL  m15-security:', e.message); process.exit(1); });

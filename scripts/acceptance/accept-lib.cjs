@@ -18,10 +18,20 @@ const API_PREFIX = (process.env.ACCEPT_API_PREFIX || '').replace(/\/$/, '');
 const results = [];
 let failFast = true;
 
+/** 状态语义（防假 PASS）：
+ *  pass=true / fail=true  —— 已执行且结论成立/不成立
+ *  skipped —— 未执行（环境前提缺失），永不算通过；必验项缺失会拉低整体结论
+ *  failFast 下 FAIL 立即抛出；SKIP 不抛但 summary 会按「未执行」单独计数。 */
 function record(name, pass, detail = '') {
   results.push({ name, pass: !!pass, detail: String(detail).slice(0, 300) });
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? '  -- ' + detail : ''}`);
   if (!pass && failFast) throw new Error(`断言失败(终止): ${name} :: ${detail}`);
+}
+
+/** 未执行登记：不打印 PASS，不计入通过数；required=true 时整体判 FAIL。 */
+function skip(name, reason, { required = false } = {}) {
+  results.push({ name, pass: false, skipped: true, required: !!required, detail: `未执行: ${String(reason).slice(0, 280)}` });
+  console.log(`${required ? 'MISS' : 'SKIP'}  ${name}  -- 未执行: ${reason}`);
 }
 
 function ok(name, cond, detail = '') { record(name, cond, detail); }
@@ -188,12 +198,14 @@ const RUN_ID = process.env.ACCEPT_RUN_ID || null;
 function outPath(name) { fs.mkdirSync(RUN_DIR, { recursive: true }); return path.join(RUN_DIR, name); }
 
 function summary(suite) {
-  const failed = results.filter((r) => !r.pass);
-  console.log(`\n=== ${suite} 验收: ${results.length - failed.length}/${results.length} PASS ===`);
+  const failed = results.filter((r) => !r.pass && !r.skipped);
+  const skipped = results.filter((r) => r.skipped);
+  const missedRequired = skipped.filter((r) => r.required);
+  console.log(`\n=== ${suite} 验收: ${results.length - failed.length - skipped.length}/${results.length - skipped.length} PASS` +
+    (skipped.length ? `，未执行 ${skipped.length}（必验缺失 ${missedRequired.length}）` : '') + ' ===');
   fs.writeFileSync(outPath(`${process.env.ACCEPT_SUITE || suite}-result.json`), JSON.stringify(results, null, 2));
-  if (failed.length) process.exitCode = 1;
+  if (failed.length || missedRequired.length) process.exitCode = 1;
   // 清单只由父进程维护；子进程仅产出断言结果。
-
 }
 
-module.exports = { BASE, ok, record, request, ApiClient, dbQuery, summary, results, credentials };
+module.exports = { BASE, ok, record, skip, request, ApiClient, dbQuery, summary, results, credentials };

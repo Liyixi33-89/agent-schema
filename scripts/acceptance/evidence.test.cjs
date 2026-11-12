@@ -313,15 +313,25 @@ test('P0：失败/跳过伪装通过拒绝（计数与结果文件交叉核对�
 }));
 
 test('P0：跳过冒充覆盖拒绝（仅 skipped 无 passed 不放行）', sandbox(async (tmp, dirs) => {
-  fakeRunDir(dirs.out, 'run-skip', { s1: { command: 'x', passed: 0, failed: 0, skipped: 3, exitCode: 0 } });
-  fs.writeFileSync(path.join(dirs.out, 'run-skip', 's1-result.json'), '[]');
+  fakeRunDir(dirs.out, 'run-skip', { s1: { command: 'x', passed: 0, failed: 0, skipped: 3, missedRequired: 0, exitCode: 0 } });
+  fs.writeFileSync(path.join(dirs.out, 'run-skip', 's1-result.json'),
+    JSON.stringify([{ name: 'a', pass: false, skipped: true, detail: '未执行: x' },
+      { name: 'b', pass: false, skipped: true, detail: '未执行: y' },
+      { name: 'c', pass: false, skipped: true, detail: '未执行: z' }]));
   ev.archive('TEST', 'run-skip', ['s1-result.json']);
-  // skipped=3 无失败无退出码问题，但全部跳过不能算通过 —— 由 workflow.py 层把 passed=0 的套件判不可验收
-  // 这里验证 check 至少不误报 PASS：manifest 记录如实（skipped=3）时 check 应通过结构校验
+  // skipped=3（非必验）无失败 —— 结构校验放行（skipped 与结果文件一致），
+  // 但「是否可验收」由台账层按 passed=0 判定；check 只保证计数如实、无假 PASS 语义
   const result = ev.check('TEST/run-skip');
   assert.strictEqual(result.issues.includes('s1: 有失败但退出码为 0'), false);
-  // 但结构上 passed+failed+skipped>0 且类型合法 —— check 层放行，放行与否由台账层判定 skipped 套件
   assert.strictEqual(result.ok, true);
+  // 必验缺失（required skip）必须被 check 拒绝——缺头不能宣称通过
+  fakeRunDir(dirs.out, 'run-skip-req', { s1: { command: 'x', passed: 0, failed: 0, skipped: 1, missedRequired: 1, exitCode: 0 } });
+  fs.writeFileSync(path.join(dirs.out, 'run-skip-req', 's1-result.json'),
+    JSON.stringify([{ name: 'a', pass: false, skipped: true, required: true, detail: '未执行: 必验' }]));
+  ev.archive('TEST', 'run-skip-req', ['s1-result.json']);
+  const resultReq = ev.check('TEST/run-skip-req');
+  assert.strictEqual(resultReq.ok, false);
+  assert.ok(resultReq.issues.some((i) => i.includes('必验项未执行但退出码为 0')), JSON.stringify(resultReq.issues));
 }));
 
 test('P0：归档目录与 manifest 路径绑定拒绝（挪用他包材料）', sandbox(async (tmp, dirs) => {

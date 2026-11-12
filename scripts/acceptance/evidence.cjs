@@ -148,14 +148,14 @@ function suite(runDir, suiteName, command) {
     latest.suites[suiteName] = { ...(latest.suites[suiteName] || {}), ...patch };
     fs.writeFileSync(runFile, JSON.stringify(latest, null, 2));
   };
-  persist({ command, startedAt: isoNow(), passed: 0, failed: 0, skipped: 0 });
+  persist({ command, startedAt: isoNow(), passed: 0, failed: 0, skipped: 0, missedRequired: 0 });
   return {
     runId: run.runId,
     runDir,
     /** 结果 JSON 与截图都按套件隔离命名。 */
     resultFile: path.join(runDir, `${suiteName}-result.json`),
     shotDir: path.join(runDir, 'shots', suiteName),
-    count(passed, failed, skipped) { persist({ passed, failed, skipped }); },
+    count(passed, failed, skipped, missedRequired) { persist({ passed, failed, skipped, missedRequired }); },
     exit(code) {
       persist({ exitCode: code === undefined ? (process.exitCode || 0) : code, finishedAt: isoNow() });
     },
@@ -198,7 +198,13 @@ function runCommand(workPackage, suiteName, cmd, { reuseRunId } = {}) {
     }
     const skipped = rows.filter((r) => r.skipped === true).length;
     const failed = rows.filter((r) => r.skipped !== true && r.pass === false).length;
-    ctx.count(rows.length - failed - skipped, failed, skipped);
+    const missedRequired = rows.filter((r) => r.skipped === true && r.required === true).length;
+    ctx.count(rows.length - failed - skipped, failed, skipped, missedRequired);
+    // 必验缺失（未执行且 required）按失败计——套件不得宣称通过
+    if (missedRequired) {
+      exitCode = 1;
+      fs.appendFileSync(logFile, `\n[evidence] 必验项未执行 ${missedRequired} 项（required skip）——整轮不通过\n`);
+    }
     if (failed && exitCode === 0) exitCode = 1;
   }
   if (before) {
@@ -317,10 +323,19 @@ function check(archiveRel) {
       let arr = null;
       try { const parsed = JSON.parse(text); arr = Array.isArray(parsed) ? parsed : null; } catch { arr = null; }
       if (s && arr) {
-        const passed = arr.filter((r) => r && r.pass === true).length;
-        const failed = arr.length - passed;
+        const skippedRows = arr.filter((r) => r && r.skipped === true);
+        const passed = arr.filter((r) => r && r.pass === true && r.skipped !== true).length;
+        const failed = arr.filter((r) => r && r.pass === false && r.skipped !== true).length;
+        const missedRequired = skippedRows.filter((r) => r.required === true).length;
         if (s.passed !== passed || s.failed !== failed) issues.push(`${rel.path}: 计数与结果文件不符`);
+        if ((s.skipped || 0) !== skippedRows.length) issues.push(`${rel.path}: skipped 计数与结果文件不符`);
+        if ((s.missedRequired || 0) !== missedRequired) issues.push(`${rel.path}: missedRequired 计数与结果文件不符`);
         if (failed > 0 && s.exitCode === 0) issues.push(`${rel.path}: 有失败断言但退出码为 0`);
+        // 必验缺失：未执行且 required 的项不允许整轮以 0 退出码宣称通过
+        if (missedRequired > 0 && s.exitCode === 0) issues.push(`${rel.path}: 必验项未执行但退出码为 0（假 PASS）`);
+        if (skippedRows.length > 0 && arr.some((r) => r && r.skipped === true && r.pass === true)) {
+          issues.push(`${rel.path}: 未执行项 pass=true 语义非法`);
+        }
       }
     }
   }
@@ -332,6 +347,7 @@ function check(archiveRel) {
   }
   for (const [name, s] of Object.entries(m.suites || {})) {
     if (s.failed > 0 && s.exitCode === 0) issues.push(`${name}: 有失败但退出码为 0`);
+    if ((s.missedRequired || 0) > 0 && s.exitCode === 0) issues.push(`${name}: 必验项未执行但退出码为 0（假 PASS）`);
     if (s.passed + s.failed + s.skipped === 0) issues.push(`${name}: 无断言记录`);
     if (s.exitCode !== 0 && s.exitCode !== undefined && s.failed === 0 && !s.skipped) issues.push(`${name}: 非零退出但无失败记录`);
   }
