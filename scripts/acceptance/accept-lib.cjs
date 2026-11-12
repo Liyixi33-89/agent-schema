@@ -111,10 +111,12 @@ class ApiClient {
   async call(method, urlPath, body, extraHeaders = {}) {
     const headers = { Origin: BASE, ...extraHeaders };
     if (TUNNEL_ORIGIN) {
-      // 隧道通道：Host 头显式设为公网源（nginx $http_host 透传），Origin 同值
+      // 隧道通道：Host 头显式设为公网源（nginx $http_host 透传）。
+      // ⚠️ Origin 不覆盖调用方显式伪造值——A2 跨站登录测试依赖伪造 Origin 生效；
+      //    仅当调用方未显式指定时才设隧道公网源。
       const u = new URL(TUNNEL_ORIGIN);
       headers.Host = u.host;
-      headers.Origin = TUNNEL_ORIGIN;
+      if (headers.Origin === BASE) headers.Origin = TUNNEL_ORIGIN;
     }
     if (this.cookies.size) headers.Cookie = this._cookieHeader();
     const csrf = this.csrf();
