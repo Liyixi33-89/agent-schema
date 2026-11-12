@@ -19,6 +19,8 @@ coverage/
 # build-service 运行时产物（产物目录与 worker 兜底目录——证据不入库，按 run-id 归档）
 build-worker/
 data/artifacts/
+data/files/
+schema-platform/data/
 
 # 验收运行产物（脚本输出到 scripts/acceptance/out/，证据归档在 docs/acceptance/）
 scripts/acceptance/out/

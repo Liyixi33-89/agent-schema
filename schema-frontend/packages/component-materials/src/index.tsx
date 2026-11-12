@@ -44,9 +44,15 @@ const widgets: Record<string, React.ComponentType<WidgetProps>> = {
   DateInput: (p) => (
     // 值契约（2026-10-30 三轮收口）：协议值为 ISO 日期字符串；AntD DatePicker 消费 dayjs。
     // 入：字符串 → dayjs；出：onChange 回传 ISO 字符串（保持协议字符串语义不变）。
+    // ⚠️ M15 收口修复：AntD 单日期 DatePicker 的 dateString 参数是**字符串**而非数组
+    // （RangePicker 才是数组）——旧代码 ds[0] 取的是字符串首字符（"2026-11-12"[0]="2"），
+    // 用户选日期落库恒为单字符 → 服务端 422。按 Array.isArray 自适应两形态。
     <DatePicker
       value={str(p.value) ? dayjs(str(p.value)) : null}
-      onChange={(_d, ds) => p.onChange?.(ds[0] ?? null)}
+      onChange={(_d, ds) => {
+        const out = Array.isArray(ds) ? (ds[0] ?? null) : (ds || null);
+        p.onChange?.(out);
+      }}
       disabled={bool(p.disabled)} style={{ width: '100%' }} />
   ),
   BooleanSwitch: (p) => (

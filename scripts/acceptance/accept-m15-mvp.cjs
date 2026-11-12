@@ -31,13 +31,68 @@ function stamp() { return Date.now().toString(36); }
 /** 提交前记录数（负例「不产生记录」断言基线）。 */
 function recordCount() { return Number(dbQuery(`SELECT count(*) FROM biz_model_${MODEL_ID}`)[0]); }
 
+/** 公网目标时浏览器走 /accept/ 前缀静态面（本地代理无前缀）。
+ *  拼接规则：前缀必须以 / 结尾且路径以 / 开头——任何 BASE 丢失分隔符都是坏 URL。 */
+const IS_PUBLIC_TARGET = /127\.0\.0\.1|localhost/.test(BASE) === false;
+const WEB_PREFIX = IS_PUBLIC_TARGET ? '/accept/' : '/';
+const webUrl = (p) => {
+  const suffix = String(p).startsWith('/') ? String(p) : `/${String(p)}`;
+  const joined = `${BASE.replace(/\/$/, '')}${WEB_PREFIX}${suffix.replace(/^\//, '')}`;
+  // 防拼接退化：结果必须含完整前缀（如 /accept/designer/ 而非 /acceptdesigner/）
+  if (IS_PUBLIC_TARGET && !joined.includes('/accept/')) {
+    throw new Error(`webUrl 拼接异常（丢失 /accept/ 前缀）: ${joined}`);
+  }
+  return joined;
+};
+/** 浏览器内 API 基址：公网走 /accept/api（页面路径前缀 /accept 下同源可达）；
+ *  本地代理直通 /api。用于 evalJs 内 fetch 的真实通道（与前端产物 VITE_API_BASE 同构）。 */
+const API_BASE_HTML = IS_PUBLIC_TARGET ? '/accept' : '';
+/** 浏览器身份核验标记（登录后由 loginViaBrowser 断言——业务断言前必须为 true）。 */
+let browserIdentityVerified = false;
+
 async function loginViaBrowser(username, password) {
-  await cdp.goto(`${BASE}/designer/`);
-  await cdp.waitFor('input[placeholder="账号"]', 12000);
+  await cdp.goto(webUrl('/designer/'));
+  await sleep(2500);
+  // 显式身份核验：复用浏览器档案时可能残留上一轮会话——不静默沿用。
+  // 已登录且账号一致 → 继续；账号不一致 → 登出后重新登录；未登录 → 登录。
+  const meProbe = await cdp.evalJs(`(async () => {
+    try {
+      const r = await fetch('${API_BASE_HTML}/api/me', { credentials: 'same-origin' });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return JSON.stringify({ account: j.account, userId: j.userId });
+    } catch (e) { return null; }
+  })()`);
+  if (meProbe && meProbe !== 'null') {
+    const current = JSON.parse(meProbe);
+    if (String(current.account) === String(username)) {
+      browserIdentityVerified = true;   // 身份核验通过（账号一致）
+      return;
+    }
+    // 身份不符 → 登出清场（服务端清 cookie + 前端回登录页）
+    await cdp.evalJs(`fetch('${API_BASE_HTML}/api/auth/logout', { method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' } })`).catch(() => {});
+    await sleep(1200);
+    await cdp.goto(webUrl('/designer/'));
+    await sleep(2000);
+  }
   await cdp.fill('input[placeholder="账号"]', username);
   await cdp.fill('input[placeholder="密码"]', password);
   await cdp.mouseClick('button[type="submit"]');
   await sleep(2200);
+  // 登录后核验身份（防静默失败——必须确认浏览器内当前账号就是目标账号）
+  const after = await cdp.evalJs(`(async () => {
+    try {
+      const r = await fetch('${API_BASE_HTML}/api/me', { credentials: 'same-origin' });
+      if (!r.ok) return null;
+      const j = await r.json();
+      return JSON.stringify({ account: j.account, userId: j.userId });
+    } catch (e) { return null; }
+  })()`);
+  browserIdentityVerified = !!after && after !== 'null' && String(JSON.parse(after).account) === String(username);
+  if (!browserIdentityVerified) {
+    throw new Error(`浏览器身份核验失败：期望 ${username}，实际 ${after || '未登录'}`);
+  }
 }
 
 /** 按表单 label 定位并填值（react 受控组件原生 setter）。 */
@@ -75,11 +130,13 @@ async function main() {
   let createdRecordIds = [];
   let amountValidatorsAdded = false;   // 清理段据此恢复模型原状态（摘除 range）
   let modelBaseVersion = null;        // 加约束前版本（恢复用）
+  let createdFieldKeyRestored = false; // M12R 回滚已恢复字段集（清理段 3 跳过删除）
 
   try {
     // ============ MVP-01a 建模：扩展字段（两段式真实链路） ============
     const rModel = await admin.call('GET', `/api/models/${MODEL_ID}`, null, { 'X-App-Id': String(APP_ID) });
     const baseVersion = rModel.json?.currentVersion;
+    const modelName = rModel.json?.name;   // 回滚 confirmValue（01BE §4.3 等值确认）
     modelBaseVersion = baseVersion;   // 清理段恢复锚点（加约束前版本）
     ok('MVP01-模型详情读取（版本基线）', rModel.status === 200 && typeof baseVersion === 'number',
       `HTTP ${rModel.status} currentVersion=${baseVersion}`);
@@ -152,7 +209,11 @@ async function main() {
     const rDetDraft = await admin.call('GET', `/api/pages/${detailPageId}/draft`);
     const detSchema = rDetDraft.json.schema;
     const detBaseV = rDetDraft.json.draftVersion;
-    const detFields = [{ key: 'title', widget: 'TextInput' }, { key: 'amount', widget: 'NumberInput' }];
+    // 第 3 列引用本轮新增字段（m15cat_*）——M12R 影响面确认探针的前提：
+    // 草稿保存时 PageCommandService.syncFieldReferences 登记该字段的 PAGE 引用，
+    // 之后对它做 DELETE_FIELD precheck 才会聚合出 PAGE_REF 风险。
+    const detFields = [{ key: 'title', widget: 'TextInput' }, { key: 'amount', widget: 'NumberInput' },
+      { key: createdFieldKey, widget: 'TextInput' }];
     detSchema.layout = detFields.map((f, i) => ({
       id: `dw-${i}-${st}`, componentName: 'FormItem', props: { label: `字段${i + 1}` },
       children: [{ id: `dn-${i}-${st}`, componentName: f.widget, fieldRef: f.key, props: {} }],
@@ -240,10 +301,21 @@ export async function afterSubmit(payload, ctx) { return true; }`;
     await cdp.launch();
     try {
       await loginViaBrowser(bizUser.username, bizUser.password);
+      ok('MVP02-浏览器身份显式核验（当前账号=业务用户，非静默沿用会话）',
+        browserIdentityVerified === true,
+        `identityVerified=${browserIdentityVerified}（登录后 /api/me 账号一致才继续）`);
+      // 浏览器身份与 API 侧 userId 同源核对（双通道一致性）
+      const browserMe = await cdp.evalJs(`(async () => {
+        const r = await fetch('${API_BASE_HTML}/api/me', { credentials: 'same-origin' });
+        return r.ok ? JSON.stringify(await r.json()) : null; })()`);
+      const browserUserId = browserMe ? JSON.parse(browserMe)?.userId : null;
+      ok('MVP02-浏览器会话与 API 侧身份一致（同一业务用户）',
+        String(browserUserId) === String(bizUserId),
+        `browser=${browserUserId} api=${bizUserId}`);
 
       const recTitle = `M15-${st}`;
       const beforeCount = recordCount();
-      await cdp.goto(`${BASE}/runtime/#/page/${PAGE_FORM_ID}`);
+      await cdp.goto(webUrl(`/runtime/#/page/${PAGE_FORM_ID}`));
       await cdp.waitFor('input', 10000);
       await sleep(1500);
       await cdp.shot('m15-form-before');
@@ -251,12 +323,39 @@ export async function afterSubmit(payload, ctx) { return true; }`;
       await cdp.evalJs(`(${FILL_JS})('报销事由', '${recTitle}')`);
       await cdp.evalJs(`(${FILL_JS})('金额', '666')`);
       await cdp.evalJs(`(${FILL_JS})('备注', '用户登记原始备注')`);
-      // 日期控件自动化交互会产出脏值（M13 已知边界——受控链路与面板解析竞态）：
-      // 日期 UI 交互验证由 accept-runtime.cjs DatePicker 场景覆盖；
-      // 此处断言提交前 expenseDate 输入框未被污染（空值即干净）。
-      const dateClean = await cdp.evalJs(`(() => { const lbl = Array.from(document.querySelectorAll('label')).find(l => l.textContent.includes('报销日期')); if (!lbl) return 'no-label'; const fi = lbl.closest('.ant-form-item'); const el = fi?.querySelector('input'); return el ? (el.value || '(empty)') : 'no-input'; })()`);
-      ok('MVP02-日期字段未被自动化污染（显式跳过交互）', dateClean === '(empty)' || dateClean === '',
-        `expenseDate 输入框值="${dateClean}"`);
+      // 日期控件真实交互（M15 收口补验——原「accept-runtime DatePicker 场景覆盖」引用不存在）：
+      // 打开 DatePicker 面板点击「今天」→ 受控值写入 store → 提交随 payload 落库。
+      // 已知边界（M13）：直接对 input 做 FILL_JS 会产出脏值（受控链路竞态）——
+      // 正确通道是面板点击（触发组件 onChange 而非绕过 React 设值）。
+      const datePick = await cdp.evalJs(`(async () => {
+        const lbl = Array.from(document.querySelectorAll('label')).find(l => l.textContent.includes('报销日期'));
+        if (!lbl) return 'no-label';
+        const fi = lbl.closest('.ant-form-item');
+        const input = fi?.querySelector('input');
+        if (!input) return 'no-input';
+        input.focus();
+        input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        input.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        input.click();
+        await new Promise((r) => setTimeout(r, 600));
+        const panel = document.querySelector('.ant-picker-dropdown:not(.ant-picker-dropdown-hidden) .ant-picker-panel');
+        if (!panel) return 'no-panel';
+        const today = Array.from(panel.querySelectorAll('.ant-picker-cell-today button, .ant-picker-cell-today'))
+          .find((el) => el.tagName === 'BUTTON' || el.tagName === 'TD');
+        const cell = panel.querySelector('.ant-picker-cell-today');
+        if (!cell) return 'no-today-cell';
+        cell.querySelector('button')?.click() || cell.click();
+        await new Promise((r) => setTimeout(r, 500));
+        const after = (fi.querySelector('input') || {}).value || '';
+        return JSON.stringify({ picked: true, value: after });
+      })()`);
+      const datePicked = (() => {
+        try { const d = JSON.parse(datePick); return d.picked === true ? String(d.value) : `fail:${datePick}`; }
+        catch { return `fail:${datePick}`; }
+      })();
+      ok('MVP02-日期控件面板选择成功（受控值写入输入框）',
+        !datePicked.startsWith('fail:') && datePicked.trim().length > 0,
+        `expenseDate="${datePicked}"（面板真实交互，非 FILL_JS 污染通道）`);
 
       await cdp.startNetwork();
       await cdp.evalJs(`(() => { const bs = Array.from(document.querySelectorAll('button')).filter(x => x.textContent.replace(/\\s/g,'').includes('提交'));
@@ -273,11 +372,16 @@ export async function afterSubmit(payload, ctx) { return true; }`;
       const afterCount = recordCount();
       ok('MVP02-服务端新增一条记录（前后计数核对）', afterCount === beforeCount + 1,
         `${beforeCount} → ${afterCount}`);
-      const dbRow = dbQuery(`SELECT data->>'title', data->>'amount', data->>'remark', created_by FROM biz_model_${MODEL_ID} WHERE data->>'title'='${recTitle}'`);
+      const dbRow = dbQuery(`SELECT data->>'title', data->>'amount', data->>'remark', data->>'expenseDate', created_by FROM biz_model_${MODEL_ID} WHERE data->>'title'='${recTitle}'`);
       ok('MVP02-落库字段核对（事由/金额/登记人）',
         dbRow.length === 1 && String(dbRow[0]).includes(recTitle) && String(dbRow[0]).includes('666')
         && String(dbRow[0]).endsWith(`|${bizUserId}`),
         JSON.stringify(dbRow));
+      // 日期字段随提交落库（面板选择值真实进入 payload——ISO 日期串）
+      const dbDate = dbRow.length === 1 ? String(dbRow[0]).split('|')[3] : '';
+      ok('MVP02-日期值随提交落库（面板交互值进入 payload）',
+        dbDate.trim().length > 0 && /\d{4}/.test(dbDate),
+        `expenseDate="${dbDate}"（空=面板值未随提交）`);
       // 脚本影响业务：remark 被 beforeSubmit 改写为「M15脚本注入:提交时已有N条」
       const scriptTouched = dbRow.length === 1 && String(dbRow[0]).includes('M15脚本注入:提交时已有');
       ok('MVP04-脚本真实影响业务（remark 被 beforeSubmit 改写入库——非只看 toast）', scriptTouched,
@@ -292,7 +396,7 @@ export async function afterSubmit(payload, ctx) { return true; }`;
         selfTitles.includes(recTitle), `total=${selfQuery.json?.total} 含本轮=${selfTitles.includes(recTitle)}`);
 
       // ============ MVP-02n 负例：缺必填被拒 + 不产生记录 ============
-      await cdp.goto(`${BASE}/runtime/#/page/${PAGE_FORM_ID}`);
+      await cdp.goto(webUrl(`/runtime/#/page/${PAGE_FORM_ID}`));
       await cdp.waitFor('input', 10000);
       await sleep(1500);
       const beforeNeg = recordCount();
@@ -325,7 +429,7 @@ export async function afterSubmit(payload, ctx) { return true; }`;
       }
 
       // ============ MVP-03 列表查询（消费设计布局） ============
-      await cdp.goto(`${BASE}/runtime/#/page/${listPageId}`);
+      await cdp.goto(webUrl(`/runtime/#/page/${listPageId}`));
       await sleep(2500);
       await cdp.shot('m15-list');
       const listText = await cdp.evalJs('document.body.innerText');
@@ -406,6 +510,54 @@ export async function afterSubmit(payload, ctx) { return true; }`;
     const rAnon = await anon.call('GET', `/api/runtime/pages/${createdPages[0]}`);
     ok('MVP-PRIV-无凭证访问运行时页面被拒（401）', rAnon.status === 401, `HTTP ${rAnon.status}`);
 
+    // ============ M12 缺口覆盖复核（model-designer 四要素现行有效证明） ============
+    // 台账 M12 model-designer evidence=null（legacy 归档形态）；四要素中「画布建模/
+    // 两段式保存」已由 MVP01 场景真实覆盖；此处补「影响面确认 + 版本回滚」两要素的
+    // 现行复核——M15 归档报告中引用本段证据作为 M12 缺口处置的现行覆盖证明。
+    // ① 影响面确认：LIST 页布局引用本轮字段（保存页面时字段引用已登记 PAGE_REF），
+    //    对该字段做 DELETE_FIELD precheck → risks 含 PAGE_REF（影响面真实聚合）。
+    if (createdFieldKey) {
+      const preImpact = await admin.call('POST', `/api/models/${MODEL_ID}/precheck`,
+        { changes: [{ op: 'DELETE_FIELD', fieldKey: createdFieldKey }] },
+        { 'X-App-Id': String(APP_ID) });
+      const risks = preImpact.json?.risks || [];
+      const pageRefRisk = risks.some((r) => String(r.type || '').includes('PAGE_REF'));
+      ok('M12R-影响面确认（字段被页面引用 → precheck risks 含 PAGE_REF）',
+        preImpact.status === 200 && pageRefRisk,
+        `HTTP ${preImpact.status} risks=${JSON.stringify(risks).slice(0, 140)}`);
+    }
+    // ② 版本回滚：本轮保存推高了模型版本（加字段+range）；回滚到 modelBaseVersion
+    //    → 字段集合恢复（本轮新增字段复活判定走删除分支）；回滚本身走两段式 token +
+    //    confirmValue=模型名（回滚统一按高风险处理——01BE §4.3）。
+    if (modelBaseVersion != null) {
+      const rbPre = await admin.call('POST', `/api/models/${MODEL_ID}/rollback/precheck`,
+        { targetVersion: modelBaseVersion }, { 'X-App-Id': String(APP_ID) });
+      ok('M12R-回滚 precheck 签发 token', rbPre.status === 200 && !!rbPre.json?.confirmToken,
+        `HTTP ${rbPre.status}${rbPre.status !== 200 ? ' ' + rbPre.raw.slice(0, 120) : ` mode=${rbPre.json?.confirmMode}`}`);
+      if (rbPre.status === 200) {
+        const rb = await admin.call('POST', `/api/models/${MODEL_ID}/rollback`,
+          { targetVersion: modelBaseVersion, confirmToken: rbPre.json.confirmToken,
+            confirmValue: modelName }, { 'X-App-Id': String(APP_ID) });
+        // 回滚语义（01BE §4.4）：快照恢复字段集合，版本号继续前进（审计链不断）——
+        // 响应 {version: current+1}；「恢复」断言锚定字段集合而非版本数字。
+        const rollbackVersion = Number(rb.json?.version);
+        ok('M12R-版本回滚成功（快照恢复——版本前进审计链）',
+          rb.status === 200 && rollbackVersion > modelBaseVersion,
+          `HTTP ${rb.status} newVersion=${rollbackVersion}（恢复到 v${modelBaseVersion} 快照）`);
+        // 回滚后字段集合核对：本轮新增字段不在 active 集（快照恢复到加字段之前）
+        const fieldsAfter = await admin.call('GET', `/api/models/${MODEL_ID}`, null, { 'X-App-Id': String(APP_ID) });
+        const activeKeys = (fieldsAfter.json?.fields || [])
+          .filter((f) => !f.deletedAt && f.fieldStatus !== 'DELETED')
+          .map((f) => f.fieldKey || f.key);
+        ok('M12R-回滚后字段集合恢复（本轮新增字段不在 active 集）',
+          !activeKeys.includes(createdFieldKey),
+          `active=${JSON.stringify(activeKeys).slice(0, 140)}`);
+        // 回滚把 range 约束一并恢复（amount 回到无 validators）——清理段 3b 幂等兼容
+        amountValidatorsAdded = false;
+        createdFieldKeyRestored = true;
+      }
+    }
+
     summary('m15-mvp');
   } finally {
     // ============ 清理闭环：恢复原状态（不留本轮合成痕迹） ============
@@ -423,9 +575,10 @@ export async function afterSubmit(payload, ctx) { return true; }`;
         console.log(`[cleanup] 删除记录 ${rid}`);
       } catch (e) { console.log(`[cleanup] 记录 ${rid} 删除失败: ${e.message}`); }
     }
-    // 3. 模型字段恢复：删除本轮新增字段（版本回滚走两段式成本高——
-    //    验收字段删除即恢复模型原状态；下轮新建唯一键字段不受影响）
-    try {
+    // 3. 模型字段恢复：删除本轮新增字段（M12R 已回滚恢复字段集时跳过——回滚已含恢复）
+    if (createdFieldKeyRestored) {
+      console.log('[cleanup] 字段集已经 M12R 回滚恢复——跳过字段删除');
+    } else try {
       const rModelNow = await admin.call('GET', `/api/models/${MODEL_ID}`, null, { 'X-App-Id': String(APP_ID) });
       const bv = rModelNow.json?.currentVersion;
       const preDel = await admin.call('POST', `/api/models/${MODEL_ID}/precheck`,
