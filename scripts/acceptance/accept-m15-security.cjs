@@ -446,6 +446,7 @@ async function probeViolationModule() {
     const reach = JSON.parse(reachRaw);
     await cdp.goto(webUrl('/runtime/'));
     await sleep(1500);
+    cdp.ensureLog();   // Log 域开启——CSP 拦截的浏览器级拒绝记录（violation DOM 事件在 headless 下不可靠）
     const raw = await cdp.evalJs(`(async () => {
       const events = [];
       document.addEventListener('securitypolicyviolation', (e) => {
@@ -459,7 +460,7 @@ async function probeViolationModule() {
         document.head.appendChild(s);
         setTimeout(() => resolve('timeout'), 6000);
       });
-      await new Promise((r) => setTimeout(r, 800));
+      await new Promise((r) => setTimeout(r, 1200));
       return JSON.stringify({
         netScript: net,
         violationEvents: events,
@@ -467,12 +468,15 @@ async function probeViolationModule() {
       });
     })()`);
     const v = JSON.parse(raw);
+    // 浏览器级拒绝记录（Log 域）——script-src CSP 拦截的权威证据
+    const logDenied = (cdp.browserLog() || []).some((m) =>
+      /violates the following Content Security Policy/i.test(String(m.text || m)));
     return {
       supported: true,
       networkLoaded: !!reach.reachable,          // 对照组判定（无 CSP 页面可达性）
-      violationEvent: (v.violationEvents || []).some((e) => String(e.blocked || '').includes('attack.js')),
+      violationEvent: (v.violationEvents || []).some((e) => String(e.blocked || '').includes('attack.js')) || logDenied,
       executedFlag: v.executed === true ? true : false,
-      raw: { ...v, reachabilityProbe: reach },
+      raw: { ...v, reachabilityProbe: reach, logDenied },
     };
   } finally {
     await cdp.close();
