@@ -248,4 +248,4 @@ async function close() {
   }
 }
 
-module.exports = { launch, goto, reload, waitFor, evalJs, text, texts, click, fill, mouseClick, mouseDrag, centerOf, clickReact, shot, clearStorage, errors, resetErrors, close, PORT, startNetwork, networkRequests, stopNetwork };
+module.exports = { launch, goto, reload, waitFor, evalJs, text, texts, click, fill, mouseClick, mouseDrag, centerOf, clickReact, shot, clearStorage, errors, resetErrors, close, PORT, startNetwork, networkRequests, stopNetwork, send };

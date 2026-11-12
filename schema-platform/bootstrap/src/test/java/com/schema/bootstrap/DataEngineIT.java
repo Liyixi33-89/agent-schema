@@ -129,7 +129,8 @@ class DataEngineIT {
     private long insert(long tenantId, Map<String, Object> data, long createdBy) {
         long id = TenantContext.with(new TenantInfo(tenantId, 1, 1), () -> {
             Map<String, Object> resp = engine.create(modelId, data);
-            return (Long) resp.get("id");
+            // id 序列化契约：字符串（Long 超 JS 2^53 安全整数防精度丢失）
+            return Long.parseLong((String) resp.get("id"));
         });
         jdbc.update("UPDATE biz_model_" + modelId + " SET created_by=? WHERE id=?", createdBy, id);
         return id;

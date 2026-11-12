@@ -184,7 +184,7 @@ public class DynamicQueryEngine {
             throw new BizException("VALIDATION_FAILED", "唯一字段重复（并发冲突）");
         }
         Map<String, Object> resp = new LinkedHashMap<>();
-        resp.put("id", id);
+        resp.put("id", String.valueOf(id));
         return resp;
     }
 
@@ -324,7 +324,7 @@ public class DynamicQueryEngine {
                 id, ctx.tenant.tenantId(), Json.write(cleaned), ctx.model.currentVersion(),
                 ctx.tenant.operatorId());
         Map<String, Object> resp = new LinkedHashMap<>();
-        resp.put("id", id);
+        resp.put("id", String.valueOf(id));
         return resp;
     }
 
@@ -724,7 +724,9 @@ public class DynamicQueryEngine {
         }
         @SuppressWarnings("unchecked")
         Map<String, Object> data = (Map<String, Object>) parsed;
-        data.put("_id", ((Number) row.get("id")).longValue());
+        // _id 序列化为字符串：snowflake 型 Long 超 JS Number 安全整数（2^53），
+        // JSON 数字直出会精度丢失（尾位变 0）→ 前端跳详情 404。字符串是 ID 传输契约。
+        data.put("_id", String.valueOf(((Number) row.get("id")).longValue()));
         Object sv = row.get("schema_version");
         int schemaVersion = sv instanceof Number n ? n.intValue() : 0;
         return ReadCompatibility.readRow(data, fields, schemaVersion, ctx.model.currentVersion());
