@@ -17,6 +17,10 @@ const BASE = process.env.ACCEPT_BASE_URL || 'http://127.0.0.1:8090';
 const API_PREFIX = (process.env.ACCEPT_API_PREFIX || '').replace(/\/$/, '');
 const results = [];
 let failFast = true;
+// 隧道通道（公网目标经 SSH 端口转发访问）：客户端须显式声明目标源——
+// Host/Origin 与公网源一致，服务端 CsrfFilter originOf 才能匹配（见 03BE CSRF 三道兜底）。
+// 仅验收执行环境使用；不设置时行为与直连完全一致。
+const TUNNEL_ORIGIN = process.env.ACCEPT_TUNNEL_ORIGIN || '';
 
 /** 状态语义（防假 PASS）：
  *  pass=true / fail=true  —— 已执行且结论成立/不成立
@@ -105,6 +109,12 @@ class ApiClient {
 
   async call(method, urlPath, body, extraHeaders = {}) {
     const headers = { Origin: BASE, ...extraHeaders };
+    if (TUNNEL_ORIGIN) {
+      // 隧道通道：Host 头显式设为公网源（nginx $http_host 透传），Origin 同值
+      const u = new URL(TUNNEL_ORIGIN);
+      headers.Host = u.host;
+      headers.Origin = TUNNEL_ORIGIN;
+    }
     if (this.cookies.size) headers.Cookie = this._cookieHeader();
     const csrf = this.csrf();
     if (csrf && !['GET', 'HEAD', 'OPTIONS'].includes(method)) headers['X-CSRF-Token'] = csrf;

@@ -33,7 +33,8 @@ function recordCount() { return Number(dbQuery(`SELECT count(*) FROM biz_model_$
 
 /** 公网目标时浏览器走 /accept/ 前缀静态面（本地代理无前缀）。
  *  拼接规则：前缀必须以 / 结尾且路径以 / 开头——任何 BASE 丢失分隔符都是坏 URL。 */
-const IS_PUBLIC_TARGET = /127\.0\.0\.1|localhost/.test(BASE) === false;
+const IS_PUBLIC_TARGET = process.env.ACCEPT_PUBLIC_MODE === '1'
+  || /127\.0\.0\.1|localhost/.test(BASE) === false;
 const WEB_PREFIX = IS_PUBLIC_TARGET ? '/accept/' : '/';
 const webUrl = (p) => {
   const suffix = String(p).startsWith('/') ? String(p) : `/${String(p)}`;

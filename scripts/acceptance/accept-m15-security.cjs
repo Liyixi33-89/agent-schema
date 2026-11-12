@@ -25,8 +25,10 @@ const MODEL_ID = Number(process.env.ACCEPT_MODEL_ID || 1);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const st = Date.now().toString(36);
 
-/** 公网目标判定（统一真源——各探针共用，防止判定不一致）。 */
-const IS_PUBLIC_TARGET = /127\.0\.0\.1|localhost/.test(BASE) === false;
+/** 公网目标判定（统一真源——各探针共用，防止判定不一致）。
+ *  ACCEPT_PUBLIC_MODE=1：经 SSH 隧道访问公网部署面时强制公网语义（BASE 是本地隧道口）。 */
+const IS_PUBLIC_TARGET = process.env.ACCEPT_PUBLIC_MODE === '1'
+  || /127\.0\.0\.1|localhost/.test(BASE) === false;
 /** 浏览器静态面 URL：公网走 /accept/ 前缀（前缀尾斜杠防 /acceptdesigner 退化）。 */
 const webUrl = (p) => {
   const suffix = String(p).startsWith('/') ? String(p) : `/${String(p)}`;
