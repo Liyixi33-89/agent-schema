@@ -1,0 +1,14 @@
+{
+  "sourceCommit": "7359cb872b367e1cc99dd626363ee8c884b52453",
+  "unchanged": false,
+  "sampledAt": "2026-11-12T09:08:47.941Z",
+  "targets": [
+    {
+      "name": "runtime-static",
+      "url": "http://127.0.0.1:8090/runtime/",
+      "expected": "fca7e184487362dd1ff55ddfa3e5daf4e9891ed0d50318f53726597368dd1668",
+      "before": "fca7e184487362dd1ff55ddfa3e5daf4e9891ed0d50318f53726597368dd1668",
+      "method": "http-response-sha256"
+    }
+  ]
+}

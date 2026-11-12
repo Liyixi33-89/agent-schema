@@ -1,0 +1,36 @@
+{
+  "sourceCommit": "7359cb872b367e1cc99dd626363ee8c884b52453",
+  "sampledAt": "2026-11-12T09:14:32Z",
+  "method": "local-file-sha256-recheck",
+  "unchanged": true,
+  "products": [
+    {
+      "name": "designer-web",
+      "path": "schema-frontend/apps/designer/dist/index.html",
+      "sha256": "39d7ddf08067192889b607e731c2200fab0062e4d376f24403eff03080746691",
+      "bytes": 377,
+      "runtimeVersion": "index-CnjWFY9f"
+    },
+    {
+      "name": "runtime-web",
+      "path": "schema-frontend/apps/runtime/dist/index.html",
+      "sha256": "fca7e184487362dd1ff55ddfa3e5daf4e9891ed0d50318f53726597368dd1668",
+      "bytes": 294,
+      "runtimeVersion": "index-DW4YPWzU"
+    },
+    {
+      "name": "admin-web",
+      "path": "schema-frontend/apps/admin-console/dist/index.html",
+      "sha256": "301d50d50f4f3cc84e71c558ad9d3b0e60066a5077ec93e81842af92a9804407",
+      "bytes": 298,
+      "runtimeVersion": "index-C69BCiLX"
+    },
+    {
+      "name": "accept-backend",
+      "path": "schema-platform/bootstrap/target/bootstrap-0.1.0-SNAPSHOT.jar",
+      "sha256": "5aa53ae13a30ae9944796e4cbffb3b181a9cab9433ecd0fefb80b638e2dd3194",
+      "bytes": 24988276,
+      "runtimeVersion": "7359cb8"
+    }
+  ]
+}

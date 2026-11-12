@@ -1,0 +1,51 @@
+PASS  API 管理员登录::凭证三件套  -- at=true rt=true csrf=true body零凭证=true
+PASS  API 新建模型  -- HTTP 200
+PASS  新建模型返回 id 与 v1  -- id=146 v=1
+PASS  API 模型详情空字段  -- HTTP 200
+PASS  详情字段数组为空  -- []
+PASS  模型落库 v1  -- ["er_accept_mwdbpp20|1"]
+PASS  登录进入工作台
+PASS  「模型」页签就绪
+PASS  画布展示新建模型卡片
+PASS  React Flow 画布渲染（viewport/controls/minimap）  -- {"viewport":true,"nodes":114,"zoom":true,"minimap":true,"pane":true}
+PASS  抽屉打开
+PASS  抽屉新增字段入草稿
+PASS  确认弹层含变更清单与影响面  -- 保存确认 · 验收模型mwdbpp20变更清单（1 项）新增amount影响面（0 项，按严重度排序）无风险项Cancel确认保存
+PASS  INFO 档一键保存成功提示
+PASS  保存后落库 v2  -- ["2"]
+PASS  字段 amount 落库（number/ACTIVE）  -- ["amount|number|ACTIVE"]
+PASS  API precheck 签发 token（INFO）  -- mode=INFO
+PASS  首次保存成功 v3  -- HTTP 200 body={"version":3,"promotedTasks":[]}
+PASS  token 重放被拒 422  -- HTTP 422 code=CONFIRM_TOKEN_INVALID
+PASS  旧 baseVersion 保存 409  -- HTTP 409 code=MODEL_VERSION_CONFLICT sv=3
+PASS  抽屉字段渲染 amount
+PASS  字段标识/类型禁用态呈现  -- {"disabledInputs":1,"disabledSelect":true}
+PASS  删除标记入草稿（撤销按钮出现）  -- {"found":true,"undo":true,"text":"金额改\namount\nnumber\n修改\n撤销"}
+PASS  删除变更后保存按钮可点  -- {"found":true,"disabled":false,"text":"保存变更（1 项）"}
+PASS  删除保存弹层含删除操作警示  -- 保存确认 · 验收模型mwdbpp20变更清单（1 项）删除amount影响面（0 项，按严重度排序）无风险项含删除操作：须逐条确认全部 HIGH 风险后方可保存（删除字段为软删，可通过版本回滚恢复）。我确认删除上述字段（当前无 HIGH 级影响面，删除仍不可撤销——仅可回滚）Cancel确认保存
+PASS  删除保存成功（v4）
+PASS  字段软删落库（DELETED 非物理删）  -- ["DELETED"]
+PASS  重复删除幂等（200 非报错）  -- HTTP 200 code=undefined
+PASS  ≥3 页面引用删字段 → TYPE_MODEL_NAME  -- mode=TYPE_MODEL_NAME sev=HIGH
+PASS  TYPE_MODEL_NAME 缺 confirmValue 被拒  -- HTTP 422
+PASS  confirmValue 不等值被拒  -- HTTP 422
+PASS  模型名等值删除成功 v6  -- HTTP 200 body={"version":6,"promotedTasks":[]}
+PASS  版本时间线按钮可用（详情就绪）  -- {"found":true,"disabled":false}
+PASS  时间线渲染 v1-v6  -- v62026-11-12T17:06:40.371111+08:00 · 操作者 1-hot_fieldv52026-11-12T17:06:39.982502+08:00 · 操作者 1+hot_field回滚到此版本v42026-11-12T17:06:38.442508+08:00 · 操作者 1-amount回
+PASS  回滚确认弹层要求输入模型名  -- 回滚确认 · 目标 v3正在获取回滚影响面…回滚将以新版本形式还原 v3 的字段定义（数据零操作）； 此后版本的字段变更将被覆盖。请输入完整模型名 验收模型mwdbpp20 确认。Cancel确认回滚
+PASS  回滚未输入模型名前禁用  -- {"disabled":true}
+PASS  回滚预检影响面呈现
+PASS  回滚确认按钮转可用
+PASS  回滚成功提示（生成新版本）
+PASS  回滚生成新版本 v7 落库  -- ["7"]
+PASS  回滚复活 amount 字段（ACTIVE）  -- ["ACTIVE"]
+PASS  rollback_from=3 标记落库  -- ["3"]
+PASS  API 普通成员登录::凭证三件套  -- at=true rt=true csrf=true body零凭证=true
+PASS  普通成员建模被拒（403）  -- HTTP 403
+PASS  普通成员 precheck 被拒（403）  -- HTTP 403
+PASS  跨应用读模型被拒（404 同判）  -- HTTP 404
+PASS  跨应用 precheck 被拒（404 同判）  -- HTTP 404
+PASS  跨应用回滚预检被拒（404 同判）  -- HTTP 404
+PASS  无未捕获 console 错误
+
+=== er-modeler 验收: 49/49 PASS ===

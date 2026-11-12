@@ -324,13 +324,367 @@
       "acceptance": [
         {
           "id": "model-designer",
-          "requirement": "画布建模、两段式保存、影响面确认、版本回滚浏览器闭环",
-          "report": "docs/acceptance/M12/legacy/M12-report.md",
+          "requirement": "画布建模、两段式保存、影响面确认、版本回滚浏览器闭环（七域：另含删除确认、409 草稿保护、权限负例）",
+          "suite": "er-modeler",
+          "command": "node scripts/acceptance/accept-er-modeler.cjs",
+          "report": "docs/acceptance/M12/20261112-170616-7359cb8/report.md",
+          "commit": "7359cb872b367e1cc99dd626363ee8c884b52453",
           "passed": true,
-          "note": "2026-11-04 收口：er-modeler 浏览器验收 48/48（建模→两段式保存→token 一次性→409 冲突→删除确认→版本回滚复活→越权负例）；普通成员建模 403（DesignGate + PERM_DENIED→403 映射修复）；跨应用越权同判 404（loadForTenant 应用域绑定）；缓存一致性收口（保存/回滚/409 后强制刷新详情）。回归四套全绿（designer 37/runtime 23/admin 23/cache 23）；verify[commit] 七步绿。基线偏离：自实现卡片+SVG 画布（非 React Flow）——网格布局+关系边提取已单测覆盖。"
+          "provenance": "products.json",
+          "stability": "stability.json",
+          "deployment": "er-modeler-deployment.json",
+          "evidence": {
+            "command": "node scripts/acceptance/accept-er-modeler.cjs",
+            "report": "docs/acceptance/M12/20261112-170616-7359cb8/report.md",
+            "commit": "7359cb872b367e1cc99dd626363ee8c884b52453",
+            "suite": "er-modeler",
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "stability.json",
+            "deployment": "er-modeler-deployment.json"
+          },
+          "scenarios": [
+            "React Flow 画布渲染（viewport/controls/minimap）",
+            "抽屉新增字段入草稿",
+            "确认弹层含变更清单与影响面",
+            "INFO 档一键保存成功提示",
+            "保存后落库 v2",
+            "API precheck 签发 token（INFO）",
+            "首次保存成功 v3",
+            "token 重放被拒 422",
+            "旧 baseVersion 保存 409",
+            "删除保存弹层含删除操作警示",
+            "删除保存成功（v4）",
+            "字段软删落库（DELETED 非物理删）",
+            "≥3 页面引用删字段 → TYPE_MODEL_NAME",
+            "TYPE_MODEL_NAME 缺 confirmValue 被拒",
+            "confirmValue 不等值被拒",
+            "模型名等值删除成功 v6",
+            "时间线渲染 v1-v6",
+            "回滚确认弹层要求输入模型名",
+            "回滚预检影响面呈现",
+            "回滚成功提示（生成新版本）",
+            "回滚生成新版本 v7 落库",
+            "回滚复活 amount 字段（ACTIVE）",
+            "rollback_from=3 标记落库",
+            "普通成员建模被拒（403）",
+            "跨应用读模型被拒（404 同判）",
+            "无未捕获 console 错误"
+          ],
+          "note": "证据重建轮（2026-11-12）：旧 legacy 证据因实现路径变更触发门禁连锁失效，按 gateVersion 2 在 HEAD 7359cb8 干净树全量重跑。三套件单 run 100/100：er-modeler 49（建模→两段式→token 一次性→删除确认→回滚复活→越权负例）+ nine-scenes 33（九类独立 UI 场景，含关系画布⑨/高风险确认⑥/放弃修改②）+ closeout 18（409 草稿保护全链 9 断言 + 双击幂等 + B1 冷启动）。旧备注「SVG 自实现画布」已过时——4b8f374 起为 React Flow（Handle 锚点/canvasEpoch 重挂载/两段式布局持久化），本轮实测通过。回滚口径：响应键 version、confirmValue=模型名。"
+        },
+        {
+          "id": "model-designer-scenes",
+          "requirement": "九类独立 UI 场景补测（连续保存/放弃/409/配置编辑/删除确认/高风险/多应用隔离/画布关系/异步）",
+          "suite": "er-nine-scenes",
+          "command": "node scripts/acceptance/accept-er-nine-scenes.cjs",
+          "report": "docs/acceptance/M12/20261112-170616-7359cb8/report.md",
+          "commit": "7359cb872b367e1cc99dd626363ee8c884b52453",
+          "passed": true,
+          "provenance": "products.json",
+          "stability": "stability.json",
+          "deployment": "er-nine-scenes-deployment.json",
+          "evidence": {
+            "command": "node scripts/acceptance/accept-er-nine-scenes.cjs",
+            "report": "docs/acceptance/M12/20261112-170616-7359cb8/report.md",
+            "commit": "7359cb872b367e1cc99dd626363ee8c884b52453",
+            "suite": "er-nine-scenes",
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "stability.json",
+            "deployment": "er-nine-scenes-deployment.json"
+          },
+          "scenarios": [
+            "①连续保存-1：v3 落库",
+            "①连续保存-2：v4 落库且字段集一致",
+            "①刷新后抽屉字段一致（remark/seq）",
+            "②放弃修改：新增消失",
+            "②放弃修改：删除标记还原（amount 无删除线态）",
+            "②DB 无变更残留（amount 仍 ACTIVE，无 temp_x）",
+            "④枚举配置落库",
+            "④新增 relation 时配置表单即时渲染",
+            "④重开后三配置字段在列",
+            "⑤删除确认弹层呈现（含删除警示）",
+            "⑤未勾选前确认按钮禁用",
+            "⑤勾选后才发保存请求（网络断言）",
+            "⑥高风险弹层展示真实风险（PAGE_REF→HIGH）",
+            "⑥错误模型名时确认按钮禁用",
+            "⑥高风险删除保存成功 v10",
+            "⑦普通成员模型列表 403（读也拒——设计能力判定先行）",
+            "⑦跨应用读模型 404 同判",
+            "⑨画布节点渲染（全应用）",
+            "⑨全应用关系边完整（DB relation 字段数=画布边数）",
+            "⑨关系边标签呈现（fieldKey · cardinality）",
+            "⑧快速切换后选中态一致（无串扰）",
+            "⑧无未捕获 console 错误"
+          ],
+          "note": "场景③（409）由 closeout 套件 A 组全链覆盖；本套件聚焦九场景中其余八类。"
+        },
+        {
+          "id": "model-designer-closeout",
+          "requirement": "409 草稿保护全链 + 异步失败与竞态 + 冷启动（B1 后端重启负例）",
+          "suite": "m12-closeout",
+          "command": "node scripts/acceptance/accept-m12-closeout.cjs",
+          "report": "docs/acceptance/M12/20261112-170616-7359cb8/report.md",
+          "commit": "7359cb872b367e1cc99dd626363ee8c884b52453",
+          "passed": true,
+          "provenance": "products.json",
+          "stability": "stability.json",
+          "deployment": "m12-closeout-deployment.json",
+          "evidence": {
+            "command": "node scripts/acceptance/accept-m12-closeout.cjs",
+            "report": "docs/acceptance/M12/20261112-170616-7359cb8/report.md",
+            "commit": "7359cb872b367e1cc99dd626363ee8c884b52453",
+            "suite": "m12-closeout",
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "stability.json",
+            "deployment": "m12-closeout-deployment.json"
+          },
+          "scenarios": [
+            "A1 草稿字段在抽屉（未保存）",
+            "A2 外部保存 v3 落库（真实冲突就绪）",
+            "A3 409 后冲突弹层出现",
+            "A4 弹层含本地草稿差异（draft_field）",
+            "A4 弹层含服务端变更（ext_field）",
+            "A5 无偷偷重发保存（仅一次 POST /schema）",
+            "A5 保存请求返回 409（版本冲突实测）",
+            "A5 冲突期间本地草稿保留（抽屉仍含 draft_field）",
+            "A6 放弃后草稿与服务端对齐（draft_field 消失）",
+            "A7 重编辑保存用正确版本（v4 落库）",
+            "B3 快速切换后选中态一致",
+            "B4 重复点击仅一次预检请求",
+            "B4 dup_field 落库唯一（无重复提交副作用）",
+            "B1 冷启动加载失败可见（错误提示非白屏）",
+            "B1 后端恢复后列表重新加载（画布节点恢复）"
+          ],
+          "note": "B1 场景须重启后端，故本套件部署采样仅含 runtime-static 静态探针（全量探针随 er-modeler/er-nine-scenes 两套件）；重启后身份复验 verifiable=true sourceCommit=7359cb8…。"
         }
       ],
-      "review": null
+      "review": {
+        "required": true,
+        "approved": true,
+        "commit": "7359cb872b367e1cc99dd626363ee8c884b52453",
+        "reviewer": "independent-review-session",
+        "implementedBy": "implementation-session-f42b4e21",
+        "kind": "independent-session",
+        "approvalReference": "docs/acceptance/M12/20261112-170616-7359cb8/review.md",
+        "report": "docs/acceptance/M12/20261112-170616-7359cb8/review.md",
+        "scope": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "coverage": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "findings": [
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F1 旧证据 legacy 形态（无 manifest/无 evidence 对象/review=null）——本轮按 gateVersion 2 在 HEAD 干净树重建，三套件 100/100 单 run 归档哈希覆盖"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F2 旧备注「SVG 自实现画布」与现状漂移——4b8f374 已迁移 React Flow，台账 note 本轮同步更正，实测九场景⑨关系边通过"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F3 过程 run（探针适配期）如实丢弃不作证据——三次中间 run 因部署采样口径/工作树污染不合规，终验轮单独成 run 并在报告登记"
+          },
+          {
+            "blocking": false,
+            "status": "resolved",
+            "summary": "F4 closeout B1 重启后端与 backend-identity 探针天然冲突——closeout 改静态探针采样（报告中登记处置理由），重启后身份复验 verifiable=true"
+          }
+        ],
+        "note": "四维审查通过（需求 7/7 真源可溯、代码抽查两段式 token CAS/回滚复活/React Flow 画布、测试 100 断言含全量负例、证据同源同版干净树单 run）；单人模式 GitHub 实时审批豁免登记于 singleReviewerMode"
+      },
+      "gateVersion": 2,
+      "implementedBy": "implementation-session-f42b4e21",
+      "requirements": [
+        {
+          "id": "M12-CANVAS",
+          "source": "PRD 门禁 G3 + docs/技术方案-前端(React).md §5（07FE）建模器交互",
+          "condition": "React Flow 画布建模：节点/抽屉/字段草稿/全应用关系边真实渲染",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "interaction": "native",
+          "implementation": [
+            "schema-frontend/packages/data-model-designer（React Flow 画布 + Handle 锚点 + canvasEpoch 重挂载）"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-er-modeler.cjs",
+            "scripts/acceptance/accept-er-nine-scenes.cjs 场景⑨"
+          ],
+          "negativeTests": [
+            "普通成员建模 403",
+            "跨应用读模型 404"
+          ],
+          "checks": [
+            "model-designer",
+            "model-designer-scenes"
+          ]
+        },
+        {
+          "id": "M12-TWO-PHASE",
+          "source": "docs/技术方案-后端(Spring).md §4 两段式保存协议（02BE）",
+          "condition": "precheck 签发 token→confirmValue 校验→一次性消费；连续保存落库一致",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "interaction": "native",
+          "implementation": [
+            "schema-platform metadata-module MetadataCommandService（token CAS + changes-hash 绑定）"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-er-modeler.cjs",
+            "scripts/acceptance/accept-er-nine-scenes.cjs 场景①④"
+          ],
+          "negativeTests": [
+            "token 重放被拒 422",
+            "旧 baseVersion 保存 409"
+          ],
+          "checks": [
+            "model-designer",
+            "model-designer-scenes"
+          ]
+        },
+        {
+          "id": "M12-IMPACT",
+          "source": "docs/技术方案-前端(React).md §5 影响面交互（01FE）",
+          "condition": "删除/高风险操作弹影响面引用清单；confirmValue 等值校验",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "interaction": "native",
+          "implementation": [
+            "schema-frontend/packages/data-model-designer 影响面弹层",
+            "schema-platform 引用聚合（meta_field_reference）"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-er-modeler.cjs",
+            "scripts/acceptance/accept-er-nine-scenes.cjs 场景⑤⑥"
+          ],
+          "negativeTests": [
+            "未勾选「我已了解」不可提交",
+            "TYPE_MODEL_NAME 缺 confirmValue 被拒",
+            "confirmValue 不等值被拒"
+          ],
+          "checks": [
+            "model-designer",
+            "model-designer-scenes"
+          ]
+        },
+        {
+          "id": "M12-ROLLBACK",
+          "source": "spec-002 元数据服务 §回滚复活口径（.agent/specs/002-metadata-service.md）",
+          "condition": "版本时间线→回滚预检影响面→confirmValue=模型名→新版本落库→字段复活正确（不复活已删）",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "interaction": "native",
+          "implementation": [
+            "schema-platform MetadataCommandService 回滚链路（快照含 fieldStatus）",
+            "schema-frontend 时间线与回滚确认"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-er-modeler.cjs"
+          ],
+          "negativeTests": [
+            "回滚未输入模型名前禁用",
+            "跨应用回滚预检 404"
+          ],
+          "checks": [
+            "model-designer"
+          ]
+        },
+        {
+          "id": "M12-DELETE",
+          "source": "docs/技术方案-后端(Spring).md §4 删除两段式（02BE）",
+          "condition": "模型删除走确认协议（TYPE_MODEL_NAME 绑定串防挪用）；字段软删非物理删",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "interaction": "native",
+          "implementation": [
+            "schema-platform deleteModelConfirm（token 前置于幂等返回）"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-er-modeler.cjs",
+            "scripts/acceptance/accept-er-nine-scenes.cjs 场景⑤"
+          ],
+          "negativeTests": [
+            "重复删除幂等（200 非报错）",
+            "缺/错 confirmValue 被拒"
+          ],
+          "checks": [
+            "model-designer",
+            "model-designer-scenes"
+          ]
+        },
+        {
+          "id": "M12-CONFLICT",
+          "source": "01BE §乐观锁 + 4.3 409 口径（docs/技术方案-后端(Spring).md）",
+          "condition": "真实外部冲突→409→冲突弹层三方差异→草稿保留→放弃对齐→重编辑正确版本保存",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "interaction": "native",
+          "implementation": [
+            "schema-frontend 冲突弹层（三方差异渲染）",
+            "schema-platform 乐观锁 409"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-m12-closeout.cjs A 组"
+          ],
+          "negativeTests": [
+            "无偷偷重发保存（网络断言仅一次 POST）",
+            "409 期间草稿不丢失"
+          ],
+          "checks": [
+            "model-designer-closeout"
+          ]
+        },
+        {
+          "id": "M12-PERM",
+          "source": "PRD 权限矩阵（开发者设计能力判定）+ 03BE 应用域绑定",
+          "condition": "普通成员建模/列表 403；跨应用读/写 404 同判；无凭证 401",
+          "risk": "high",
+          "status": "passed",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [
+            "schema-platform DesignGate + loadForTenant 应用域绑定"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-er-modeler.cjs（负例段）",
+            "scripts/acceptance/accept-er-nine-scenes.cjs 场景⑦"
+          ],
+          "negativeTests": [
+            "普通成员 precheck 403",
+            "跨应用 precheck/回滚 404",
+            "无凭证 401"
+          ],
+          "checks": [
+            "model-designer",
+            "model-designer-scenes"
+          ]
+        }
+      ]
     },
     {
       "id": "M13",
