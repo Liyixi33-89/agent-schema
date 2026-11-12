@@ -12,10 +12,13 @@ echo "JAR=$JAR"
 # 1) 端口占用检查（幂等重启）
 if curl -s -o /dev/null http://127.0.0.1:18080/actuator/health; then
   echo "backend already up"; else
+  # 产物目录固定绝对路径（防 cwd 漂移——编译幂等命中旧任务时读不到产物；
+  # data/ 已入库 .gitignore，与项目根 ./data 同源）
+  ARTIFACT_DIR=/mnt/c/Users/v_liyixili/Desktop/2026/schema/data/artifacts
   setsid env DB_URL='jdbc:postgresql://localhost:5432/schema_accept' DB_USER=schema_dev DB_PASSWORD=schema_local_only \
-    SERVER_PORT=18080 nohup java -jar "$JAR" > /tmp/schema-accept.log 2>&1 &
+    SERVER_PORT=18080 BUILD_ARTIFACT_DIR="$ARTIFACT_DIR" nohup java -jar "$JAR" > /tmp/schema-accept.log 2>&1 &
   disown || true
-  echo "backend starting..."
+  echo "backend starting... (artifact-dir=$ARTIFACT_DIR)"
 fi
 
 # 2) 静态代理 8090 在 Windows 侧运行（WSL 无 node）：
