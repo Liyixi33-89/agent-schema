@@ -2,13 +2,16 @@
  * M11 验收公共库（严格断言版 v2）
  * - apiFetch：带状态码与业务码断言的 API 通道（走 Node 侧 http，不经浏览器）
  * - 结果记录：FAIL 立即抛出终止（fail-fast），禁止无条件成功
- * - DB 核对通道：经 WSL psql 查询落库（execSync wsl.exe）
+ * - DB 核对通道：经 WSL psql 查询落库（execSync wsl.exe）；
+ *   公网目标（ACCEPT_DB_MODE=ssh）走 SSH 远端 psql（密钥环境注入，不落盘）
+ * - 凭据外置：账号密码从环境读取（ACCEPT_USERNAME/ACCEPT_PASSWORD/
+ *   ACCEPT_DESIGNER_USERNAME/ACCEPT_DESIGNER_PASSWORD），脚本内零硬编码
  */
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 const BASE = process.env.ACCEPT_BASE_URL || 'http://127.0.0.1:8090';
 const API_PREFIX = (process.env.ACCEPT_API_PREFIX || '').replace(/\/$/, '');
@@ -22,6 +25,20 @@ function record(name, pass, detail = '') {
 }
 
 function ok(name, cond, detail = '') { record(name, cond, detail); }
+
+/** 凭据（环境注入；缺省值仅供本地开发栈——公网验收必须显式注入）。 */
+function credentials() {
+  return {
+    designer: {
+      username: process.env.ACCEPT_DESIGNER_USERNAME || process.env.ACCEPT_USERNAME || 'accept_admin',
+      password: process.env.ACCEPT_DESIGNER_PASSWORD || process.env.ACCEPT_PASSWORD || 'Accept!2026',
+    },
+    user: {
+      username: process.env.ACCEPT_USERNAME || 'accept_user',
+      password: process.env.ACCEPT_PASSWORD || 'Accept!2026',
+    },
+  };
+}
 
 /** 带原始响应头的 HTTP 请求（Node 侧，Cookie 手动管理——与浏览器隔离）。
  *  注意：显式设置 Content-Length——Node http 默认 chunked 会被 Tomcat 拒收 DELETE body(400)。 */
@@ -115,8 +132,15 @@ class ApiClient {
   }
 }
 
-/** WSL psql 查询（落库核对）。返回行数组（制表符分隔字段）。 */
+/** DB 查询通道选择：
+ *  - 本地（缺省）：WSL psql（schema_accept 库）
+ *  - 公网（ACCEPT_DB_MODE=ssh）：SSH 远端 psql（schema_acceptance 库）；
+ *    连接参数全部环境注入（ACCEPT_SSH_KEY/ACCEPT_SSH_HOST/ACCEPT_DB_*），
+ *    查询脚本经 stdin 传输不落盘远端临时文件。 */
 function dbQuery(sql) {
+  if ((process.env.ACCEPT_DB_MODE || '').toLowerCase() === 'ssh') {
+    return sshDbQuery(sql);
+  }
   const script = `#!/bin/bash
 export PGPASSWORD=schema_local_only
 psql -h localhost -U schema_dev -d schema_accept -tAc "${sql.replace(/"/g, '\\"')}"
@@ -128,6 +152,31 @@ psql -h localhost -U schema_dev -d schema_accept -tAc "${sql.replace(/"/g, '\\"'
   const wslPath = tmp.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (m) => `/mnt/${m[0].toLowerCase()}`);
   try {
     const out = execSync(`wsl.exe -d Ubuntu -e bash ${wslPath}`, { timeout: 30000 }).toString();
+    return out.split('\n').filter((l) => l.trim() !== '');
+  } catch (e) {
+    return { error: String(e.message).slice(0, 200), stdout: String(e.stdout || '').slice(0, 300) };
+  }
+}
+
+/** SSH 远端 psql：查询经单引号安全化后远端执行（凭据环境注入，不经临时文件）。 */
+function sshDbQuery(sql) {
+  const key = process.env.ACCEPT_SSH_KEY;
+  const host = process.env.ACCEPT_SSH_HOST;
+  const dbUser = process.env.ACCEPT_DB_USER || 'schema_accept';
+  const dbName = process.env.ACCEPT_DB_NAME || 'schema_acceptance';
+  const dbPass = process.env.ACCEPT_DB_PASSWORD;
+  if (!key || !host || !dbPass) {
+    return { error: 'ACCEPT_DB_MODE=ssh 需注入 ACCEPT_SSH_KEY/ACCEPT_SSH_HOST/ACCEPT_DB_PASSWORD' };
+  }
+  // 密码约束为字母数字+下划线（验收库专用随机串）——防 shell 注入面
+  if (!/^[A-Za-z0-9_]+$/.test(dbPass)) {
+    return { error: 'ACCEPT_DB_PASSWORD 含非法字符（限字母数字下划线）' };
+  }
+  const safeSql = sql.replace(/'/g, `'\\''`);
+  const remoteCmd = `PGPASSWORD='${dbPass}' psql -h 127.0.0.1 -U ${dbUser} -d ${dbName} -tAc '${safeSql}'`;
+  const args = [`-i`, key, `-o`, `StrictHostKeyChecking=no`, host, remoteCmd];
+  try {
+    const out = execFileSync('ssh.exe', args, { timeout: 30000, encoding: 'utf8' });
     return out.split('\n').filter((l) => l.trim() !== '');
   } catch (e) {
     return { error: String(e.message).slice(0, 200), stdout: String(e.stdout || '').slice(0, 300) };
@@ -147,4 +196,4 @@ function summary(suite) {
 
 }
 
-module.exports = { BASE, ok, record, request, ApiClient, dbQuery, summary, results };
+module.exports = { BASE, ok, record, request, ApiClient, dbQuery, summary, results, credentials };
