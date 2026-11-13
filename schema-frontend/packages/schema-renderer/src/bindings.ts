@@ -35,6 +35,9 @@ export interface SchemaRendererProps {
   react: ReactPrimitives;
   /** 全局上下文（路由参数等）。 */
   globalContext?: Record<string, unknown>;
+  /** 宿主能力注入（05FE §5 宿主供给物料能力位）：逐节点合并到物料 props——
+   * 如 runtime 注入 uploader（FileUpload 真实上传通道）；键名与物料 props 约定一致。 */
+  hostProps?: Record<string, unknown>;
   /** 表达式求值时钟（测试注入）。 */
   clock?: () => Date;
 }
@@ -74,6 +77,7 @@ const NodeTree = (p: TreeProps): ReactNode => {
         resolveComponent: p.resolveComponent,
         react: p.react,
         globalContext: p.globalContext,
+        hostProps: p.hostProps,
         clock: p.clock,
         key: inst.nodeId,
       }),
@@ -106,6 +110,8 @@ interface NodeViewProps {
   resolveComponent: SchemaRendererProps['resolveComponent'];
   react: ReactPrimitives;
   globalContext?: Record<string, unknown>;
+  /** 宿主能力注入（NodeTree 透传——合并到物料 props）。 */
+  hostProps?: Record<string, unknown>;
   clock?: () => Date;
 }
 
@@ -145,13 +151,16 @@ const NodeView = (p: NodeViewProps): ReactNode => {
       resolveComponent: p.resolveComponent,
       react,
       globalContext: p.globalContext,
+      hostProps: p.hostProps,
       clock: p.clock,
       key: child.nodeId,
     }),
   );
+  // 宿主能力注入（05FE §5）：hostProps 合并在节点 props 之后——
+  // 物料不得用 schema props 覆盖宿主注入的能力位（uploader 是运行时真实通道，非可配置项）
   return createElement(
     Comp,
-    { ...props, 'data-node-id': instruction.nodeId, key: instruction.nodeId },
+    { ...props, ...p.hostProps, 'data-node-id': instruction.nodeId, key: instruction.nodeId },
     children.length ? children : undefined,
   );
 };

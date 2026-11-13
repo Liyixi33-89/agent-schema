@@ -61,12 +61,28 @@ const widgets: Record<string, React.ComponentType<WidgetProps>> = {
   FileUpload: (p) => {
     // 受控文件列（2026-10-30 三轮收口）：协议值 {fileId,name,size}——展示回显；
     // 新上传经 customRequest 调宿主注入的 uploader 换取真实 fileId（不再本地 uid 冒充）。
+    // M16 闭环：runtime 宿主已注入 uploader（presign→直传→complete）与 downloader
+    // （一次性下载凭证）；无注入时保持本地校验态回显（designer 预览态）。
     const meta = (p.value ?? null) as { fileId?: string; name?: string; size?: number } | null;
-    const fileList = meta?.fileId ? [{ uid: meta.fileId, name: meta.name ?? '附件', status: 'done' as const }] : [];
+    const downloader = p.downloader as
+      | ((fileId: string) => Promise<string>)
+      | undefined;
+    const items = meta?.fileId ? [{ uid: meta.fileId, name: meta.name ?? '附件', status: 'done' as const }] : [];
+    const onPreview = async (): Promise<void> => {
+      if (!downloader || !meta?.fileId) return;
+      try {
+        const url = await downloader(meta.fileId);
+        window.open(url, '_blank', 'noopener');
+      } catch {
+        // 下载凭证签发失败（文件失效/权限）——静默不跳转，AntD Upload 无错误插槽可回显
+      }
+    };
     return (
       <Upload
         maxCount={1}
-        fileList={fileList}
+        fileList={items}
+        showUploadList={{ showDownloadIcon: false }}
+        onPreview={() => { void onPreview(); }}
         customRequest={(opt) => {
           const uploader = p.uploader as
             | ((file: File, onProgress: (pct: number) => void) => Promise<{ fileId: string }>)

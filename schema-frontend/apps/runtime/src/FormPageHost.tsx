@@ -98,6 +98,18 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cach
   if (state.page.type === 'LIST') {
     return <ListPageHost key={pageId} client={client} page={state.page} fields={state.fields} />;
   }
+  if (state.page.type === 'DASHBOARD') {
+    // 协议允许 DASHBOARD（chart-kit P2 未交付）——显式未支持提示，不静默落入表单宿主
+    // 冒充已实现（2026-11-13 文档-实现对齐收口）。
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        message="仪表盘页面暂未支持"
+        description="该页面类型需要图表物料运行时（后续版本交付）。当前版本仅支持表单/列表/详情页。"
+      />
+    );
+  }
   if (state.page.type === 'DETAIL' && recordId == null) {
     return <Alert type="error" showIcon message="详情页面缺少记录 ID" />;
   }
@@ -334,6 +346,13 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
         fields={new Map(fields.map((f) => [f.key, f]))}
         resolveComponent={enhanceResolve}
         react={{ createElement: React.createElement, useState, useEffect }}
+        // 宿主能力注入（05FE §5，M16 附件闭环）：FileUpload 物料经 customRequest 消费——
+        // presign → local-put 直传 → complete 换真实 fileId（不再本地校验态回显）。
+        hostProps={{
+          uploader: (file: File, onProgress: (pct: number) => void) =>
+            client.uploadAttachment(file, onProgress),
+          downloader: (fileId: string) => client.attachmentDownloadUrl(fileId),
+        }}
       />}
       {!readOnly && <Button type="primary" loading={submitting} onClick={handleSubmit} style={{ marginTop: 16 }}>
         提交
