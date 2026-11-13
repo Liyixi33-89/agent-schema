@@ -80,7 +80,7 @@ class PageServiceIT {
             var encoder = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
             jdbc.update("INSERT INTO sys_user (id, tenant_id, account, name, password_hash, status, "
                             + "must_change_password) VALUES (1, 1, 'page_default_op', '页面默认操作员', ?, "
-                            + "'ACTIVE', false)",
+                            + "'ACTIVE', false) ON CONFLICT (id) DO NOTHING",
                     encoder.encode("PageOp!2026x"));
         }
         List<Long> roleIds = jdbc.query(
@@ -382,7 +382,8 @@ class PageServiceIT {
         if (existing.isEmpty()) {
             var encoder = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
             jdbc.update("INSERT INTO sys_user (tenant_id, account, name, password_hash, status, must_change_password) "
-                            + "VALUES (1, 'preview_operator', '预览测试员', ?, 'ACTIVE', false)",
+                            + "VALUES (1, 'preview_operator', '预览测试员', ?, 'ACTIVE', false) "
+                            + "ON CONFLICT DO NOTHING",
                     encoder.encode("Preview!2026x"));
             userId = jdbc.queryForObject(
                     "SELECT id FROM sys_user WHERE tenant_id=1 AND account='preview_operator'", Long.class);

@@ -6,11 +6,11 @@
  * 运行时依赖说明：antd/react 为 peerDependencies——本包仅声明，
  * 由宿主（designer/runtime）提供实现（与 renderer 的零运行时 react 纪律一致）。
  */
-import React from 'react';
+import React, { useState } from 'react';
 import dayjs from 'dayjs';
 import {
   Input, InputNumber, Select, DatePicker, Switch, Upload, Button, Table, Form,
-  Card, Tabs, Collapse, Tooltip, Typography, Steps,
+  Card, Tabs, Collapse, Tooltip, Typography, Steps, message,
 } from 'antd';
 import type { MaterialMeta } from '@schema/schema-renderer';
 
@@ -61,12 +61,47 @@ const widgets: Record<string, React.ComponentType<WidgetProps>> = {
   FileUpload: (p) => {
     // 受控文件列（2026-10-30 三轮收口）：协议值 {fileId,name,size}——展示回显；
     // 新上传经 customRequest 调宿主注入的 uploader 换取真实 fileId（不再本地 uid 冒充）。
+    // M16 闭环：runtime 宿主已注入 uploader（presign→直传→complete）与 downloader
+    // （一次性下载凭证）；无注入时保持本地校验态回显（designer 预览态）。
+    // M16 修复（antd Upload 受控丢弃）：onSuccess 里 getFileItem(file, mergedFileList)
+    // 找不到上传条目会静默 return——受控 fileList 若不含 uploading 态条目，done 回调
+    // 永不触发 onChange。必须让上传中条目出现在受控 fileList 里（内部态合并协议值）。
     const meta = (p.value ?? null) as { fileId?: string; name?: string; size?: number } | null;
-    const fileList = meta?.fileId ? [{ uid: meta.fileId, name: meta.name ?? '附件', status: 'done' as const }] : [];
+    const downloader = p.downloader as
+      | ((fileId: string) => Promise<string>)
+      | undefined;
+    // 内部上传态（uploading/error 条目）——协议值优先，本地态补位
+    const [pending, setPending] = useState<{ uid: string; name: string; status: 'uploading' | 'error' } | null>(null);
+    const items = React.useMemo(() => {
+      if (meta?.fileId) {
+        return [{ uid: meta.fileId, name: meta.name ?? '附件', status: 'done' as const }];
+      }
+      return pending ? [pending] : [];
+    }, [meta?.fileId, meta?.name, pending]);
+    const onPreview = async (): Promise<void> => {
+      if (!downloader || !meta?.fileId) return;
+      try {
+        const url = await downloader(meta.fileId);
+        window.open(url, '_blank', 'noopener');
+      } catch {
+        // 下载凭证签发失败（文件失效/权限）——静默不跳转，AntD Upload 无错误插槽可回显
+      }
+    };
     return (
       <Upload
         maxCount={1}
-        fileList={fileList}
+        fileList={items}
+        showUploadList={{ showDownloadIcon: false }}
+        onPreview={() => { void onPreview(); }}
+        beforeUpload={(file) => {
+          // A1 上限口径（spec 016）：单附件超 10MB 前端拦截——服务端 attachment scope
+          // 上限 100MB（FilePolicy），10MB 是产品侧试点约束，前端先拦减少无效直传。
+          if (file.size > 10 * 1024 * 1024) {
+            void message.error(`附件不能超过 10MB（当前 ${(file.size / 1024 / 1024).toFixed(1)}MB）`);
+            return Upload.LIST_IGNORE;
+          }
+          return true;
+        }}
         customRequest={(opt) => {
           const uploader = p.uploader as
             | ((file: File, onProgress: (pct: number) => void) => Promise<{ fileId: string }>)
@@ -77,18 +112,25 @@ const widgets: Record<string, React.ComponentType<WidgetProps>> = {
             opt.onSuccess?.({ fileId: '' });
             return;
           }
+          setPending({ uid: (file as { uid?: string }).uid ?? String(Date.now()), name: file.name, status: 'uploading' });
           uploader(file, (pct) => opt.onProgress?.({ percent: pct }))
-            .then((r) => opt.onSuccess?.(r))
-            .catch((e: unknown) => opt.onError?.(e as Error));
+            .then((r) => {
+              setPending(null);
+              opt.onSuccess?.(r);
+            })
+            .catch((e: unknown) => {
+              setPending(null);
+              opt.onError?.(e as Error);
+            });
         }}
         onChange={(info) => {
           const last = info.fileList.at(-1);
           if (!last) return p.onChange?.(null);
+          if (last.status === 'removed') return p.onChange?.(null);
           if (last.status === 'done' && last.response) {
             const fid = (last.response as { fileId?: string }).fileId;
             if (fid) return p.onChange?.({ fileId: fid, name: last.name, size: last.size ?? 0 });
           }
-          if (last.status === 'removed') return p.onChange?.(null);
         }}
       >
         <Button disabled={bool(p.disabled)}>上传附件</Button>

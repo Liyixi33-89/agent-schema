@@ -141,6 +141,53 @@ export class RequestClient {
     return payload.unique !== false;
   }
 
+  /**
+   * 附件上传（11BE §3.1 presign → 直传 → complete；scope=attachment P1 单文件）。
+   * local-put 是一次性凭证端点（免认证/免 CSRF——JwtAuthFilter/CsrfFilter 白名单）；
+   * complete 后回 {fileId, name, size}——与协议 file 字段值结构一致（WriteValidator 附件分支）。
+   */
+  async uploadAttachment(file: File, onProgress?: (pct: number) => void): Promise<{ fileId: string; name: string; size: number }> {
+    // ① presign：登记 PENDING 元数据 + 签发直传凭证（类型/大小白名单在此校验）
+    const pre = await this.post('/api/files/presign', {
+      fileName: file.name,
+      contentType: file.type || 'application/octet-stream',
+      size: file.size,
+      scope: 'attachment',
+    }) as { fileId: string; uploadUrl?: string; uploadId?: string; partSize?: number; totalParts?: number };
+
+    if (pre.uploadId) {
+      throw new ServerError('FILE_TOO_LARGE', '文件超出单请求上传阈值（分块上传未接入运行时物料）');
+    }
+    if (!pre.uploadUrl) throw new ServerError('UPLOAD_FAILED', '上传凭证签发失败');
+
+    // ② 直传（octet-stream PUT 到凭证端点——不经 request()，避免注入 JSON content-type）
+    const put = await fetch(pre.uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: file,
+    });
+    if (!put.ok) {
+      throw new ServerError('UPLOAD_FAILED', `文件直传失败 (${put.status})`);
+    }
+    onProgress?.(70);
+
+    // ③ complete：服务端 HEAD 校验 + 摘要登记 → ACTIVE
+    const done = await this.post(`/api/files/${pre.fileId}/complete`, {}) as {
+      fileId: string; fileName?: string; size?: number;
+    };
+    onProgress?.(100);
+    return { fileId: String(done.fileId), name: done.fileName ?? file.name, size: done.size ?? file.size };
+  }
+
+  /** 附件下载凭证（同租户校验——IDOR 纪律；返回一次性 local-get URL）。 */
+  async attachmentDownloadUrl(fileId: string): Promise<string> {
+    const resp = await this.request(`/api/files/${fileId}/url`, { headers: this.headers() });
+    if (!resp.ok) throw new ServerError('DOWNLOAD_FAILED', `下载凭证签发失败 (${resp.status})`);
+    const payload = (await resp.json()) as { downloadUrl?: string };
+    if (!payload.downloadUrl) throw new ServerError('DOWNLOAD_FAILED', '下载凭证缺失');
+    return payload.downloadUrl;
+  }
+
   private async post(path: string, body: unknown): Promise<unknown> {
     const resp = await this.request(path, {
       method: 'POST', headers: this.headers(), body: JSON.stringify(body),

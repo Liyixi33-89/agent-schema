@@ -3,7 +3,7 @@ spec_id: 015-mvp-closed-loop
 status: active
 milestone: M15              # 依赖图 §3.12；前置 M8-M10/M11/M12/M13/M14 全部 accepted
 created: 2026-11-11
-last_verified_at: null
+last_verified_at: 2026-11-13
 owner: human-lead
 ---
 
