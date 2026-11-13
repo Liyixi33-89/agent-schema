@@ -70,11 +70,11 @@ M15 已 accepted（公网验收环境通过业务+安全双套件），但 **M15
 
 ## 4. Tasks
 
-- [ ] T1 附件 uploader 注入实现（M15 deferred 项闭环）：runtime 宿主注入 uploader 到 FileUpload 物料 props，浏览器真实上传交互验收（选择→上传→回显→提交落库→详情下载）
+- [x] T1 附件 uploader 注入实现（M15 deferred 项闭环）：runtime 宿主注入 uploader 到 FileUpload 物料 props，浏览器真实上传交互验收（选择→上传→回显→提交落库→详情下载）——2026-11-13 完成（commit 8505602，accept-m16-attachment.cjs 30/30 PASS，修复受控回显/编辑态回填竞态/10MB 拦截三缺陷）
 - [ ] T2 备份恢复演练 DR-01：三层备份取回 → 隔离环境完整恢复（计时）→ 抽样校验 → 冒烟子集 → 报告归档 → 演练环境销毁
 - [ ] T3 压测环境搭建与 PERF-01~05 执行：k6 脚本（登录/Schema 拉取/CRUD/发布按配比）、预置 100 万行数据集、资源水位采集；报告含规格偏差声明
 - [ ] T4 故障注入 TC-FT 01-06 与升级回滚 TC-UP 01-04：脚本化注入（kill/连接池/慢查询）、告警分级路由验证、Flyway 迁移失败阻断验证
-- [ ] T5 健康页与 SLA 看板接线：10BE §4 契约消费核验、注入期间状态流转断言、月度可用性口径计算。
+- [x] T5 健康页与 SLA 看板接线（后端聚合接口部分）：OpsController 四接口（overview/api-throughput/script-compile/recent-errors，org:manage 闸门）线上验收后端 18081 实测全通（2026-11-13，PR #18 commit 5298762）；实测修复两缺陷：file_object size→size_bytes（ACTIVE 过滤）、successRate 零样本 null 的 Map.of NPE。**前端接线与注入期间状态流转断言未完成——T5 未整体闭环**
       范围澄清（2026-11-13 对齐表 §2）：当前 HealthTab 是**平台级运维状态页**（/api/ops/health 平台/数据库/版本），
       不等于 PRD 09 §2.6 租户级健康页——租户错误率/失败构建清单/排障入口的聚合维度属本任务新增交付，
       不得以现有运维页冒充 G4 完成
@@ -85,7 +85,7 @@ M15 已 accepted（公网验收环境通过业务+安全双套件），但 **M15
 
 ## 5. Acceptance
 
-- [ ] A1 附件上传交互全链路通过（浏览器真实操作：选择→上传→回显→提交→详情下载，负例：超 10MB 拒绝）——M15 deferred 项闭环
+- [ ] A1 附件上传交互全链路通过（浏览器真实操作：选择→上传→回显→提交→详情下载，负例：超 10MB 拒绝）——M15 deferred 项闭环——已达成（2026-11-13 验收套件 30/30 PASS），随 M16 整体验收勾选
 - [ ] A2 DR-01 演练完成：抽样一致率 ≥ 99.9%、RTO/RPO 实测值归档、演练环境销毁记录在案
 - [ ] A3 PERF-01~05 全过（250 VU、P95 < 1.5s、错误率 < 0.5% 分接口、资源水位达标）；报告含环境规格表与基线对比结论（首次建立基线）
 - [ ] A4 TC-FT 01-06 全过：P0/P1 告警分级路由正确、触达时延记录、大盘数据与注入时间线吻合；健康页状态流转正确
@@ -109,4 +109,7 @@ M15 已 accepted（公网验收环境通过业务+安全双套件），但 **M15
 
 ## 7. 沉淀记录（结项时回填）
 
-- <待回填>
+- 2026-11-13 T1 附件闭环三缺陷（受控 fileList 吞 onSuccess/详情回填竞态/10MB 前端拦截缺失）修复经验入 commit 8505602 描述
+- 2026-11-13 T5 实测两坑：① file_object 存储列名是 `size_bytes` 非 `size`（且按 status=ACTIVE 过滤——PENDING 未落盘/EXPIRED 已失效不计入）；② `Map.of` 不容 null——零样本 successRate 为 null 直接 NPE，可空字段组装用 LinkedHashMap。本地不暴露是因为本地库有序列存量/近期有编译样本，线上全新口径即刻触发
+- 2026-11-13 CI-only 测试坑：PageServiceIT 显式插 `sys_user(id=1)` 后序列仍从 1 起，后续 `preview_operator` 自增插入撞主键——全新 PG（CI）才触发，本地有序列存量不复现；种子插入一律补 `ON CONFLICT DO NOTHING`
+- 产品缺陷待登记（本轮发现）：必填字段不在布局时，提交被校验层静默拦截且无任何用户反馈（无 toast/无标红）——影响表单可用性，建议排入 M16 修复
