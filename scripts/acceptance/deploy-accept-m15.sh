@@ -10,7 +10,12 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RUN_ID=${1:?用法: deploy-accept-m15.sh <runId>}
 HOST=111.231.57.177
 USER=root
-KEY=/mnt/c/Users/v_liyixili/.ssh/id_rsa
+# 密钥解析：WSL 下优先 ~/.ssh/id_rsa（/mnt/c 挂载权限 0777 会被 ssh 拒绝）；Windows 侧回退原始路径
+if [ -f "$HOME/.ssh/id_rsa" ] && [ -n "${WSL_DISTRO_NAME:-}" ]; then
+  KEY="$HOME/.ssh/id_rsa"
+else
+  KEY=/mnt/c/Users/v_liyixili/.ssh/id_rsa
+fi
 REMOTE_TMP=/tmp/accept-deploy-$RUN_ID
 ACCEPT_ROOT=/opt/schema/staging/accept
 SSH="ssh -i $KEY -o StrictHostKeyChecking=accept-new $USER@$HOST"
@@ -19,9 +24,14 @@ SCP="scp -i $KEY -o StrictHostKeyChecking=accept-new"
 fail() { echo "DEPLOY FAIL: $1" >&2; exit 1; }
 
 # 1) 受控构建（验收面 base 前缀 + API 前缀注入）
-cd "$ROOT/schema-frontend"
-ACCEPT_BASE=1 pnpm --filter designer build > /dev/null
-ACCEPT_BASE=1 VITE_API_BASE=/accept pnpm --filter runtime build > /dev/null
+#    SKIP_BUILD=1 时跳过（构建已在 Windows 侧完成——WSL 无 node 环境，见下方说明）
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  cd "$ROOT/schema-frontend"
+  # ⚠️ designer 与 runtime 均须注入 VITE_API_BASE=/accept——请求层 baseUrl 真源；
+  #    漏注入则页面 API 请求走根 /api（404，登录页不出现——2026-11-12 公网轮实测教训）
+  ACCEPT_BASE=1 VITE_API_BASE=/accept pnpm --filter designer build > /dev/null
+  ACCEPT_BASE=1 VITE_API_BASE=/accept pnpm --filter runtime build > /dev/null
+fi
 DESIGNER_DIST="$ROOT/schema-frontend/apps/designer/dist-accept"
 RUNTIME_DIST="$ROOT/schema-frontend/apps/runtime/dist-accept"
 [ -f "$DESIGNER_DIST/index.html" ] || fail "designer 构建产物缺失"
