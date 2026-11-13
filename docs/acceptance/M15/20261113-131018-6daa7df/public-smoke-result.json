@@ -1,0 +1,62 @@
+[
+  {
+    "name": "冒烟-设计者登录",
+    "pass": true,
+    "detail": "登录状态见手动流程断言"
+  },
+  {
+    "name": "冒烟-API me 身份可达（公网 /accept/api 经隧道）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "冒烟-验收后端运行身份（7a60b2a）",
+    "pass": true,
+    "detail": "HTTP 200 commit=7a60b2a73e5700ca85768824b46d61f4a0a26e6d"
+  },
+  {
+    "name": "冒烟-脚本编译成功（服务端编译 Worker）",
+    "pass": true,
+    "detail": "HTTP 200 hash=385791fd9a18"
+  },
+  {
+    "name": "冒烟-浏览器登录（业务用户）",
+    "pass": true,
+    "detail": "login=200"
+  },
+  {
+    "name": "冒烟-浏览器会话恢复（/api/me）",
+    "pass": true,
+    "detail": "me=200 account=accept_user"
+  },
+  {
+    "name": "冒烟-编译产物经 /accept/api 可达（artifactUrl 修复生效）",
+    "pass": true,
+    "detail": "status=200 len=106 hasOnLoad=true"
+  },
+  {
+    "name": "冒烟-编译产物可动态 import（Worker 装载前置）",
+    "pass": true,
+    "detail": "{\"onLoad\":true,\"beforeSubmit\":true}"
+  },
+  {
+    "name": "冒烟-业务用户登录",
+    "pass": true,
+    "detail": "登录状态见手动流程断言"
+  },
+  {
+    "name": "冒烟-登记提交成功",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "冒烟-无数据范围授权查询 0 行（最小权限语义正确）",
+    "pass": true,
+    "detail": "HTTP 200 total=0"
+  },
+  {
+    "name": "冒烟-登记落库（DB 直查恢复）",
+    "pass": true,
+    "detail": "rows=1"
+  }
+]

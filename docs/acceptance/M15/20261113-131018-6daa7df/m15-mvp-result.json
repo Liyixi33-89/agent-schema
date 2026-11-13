@@ -1,0 +1,272 @@
+[
+  {
+    "name": "M15 设计者登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "M15 业务用户登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "MVP00-身份真源读取（设计者/业务用户 userId）",
+    "pass": true,
+    "detail": "designer=1 user=2"
+  },
+  {
+    "name": "MVP01-模型详情读取（版本基线）",
+    "pass": true,
+    "detail": "HTTP 200 currentVersion=33"
+  },
+  {
+    "name": "MVP01-字段扩展 precheck 通过",
+    "pass": true,
+    "detail": "HTTP 200 token=kQ94HVxHMaqh… mode=INFO"
+  },
+  {
+    "name": "MVP01-字段扩展保存成功（两段式确认提交）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "MVP01-字段落库核对",
+    "pass": true,
+    "detail": "[\"m15cat_mweisbv3\"]"
+  },
+  {
+    "name": "MVP01-金额约束 precheck 通过（产品建模链配置 range）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "MVP01-金额约束保存成功（两段式确认提交）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "MVP01-金额约束落库核对",
+    "pass": true,
+    "detail": "[\"[{\\\"max\\\": 100000, \\\"min\\\": 0.01, \\\"type\\\": \\\"range\\\"}]\"]"
+  },
+  {
+    "name": "MVP01-新建 LIST 页",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "MVP01-新建 DETAIL 页",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "MVP01-LIST 草稿保存（DataTable 列配置 + OPEN_PAGE 动作）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "MVP01-DETAIL 草稿保存（字段引用布局）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "MVP01-业务脚本编译（contentHash 回写）",
+    "pass": true,
+    "detail": "HTTP 200 hash=a671db2a9318…"
+  },
+  {
+    "name": "MVP01-脚本绑定随草稿保存",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "MVP01d-成员列表读取（产品权限入口）",
+    "pass": true,
+    "detail": "HTTP 200 members=2"
+  },
+  {
+    "name": "MVP01d-业务用户授权 user 角色（产品成员角色 API）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "MVP01d-授权后成员角色核对（user 在列）",
+    "pass": true,
+    "detail": "{\"userId\":2,\"name\":\"验收成员\",\"account\":\"accept_user\",\"roles\":[\"user\"]}"
+  },
+  {
+    "name": "MVP01d-无数据范围授权默认拒绝（0 行——最小权限语义）",
+    "pass": true,
+    "detail": "HTTP 200 total=0（应 0）"
+  },
+  {
+    "name": "MVP01d-SELF 范围授权后可查询（范围执行链生效）",
+    "pass": true,
+    "detail": "HTTP 200 total=10"
+  },
+  {
+    "name": "MVP01-业务用户导航过滤可见（既有权限链）",
+    "pass": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "MVP01-三页发布成功",
+    "pass": true,
+    "detail": "HTTP 200 release=53"
+  },
+  {
+    "name": "MVP06-发布埋点落库（限定本轮用户/租户/动作）",
+    "pass": true,
+    "detail": "51 → 52（tenant=1 user=1 action=publish）"
+  },
+  {
+    "name": "MVP06-埋点事件契约字段核对（metric=seat.active source=SERVER 本轮时间窗）",
+    "pass": true,
+    "detail": "[\"seat.active|SERVER|publish|t\"]"
+  },
+  {
+    "name": "MVP02-浏览器身份显式核验（当前账号=业务用户，非静默沿用会话）",
+    "pass": true,
+    "detail": "identityVerified=true（登录后 /api/me 账号一致才继续）"
+  },
+  {
+    "name": "MVP02-浏览器会话与 API 侧身份一致（同一业务用户）",
+    "pass": true,
+    "detail": "browser=2 api=2"
+  },
+  {
+    "name": "MVP02-日期控件面板选择成功（受控值写入输入框）",
+    "pass": true,
+    "detail": "expenseDate=\"2026-11-13\"（面板真实交互，非 FILL_JS 污染通道）"
+  },
+  {
+    "name": "MVP02-提交触发写入接口且返回 200",
+    "pass": true,
+    "detail": "POST 200"
+  },
+  {
+    "name": "MVP02-服务端新增一条记录（前后计数核对）",
+    "pass": true,
+    "detail": "10 → 11"
+  },
+  {
+    "name": "MVP02-落库字段核对（事由/金额/登记人）",
+    "pass": true,
+    "detail": "[\"M15-mweisbv3|666|M15脚本注入:提交时已有10条|2026-11-13|2\"]"
+  },
+  {
+    "name": "MVP02-日期值随提交落库（面板交互值进入 payload）",
+    "pass": true,
+    "detail": "expenseDate=\"2026-11-13\"（空=面板值未随提交）"
+  },
+  {
+    "name": "MVP04-脚本真实影响业务（remark 被 beforeSubmit 改写入库——非只看 toast）",
+    "pass": true,
+    "detail": "M15-mweisbv3|666|M15脚本注入:提交时已有10条|2026-11-13|2"
+  },
+  {
+    "name": "MVP03-SELF 范围核对（业务用户可见自己登记的记录）",
+    "pass": true,
+    "detail": "total=11 含本轮=true"
+  },
+  {
+    "name": "MVP02N-必填缺失提交被拒且不产生记录",
+    "pass": true,
+    "detail": "count 11 → 11；last POST=无（前端拦截）"
+  },
+  {
+    "name": "MVP02N-界面呈现校验错误",
+    "pass": true,
+    "detail": "true"
+  },
+  {
+    "name": "MVP02V-非法金额 0 被服务端拒绝（建模 range 约束）且不落库",
+    "pass": true,
+    "detail": "HTTP 422 count 11→11"
+  },
+  {
+    "name": "MVP02V-非法金额 -5 被服务端拒绝（建模 range 约束）且不落库",
+    "pass": true,
+    "detail": "HTTP 422 count 11→11"
+  },
+  {
+    "name": "MVP02V-非法金额 100001 被服务端拒绝（建模 range 约束）且不落库",
+    "pass": true,
+    "detail": "HTTP 422 count 11→11"
+  },
+  {
+    "name": "MVP03-列表页渲染设计标题（M15列表）",
+    "pass": true,
+    "detail": "M15列表mweisbv3|事由|\t|金额|\t|类型(验收)|\t操作|PROBE-mwdh1p4s\t1\t—\t|打开||M15SMOKE-mwdgsc7b\t66\t—\t|打开||M15A1-mwdgxpt3-1\t100\t—\t|打开||M15SMOKE-mwdgtnqe\t66\t—\t|打开||M15SMOK"
+  },
+  {
+    "name": "MVP03-列表含刚登记记录（事由列）",
+    "pass": true,
+    "detail": "查找: M15-mweisbv3"
+  },
+  {
+    "name": "MVP03-表头消费设计列配置（事由/金额/类型）",
+    "pass": true,
+    "detail": "事由,金额,类型(验收),操作"
+  },
+  {
+    "name": "MVP03-行打开跳转详情（hash 含记录 ID）",
+    "pass": true,
+    "detail": "click=clicked hashNow=#/page/88/2697633850816879397 hashFinal=#/page/88/2697633850816879397 recId=2697633850816879397 detailPage=88"
+  },
+  {
+    "name": "MVP03-详情字段与服务端一致（事由/金额呈现）",
+    "pass": true,
+    "detail": "[\"M15-mweisbv3\",\"666\"]"
+  },
+  {
+    "name": "MVP03R-刷新后详情数据一致（重开仍存在）",
+    "pass": true,
+    "detail": "[\"M15-mweisbv3\",\"666\"]"
+  },
+  {
+    "name": "MVP03N-范围外记录负例（库内无他人记录——跳过条件登记）",
+    "pass": true,
+    "detail": "单用户库无可区分记录，语义已由 M11 IT 覆盖"
+  },
+  {
+    "name": "MVP05-草稿清空不影响发布版本（发布快照独立）",
+    "pass": true,
+    "detail": "发布 layout len=1（应保留 DataTable）"
+  },
+  {
+    "name": "MVP-无未捕获 console 错误",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "name": "MVP-PRIV-普通成员设计接口被拒（403）",
+    "pass": true,
+    "detail": "HTTP 403（权限边界保持）"
+  },
+  {
+    "name": "MVP-PRIV-无凭证访问运行时页面被拒（401）",
+    "pass": true,
+    "detail": "HTTP 401"
+  },
+  {
+    "name": "M12R-影响面确认（字段被页面引用 → precheck risks 含 PAGE_REF）",
+    "pass": true,
+    "detail": "HTTP 200 risks=[{\"type\":\"PAGE_REF\",\"refId\":88,\"severity\":\"HIGH\"}]"
+  },
+  {
+    "name": "M12R-回滚 precheck 签发 token",
+    "pass": true,
+    "detail": "HTTP 200 mode=TYPE_MODEL_NAME"
+  },
+  {
+    "name": "M12R-版本回滚成功（快照恢复——版本前进审计链）",
+    "pass": true,
+    "detail": "HTTP 200 newVersion=36（恢复到 v33 快照）"
+  },
+  {
+    "name": "M12R-回滚后字段集合恢复（本轮新增字段不在 active 集）",
+    "pass": true,
+    "detail": "active=[\"title\",\"amount\",\"expenseDate\",\"remark\"]"
+  }
+]

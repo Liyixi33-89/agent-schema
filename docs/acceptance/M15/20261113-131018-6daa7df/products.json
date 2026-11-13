@@ -1,0 +1,42 @@
+{
+  "sourceCommit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+  "collectionMethod": "public-deployment（部署面实测：前端本地构建哈希与公网响应哈希经探针逐一相等；后端 JAR 哈希为服务器 sha256sum 实测；编译 Worker 运转证明见冒烟与 deployment-evidence.json，不列入产物哈希清单——其目录指纹为 md5 非 sha256，避免伪值）",
+  "products": [
+    {
+      "name": "designer-web",
+      "sourceCommit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+      "runtimeVersion": "index-CnjWFY9f",
+      "path": "schema-frontend/apps/designer/dist-accept/index.html",
+      "sha256": "b3870513dab36c084f8dde7ffd3f5f4de4d7443d4bac0e54e7038d1b9b75a3a4",
+      "bytes": 398,
+      "collectedAt": "2026-11-13T05:12:05.719Z",
+      "method": "local-file-sha256",
+      "deployedSha256": "b3870513dab36c084f8dde7ffd3f5f4de4d7443d4bac0e54e7038d1b9b75a3a4",
+      "buildSourceCommit": "a6247e1fe6e6e9b063cfbe4e094089085f0eb341"
+    },
+    {
+      "name": "runtime-web",
+      "sourceCommit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+      "runtimeVersion": "index-DW4YPWzU",
+      "path": "schema-frontend/apps/runtime/dist-accept/index.html",
+      "sha256": "0d46a3ccef61f9082239cb5850166af3599dbb8a8917cf4086bdf54e74f8b078",
+      "bytes": 294,
+      "collectedAt": "2026-11-13T05:12:05.719Z",
+      "method": "local-file-sha256",
+      "deployedSha256": "0d46a3ccef61f9082239cb5850166af3599dbb8a8917cf4086bdf54e74f8b078",
+      "buildSourceCommit": "a6247e1fe6e6e9b063cfbe4e094089085f0eb341"
+    },
+    {
+      "name": "accept-backend",
+      "sourceCommit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+      "runtimeVersion": "schema-platform-accept.jar",
+      "path": "/opt/schema/staging/schema-platform-accept.jar",
+      "sha256": "3f30235016495eca156e0c1c8d40430bbb8278bc5d08f8481513ce9c5e536a07",
+      "bytes": 24988277,
+      "collectedAt": "2026-11-13T03:53:00.000Z",
+      "method": "server-file-sha256",
+      "buildSourceCommit": "7a60b2a73e5700ca85768824b46d61f4a0a26e6d",
+      "runtimeIdentityProbe": "公网冒烟第 3 项 HTTP 200 sourceCommit=7a60b2a… verifiable=true"
+    }
+  ]
+}

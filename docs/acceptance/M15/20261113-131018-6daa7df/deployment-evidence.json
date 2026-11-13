@@ -1,0 +1,77 @@
+﻿{
+  "collectionMethod": "deploy-evidence.sh 系列（SSH 分离执行通道，服务器端实测）",
+  "collectedAt": "2026-11-13T04:05:00Z",
+  "sourceCommits": {
+    "deployedFrontend": "a6247e1fe6e6e9b063cfbe4e094089085f0eb341 (m15pub-002 deployment.json)",
+    "backendBuildRecord": "7a60b2a73e5700ca85768824b46d61f4a0a26e6d (out/builds/20261112-185645-7a60b2a.json, backendIdentity=true)",
+    "note": "后 8 个 commit（至 fe14625）仅修复验收工具脚本（scripts/acceptance/*），不触产品代码；部署产物身份以构建记录+运行身份为准，套件版本另行标注"
+  },
+  "backend": {
+    "jar": "/opt/schema/staging/schema-platform-accept.jar",
+    "jarSha256": "3f30235016495eca156e0c1c8d40430bbb8278bc5d08f8481513ce9c5e536a07",
+    "jarSize": 24988277,
+    "pid": 321912,
+    "port": 18081,
+    "jvm": "/usr/lib/jvm/java-21-konajdk-21.0.12-4.oc9/bin/java",
+    "manifest": "Implementation-Title: bootstrap, Implementation-Version: 0.1.0-SNAPSHOT",
+    "runtimeIdentity": "7a60b2a73e5700ca85768824b46d61f4a0a26e6d（公网冒烟第 3 项 HTTP 200 实测，与构建记录一致）",
+    "datasource": "jdbc:postgresql://127.0.0.1:5432/schema_acceptance"
+  },
+  "buildWorker": {
+    "workerDir": "/opt/schema/build-worker/node",
+    "contents": ["build-worker.mjs", "node_modules", "package-lock.json", "package.json", "redline-vectors.json"],
+    "workerDirMd5": "0dfc1a35b530e6f36982db7b80fd5c1a",
+    "nodeVersion": "v20.18.1",
+    "runtimeProbe": "公网冒烟第 4/7 项：脚本编译 HTTP 200 hash=385791fd9a18；产物经 /accept/api 可达 + 可动态 import——Worker 实际运转证明"
+  },
+  "migration": {
+    "flywayHistory": [
+      "16|build task|t|2026-11-12 10:51:08",
+      "15|refresh rotation cache|t|2026-11-09 10:25:41",
+      "14|cookie session|t|2026-11-09 10:25:41",
+      "13|app tenant tables|t|2026-11-09 10:25:41",
+      "12|notification tables|t|2026-11-09 10:25:41",
+      "11|file tables|t|2026-11-09 10:25:41",
+      "10|metering tables|t|2026-11-09 10:25:41",
+      "9|outbox lease token|t|2026-11-09 10:25:41"
+    ],
+    "conclusion": "V16 与部署后端一致，全部 success=t；替换部署前后无新增迁移（V16 于部署前 10:51 完成），兼容性实证"
+  },
+  "databaseBackup": {
+    "dump": "/opt/schema/staging/accept/backup/db-20261113T035313Z.sql.gz",
+    "size": 145933,
+    "md5": "91ccec54352de86429cc0527de60a7b5",
+    "tables": 51,
+    "restoreDrill": {
+      "method": "postgres 本地 peer 建临时库 schema_acceptance_restore 后整库灌入",
+      "exitCode": 0,
+      "pageSchemaRows": 78,
+      "metaModelRows": 14,
+      "flywayRows": 16,
+      "result": "PASS——备份可完整恢复（与生产库行数一致），演练后临时库已清理"
+    }
+  },
+  "frontendHashes": {
+    "designerDeployed": "b3870513dab36c084f8dde7ffd3f5f4de4d7443d4bac0e54e7038d1b9b75a3a4",
+    "runtimeDeployed": "0d46a3ccef61f9082239cb5850166af3599dbb8a8917cf4086bdf54e74f8b078",
+    "matchDeploymentRecord": true
+  },
+  "rollback": {
+    "manifests": [
+      {
+        "runId": "m15pub-001",
+        "deployedAt": "2026-11-12T11:02:43Z",
+        "preDeployDesigner": "7e454fbb6e2a671e66157f31769a247a8e7b32dca79406edb13511d286b9b32c",
+        "preDeployRuntime": "44ba6924243c600810fe79bc9b6a7a48b17050fba11463b8024c2f41711e4898"
+      },
+      {
+        "runId": "m15pub-002",
+        "deployedAt": "2026-11-12T11:56:52Z",
+        "preDeployDesigner": "382b61a326707d4e9499a29b65bc36c57c6f7e0eaa7007f32365cdfbbc7868f6",
+        "preDeployRuntime": "0d46a3ccef61f9082239cb5850166af3599dbb8a8917cf4086bdf54e74f8b078"
+      }
+    ],
+    "backupDirs": ["20261112T110243Z-m15pub-001", "20261112T115652Z-m15pub-002", "designer-20261110T012816Z", "frontend-20261112T055932Z", "db-20261113T035313Z.sql.gz"],
+    "rollbackCommand": "cp -r /opt/schema/staging/accept/backup/<ts>-<runId>/<app>/. /opt/schema/staging/accept/<app>/ && 数据库恢复 gunzip -c db-<ts>.sql.gz | psql -d schema_acceptance（恢复演练已验证可行）"
+  }
+}

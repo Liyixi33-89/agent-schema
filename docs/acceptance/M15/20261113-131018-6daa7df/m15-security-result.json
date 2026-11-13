@@ -1,0 +1,152 @@
+[
+  {
+    "name": "SEC 设计者登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "SEC 业务用户登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "SEC-A1-注入载荷 1 存储成功（纯文本语义）",
+    "pass": true,
+    "detail": "HTTP 200（payload 按字面量入库）"
+  },
+  {
+    "name": "SEC-A1-注入载荷 2 存储成功（纯文本语义）",
+    "pass": true,
+    "detail": "HTTP 200（payload 按字面量入库）"
+  },
+  {
+    "name": "SEC-A1-注入载荷 3 存储成功（纯文本语义）",
+    "pass": true,
+    "detail": "HTTP 200（payload 按字面量入库）"
+  },
+  {
+    "name": "SEC-A1-注入载荷 4 存储成功（纯文本语义）",
+    "pass": true,
+    "detail": "HTTP 200（payload 按字面量入库）"
+  },
+  {
+    "name": "SEC-A1-注入载荷原样返回（存储纯文本不解释）",
+    "pass": true,
+    "detail": "rows=4/4"
+  },
+  {
+    "name": "SEC-A1-script 标签按字面量保留（未净化为空——纯文本语义）",
+    "pass": true,
+    "detail": "<script>window.__m15_xss=1</script>"
+  },
+  {
+    "name": "SEC-A1-浏览器身份显式核验（当前账号=业务用户）",
+    "pass": true,
+    "detail": "身份核验通过（不符会抛出）"
+  },
+  {
+    "name": "SEC-A1-注入 payload 进 DOM 无脚本执行（__m15_xss 未污染）",
+    "pass": true,
+    "detail": "executed=0 scriptInDom=false img=0"
+  },
+  {
+    "name": "SEC-A1-表达式按字面量处理（{{7*7}} 不求值为 49）",
+    "pass": true,
+    "detail": "[\"{{7*7}}\",\"<img src=x onerror=\\\"window.__m15_xss=2\\\">\",\"'+eval('x')+'\",\"<script>window.__m15_xss=1</script>\"]"
+  },
+  {
+    "name": "SEC-A2-跨站登录被 Origin 校验拒（403 CSRF_ORIGIN_REJECTED）",
+    "pass": true,
+    "detail": "HTTP 403 {\"code\":\"CSRF_ORIGIN_REJECTED\",\"message\":\"??????????\"}"
+  },
+  {
+    "name": "SEC-A2-跨站写入被拒且不产生记录",
+    "pass": true,
+    "detail": "HTTP 403 count 14→14 {\"code\":\"CSRF_ORIGIN_REJECTED\",\"message\":\"????????\"}"
+  },
+  {
+    "name": "SEC-A3-主站 响应头基线（nosniff + Referrer-Policy strict-origin）",
+    "pass": true,
+    "detail": "nosniff=nosniff referrer=strict-origin-when-cross-origin"
+  },
+  {
+    "name": "SEC-A3-设计器域 响应头基线（nosniff + Referrer-Policy strict-origin）",
+    "pass": true,
+    "detail": "nosniff=nosniff referrer=strict-origin-when-cross-origin"
+  },
+  {
+    "name": "SEC-A3-运行时域 响应头基线（nosniff + Referrer-Policy strict-origin）",
+    "pass": true,
+    "detail": "nosniff=nosniff referrer=strict-origin-when-cross-origin"
+  },
+  {
+    "name": "SEC-A3-API 域 CSP Report-Only 下发",
+    "pass": true,
+    "detail": "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; "
+  },
+  {
+    "name": "SEC-A3-违规模块被 CSP 强制拦截（非网络故障）",
+    "pass": true,
+    "detail": "网络可达=true violation事件=true 执行标记=false（可达 + 违规事件 + 未执行 = 强制拦截；网络不可达或执行了则证据不成立）"
+  },
+  {
+    "name": "SEC-A3-违规资源未执行攻击载荷",
+    "pass": true,
+    "detail": "executed=false"
+  },
+  {
+    "name": "SEC-A4-正确租户头正常访问（对照）",
+    "pass": true,
+    "detail": "HTTP 404（404 为记录不存在——租户头本身合法）"
+  },
+  {
+    "name": "SEC-A4-伪造租户头被拒（403 TENANT_MISMATCH）",
+    "pass": true,
+    "detail": "HTTP 403 {\"code\":\"TENANT_MISMATCH\",\"message\":\"????????????\"}"
+  },
+  {
+    "name": "SEC-A4-伪造租户审计落库（SECURITY TENANT_MISMATCH）",
+    "pass": true,
+    "detail": "audit rows=3（user=2 headerTenant=2）"
+  },
+  {
+    "name": "SEC-A5 设计者登录::凭证三件套",
+    "pass": true,
+    "detail": "at=true rt=true csrf=true body零凭证=true"
+  },
+  {
+    "name": "SEC-A5-产品链路死循环超时自动硬中断（ScriptHost terminate）",
+    "pass": true,
+    "detail": "超时窗口=true 硬中断后可操作=true（观测窗 11510ms ≥ hardMs 10s）"
+  },
+  {
+    "name": "SEC-A5-中断后主线程保持响应（UI 无白屏可继续操作）",
+    "pass": true,
+    "detail": "uiAlive=true 后续操作=提交按钮点击成功(11510ms)"
+  },
+  {
+    "name": "SEC-A6-同源 iframe 嵌入正常（onload 完成 + 可读真实内容——对照组）",
+    "pass": true,
+    "detail": "frames=1 inner=\"运行时容器就绪。访问 #/app/:appId 打开应用导航壳；#/page/:pageId 直接打\"（空内容=对照失败）"
+  },
+  {
+    "name": "SEC-A6-跨源嵌入被拒（渲染差异 + 浏览器拒绝消息）",
+    "pass": true,
+    "detail": "同源渲染=true 跨源被拒=true 拒绝消息=security/error: Framing 'http://127.0.0.1:18100/' violates the following Content Security "
+  },
+  {
+    "name": "SEC-A6-运行时域嵌入防护头下发（X-Frame-Options SAMEORIGIN）",
+    "pass": true,
+    "detail": "xfo=SAMEORIGIN"
+  },
+  {
+    "name": "SEC-A6-嵌入防护为强制语义（frame-ancestors 强制 CSP 或 XFO——RO 不算）",
+    "pass": true,
+    "detail": "enforced-csp=true xfo=SAMEORIGIN"
+  },
+  {
+    "name": "SEC-A6-CSP frame-ancestors 策略含 self（嵌入白名单）",
+    "pass": true,
+    "detail": "frame-ancestors self 在 CSP RO 中"
+  }
+]

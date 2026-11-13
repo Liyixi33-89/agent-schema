@@ -1352,7 +1352,7 @@
     {
       "id": "M15",
       "title": "报销登记 MVP 端到端验收",
-      "status": "implementing",
+      "status": "accepted",
       "priority": 11,
       "dependsOn": [
         "M8-M10",
@@ -1366,15 +1366,297 @@
         {
           "id": "mvp-demo",
           "requirement": "建模、页面、权限、发布、表单列表与埋点完整浏览器闭环",
-          "evidence": null
+          "suite": "m15-mvp",
+          "command": "node scripts\\acceptance\\accept-m15-mvp.cjs",
+          "report": "docs/acceptance/M15/20261113-131018-6daa7df/report.md",
+          "commit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+          "passed": true,
+          "provenance": "products.json",
+          "stability": "stability.json",
+          "deployment": "m15-security-deployment.json",
+          "evidence": {
+            "command": "node scripts\\acceptance\\accept-m15-mvp.cjs",
+            "report": "docs/acceptance/M15/20261113-131018-6daa7df/report.md",
+            "commit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+            "suite": "m15-mvp",
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "stability.json",
+            "deployment": "m15-security-deployment.json"
+          },
+          "scenarios": [
+            "MVP00-身份真源读取（设计者/业务用户 userId）",
+            "MVP01-字段扩展保存成功（两段式确认提交）",
+            "MVP01-金额约束落库核对",
+            "MVP01-LIST 草稿保存（DataTable 列配置 + OPEN_PAGE 动作）",
+            "MVP01-业务脚本编译（contentHash 回写）",
+            "MVP01-脚本绑定随草稿保存",
+            "MVP01d-业务用户授权 user 角色（产品成员角色 API）",
+            "MVP01d-无数据范围授权默认拒绝（0 行——最小权限语义）",
+            "MVP01-三页发布成功",
+            "MVP06-发布埋点落库（限定本轮用户/租户/动作）",
+            "MVP02-浏览器身份显式核验（当前账号=业务用户，非静默沿用会话）",
+            "MVP02-日期控件面板选择成功（受控值写入输入框）",
+            "MVP02-提交触发写入接口且返回 200",
+            "MVP02-落库字段核对（事由/金额/登记人）",
+            "MVP02-日期值随提交落库（面板交互值进入 payload）",
+            "MVP04-脚本真实影响业务（remark 被 beforeSubmit 改写入库——非只看 toast）",
+            "MVP03-SELF 范围核对（业务用户可见自己登记的记录）",
+            "MVP02N-必填缺失提交被拒且不产生记录",
+            "MVP02V-非法金额 0 被服务端拒绝（建模 range 约束）且不落库",
+            "MVP03-列表含刚登记记录（事由列）",
+            "MVP03-行打开跳转详情（hash 含记录 ID）",
+            "MVP03-详情字段与服务端一致（事由/金额呈现）",
+            "MVP03R-刷新后详情数据一致（重开仍存在）",
+            "MVP05-草稿清空不影响发布版本（发布快照独立）",
+            "MVP-PRIV-普通成员设计接口被拒（403）",
+            "MVP-PRIV-无凭证访问运行时页面被拒（401）",
+            "M12R-影响面确认（字段被页面引用 → precheck risks 含 PAGE_REF）",
+            "M12R-版本回滚成功（快照恢复——版本前进审计链）"
+          ]
         },
         {
           "id": "security",
           "requirement": "依赖图 M15 全部安全攻防项有正负例证据",
-          "evidence": null
+          "suite": "m15-security",
+          "command": "node scripts\\acceptance\\accept-m15-security.cjs",
+          "report": "docs/acceptance/M15/20261113-131018-6daa7df/report.md",
+          "commit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+          "passed": true,
+          "provenance": "products.json",
+          "stability": "stability.json",
+          "deployment": "m15-security-deployment.json",
+          "evidence": {
+            "command": "node scripts\\acceptance\\accept-m15-security.cjs",
+            "report": "docs/acceptance/M15/20261113-131018-6daa7df/report.md",
+            "commit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+            "suite": "m15-security",
+            "passed": true,
+            "provenance": "products.json",
+            "stability": "stability.json",
+            "deployment": "m15-security-deployment.json"
+          },
+          "scenarios": [
+            "SEC-A1-注入载荷原样返回（存储纯文本不解释）",
+            "SEC-A1-注入 payload 进 DOM 无脚本执行（__m15_xss 未污染）",
+            "SEC-A1-表达式按字面量处理（{{7*7}} 不求值为 49）",
+            "SEC-A2-跨站登录被 Origin 校验拒（403 CSRF_ORIGIN_REJECTED）",
+            "SEC-A2-跨站写入被拒且不产生记录",
+            "SEC-A3-主站 响应头基线（nosniff + Referrer-Policy strict-origin）",
+            "SEC-A3-设计器域 响应头基线（nosniff + Referrer-Policy strict-origin）",
+            "SEC-A3-运行时域 响应头基线（nosniff + Referrer-Policy strict-origin）",
+            "SEC-A3-API 域 CSP Report-Only 下发",
+            "SEC-A3-违规模块被 CSP 强制拦截（非网络故障）",
+            "SEC-A3-违规资源未执行攻击载荷",
+            "SEC-A4-伪造租户头被拒（403 TENANT_MISMATCH）",
+            "SEC-A4-伪造租户审计落库（SECURITY TENANT_MISMATCH）",
+            "SEC-A5-产品链路死循环超时自动硬中断（ScriptHost terminate）",
+            "SEC-A5-中断后主线程保持响应（UI 无白屏可继续操作）",
+            "SEC-A6-同源 iframe 嵌入正常（onload 完成 + 可读真实内容——对照组）",
+            "SEC-A6-跨源嵌入被拒（渲染差异 + 浏览器拒绝消息）",
+            "SEC-A6-嵌入防护为强制语义（frame-ancestors 强制 CSP 或 XFO——RO 不算）"
+          ]
         }
       ],
-      "review": null
+      "review": {
+        "required": true,
+        "approved": true,
+        "commit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+        "reviewer": "independent-review-session",
+        "implementedBy": "implementation-session-f42b4e21",
+        "kind": "independent-session",
+        "approvalReference": "docs/acceptance/M15/20261113-131018-6daa7df/review.md",
+        "report": "docs/acceptance/M15/20261113-131018-6daa7df/review.md",
+        "scope": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "coverage": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "findings": [
+          {
+            "blocking": false,
+            "status": "deferred",
+            "summary": "附件 uploader 未注入（FileUpload 本地校验态回显）——产品缺口登记分期随 M16，协议类型 file 与冻结枚举一致"
+          },
+          {
+            "blocking": false,
+            "status": "open",
+            "summary": "公网验收面长期驻留（80 端口 /accept/）——随 M16 上线评审统一处置保留或下线"
+          },
+          {
+            "blocking": false,
+            "status": "open",
+            "summary": "服务器隧道 nginx 配置收尾清理（schema-accept-tunnel.conf 与 18097 配置）"
+          }
+        ],
+        "note": "四维审查通过（需求矩阵 7 项真源可溯含 1 项显式分期批准、证据三面核对+版本关系分层如实声明、双套件 30+54 零 skip 零必验缺失、部署证据含备份恢复演练 exit=0）；单人模式 GitHub 实时审批豁免登记于 singleReviewerMode"
+      },
+      "implementedBy": "implementation-session-f42b4e21",
+      "requirements": [
+        {
+          "id": "M15-MVP-E2E",
+          "source": "docs/PRD-低代码平台产品规划.md §5.1 门禁 MVP + docs/MVP开发任务依赖顺序图.md M15",
+          "condition": "报销登记全链浏览器闭环：建模→页面→权限→发布→表单（含日期面板交互）→列表详情→埋点，三面核对（UI+HTTP+DB）",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "interaction": "native",
+          "userInteraction": true,
+          "implementation": [
+            "schema-frontend/apps/runtime（FormPageHost/渲染）",
+            "schema-platform page-service/publish/data-engine"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-m15-mvp.cjs（54 断言）"
+          ],
+          "negativeTests": [
+            "MVP02N 必填缺失 422 不落库",
+            "MVP02V range 三负例（0/-5/100001）",
+            "MVP-PRIV 403/401"
+          ],
+          "checks": [
+            "mvp-demo"
+          ]
+        },
+        {
+          "id": "M15-SEC-A1A2",
+          "source": "docs/安全攻防体系（2026-10-28 落地）A1 注入/A2 跨站",
+          "condition": "注入载荷存储不执行（字面量语义+DOM 无执行+表达式不求值）；跨站 Origin 校验拒绝登录与写入",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "interaction": "native",
+          "userInteraction": false,
+          "implementation": [
+            "schema-platform CsrfFilter/数据面纯文本语义",
+            "前端渲染层无 innerHTML 直插"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-m15-security.cjs A1/A2 组断言"
+          ],
+          "negativeTests": [
+            "A2 伪造 Origin 403 + 写入零记录"
+          ],
+          "checks": [
+            "security"
+          ]
+        },
+        {
+          "id": "M15-SEC-A3",
+          "source": "docs/安全攻防体系 A3 CSP（Report-Only M0 → 强制 M6 两步走）",
+          "condition": "三域响应头基线（nosniff/Referrer-Policy）；违规模块被强制 CSP 拦截（可达对照组+violation 事件+未执行三要素）；API 域 Report-Only",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "interaction": "native",
+          "userInteraction": false,
+          "implementation": [
+            "服务器 nginx 响应头（80 面+隧道 18082 对齐）",
+            "前端 CSP 语义"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-m15-security.cjs A3 组断言"
+          ],
+          "negativeTests": [
+            "违规模块 fetch 被拦截执行标记 false"
+          ],
+          "checks": [
+            "security"
+          ]
+        },
+        {
+          "id": "M15-SEC-A4",
+          "source": "docs/安全攻防体系 A4 租户隔离（JWT claim 与 X-Tenant-Id 绑定）",
+          "condition": "伪造租户头 403 TENANT_MISMATCH + 审计落库；正确租户对照正常",
+          "risk": "high",
+          "status": "passed",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [
+            "schema-platform TenantContext/审计 SECURITY 通道"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-m15-security.cjs A4 组断言"
+          ],
+          "negativeTests": [
+            "伪造头拒绝 + 审计记录核对"
+          ],
+          "checks": [
+            "security"
+          ]
+        },
+        {
+          "id": "M15-SEC-A5A6",
+          "source": "docs/安全攻防体系 A5 执行隔离（Worker terminate 硬中断）/A6 嵌入防护",
+          "condition": "死循环被 terminate 硬中断且 UI 存活；跨源嵌入被拒（对照组+拒绝消息+强制 frame-ancestors/XFO）",
+          "risk": "high",
+          "status": "passed",
+          "verification": "browser",
+          "interaction": "native",
+          "userInteraction": false,
+          "implementation": [
+            "前端 ScriptHost Worker 执行",
+            "服务器 XFO/CSP frame-ancestors"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-m15-security.cjs A5/A6 组断言"
+          ],
+          "negativeTests": [
+            "跨源嵌入渲染差异 + 浏览器拒绝消息"
+          ],
+          "checks": [
+            "security"
+          ]
+        },
+        {
+          "id": "M15-DEPLOY-EVIDENCE",
+          "source": "docs/MVP开发任务依赖顺序图.md M15 公网部署验收（固定版本部署）",
+          "condition": "公网部署版本可追溯：前后端/Worker 身份、迁移兼容、数据库备份+恢复演练、回滚记录齐全",
+          "risk": "low",
+          "status": "passed",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [
+            "scripts/acceptance/deploy-accept-m15.sh",
+            "服务器部署面"
+          ],
+          "tests": [
+            "公网冒烟 12/12（public-smoke-result.json）",
+            "deployment-evidence.json（备份恢复演练 exit=0）"
+          ],
+          "checks": [
+            "mvp-demo"
+          ]
+        },
+        {
+          "id": "M15-ATTACHMENT-FILE",
+          "source": "协议字段类型 file（schema-protocol 冻结枚举）+ FileUpload 物料",
+          "condition": "附件字段经浏览器上传交互验收（宿主注入 uploader）",
+          "risk": "low",
+          "status": "deferred",
+          "deferral": {
+            "approvedBy": "human-lead",
+            "reference": "2026-11-13 M15 收口轮：FileUpload 物料存在但宿主未注入 uploader（p.uploader undefined→本地校验态回显）属真实产品缺口，登记分期随 M16 补 uploader 注入与上传交互验收；协议类型 file 与冻结枚举一致无 multiFile",
+            "owner": "runtime-session",
+            "workPackage": "M16"
+          },
+          "verification": "browser",
+          "userInteraction": true,
+          "implementation": [
+            "packages/component-materials FileUpload"
+          ],
+          "tests": [],
+          "checks": []
+        }
+      ],
+      "gateVersion": 2
     },
     {
       "id": "M16",

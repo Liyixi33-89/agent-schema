@@ -1,0 +1,23 @@
+{
+  "sourceCommit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+  "unchanged": true,
+  "sampledAt": "2026-11-13T05:12:05.719Z",
+  "targets": [
+    {
+      "name": "designer-static",
+      "url": "http://127.0.0.1:18100/accept/designer/index.html",
+      "expected": "b3870513dab36c084f8dde7ffd3f5f4de4d7443d4bac0e54e7038d1b9b75a3a4",
+      "before": "b3870513dab36c084f8dde7ffd3f5f4de4d7443d4bac0e54e7038d1b9b75a3a4",
+      "method": "http-response-sha256",
+      "after": "b3870513dab36c084f8dde7ffd3f5f4de4d7443d4bac0e54e7038d1b9b75a3a4"
+    },
+    {
+      "name": "runtime-static",
+      "url": "http://127.0.0.1:18100/accept/runtime/index.html",
+      "expected": "0d46a3ccef61f9082239cb5850166af3599dbb8a8917cf4086bdf54e74f8b078",
+      "before": "0d46a3ccef61f9082239cb5850166af3599dbb8a8917cf4086bdf54e74f8b078",
+      "method": "http-response-sha256",
+      "after": "0d46a3ccef61f9082239cb5850166af3599dbb8a8917cf4086bdf54e74f8b078"
+    }
+  ]
+}
