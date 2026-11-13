@@ -25,8 +25,10 @@ const MODEL_ID = Number(process.env.ACCEPT_MODEL_ID || 1);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const st = Date.now().toString(36);
 
-/** 公网目标判定（统一真源——各探针共用，防止判定不一致）。 */
-const IS_PUBLIC_TARGET = /127\.0\.0\.1|localhost/.test(BASE) === false;
+/** 公网目标判定（统一真源——各探针共用，防止判定不一致）。
+ *  ACCEPT_PUBLIC_MODE=1：经 SSH 隧道访问公网部署面时强制公网语义（BASE 是本地隧道口）。 */
+const IS_PUBLIC_TARGET = process.env.ACCEPT_PUBLIC_MODE === '1'
+  || /127\.0\.0\.1|localhost/.test(BASE) === false;
 /** 浏览器静态面 URL：公网走 /accept/ 前缀（前缀尾斜杠防 /acceptdesigner 退化）。 */
 const webUrl = (p) => {
   const suffix = String(p).startsWith('/') ? String(p) : `/${String(p)}`;
@@ -422,14 +424,29 @@ async function ensureViolationOrigin() {
   });
 }
 
-/** A3 四路证据：页面加载受控违规脚本，采集 violation 事件 / 执行标记 / 网络结果。 */
+/** A3 四路证据：页面加载受控违规脚本，采集 violation 事件 / 执行标记 / 网络结果。
+ *  ⚠️ 可达性对照（2026-11-12 公网轮实测教训）：CSP 强制页面（connect-src 'self'）上
+ *  fetch no-cors 同样被拦——「网络可达」在受保护页面永远测不到（误判三要素全 false）。
+ *  修正：可达性在违规源自身页面（无 CSP 页）对照组验证；受保护页面只断言拦截三要素。 */
 async function probeViolationModule() {
   const evilUrl = await ensureViolationOrigin();
   if (!evilUrl) return { supported: false, reason: `违规资源端口不可用（ACCEPT_VIOLATION_PORT）` };
   await cdp.launch();
   try {
+    // 对照组：导航到违规源自身（同源无 CSP——服务器对任意路径回 JS 文本，可作页面载体）；
+    // 同源 fetch 验证资源真实可达。受保护页面上 fetch 被 connect-src 先拦，测不到可达性。
+    await cdp.goto(evilUrl);
+    const reachRaw = await cdp.evalJs(`(async () => {
+      try {
+        const r = await fetch('${evilUrl}');
+        const t = await r.text();
+        return JSON.stringify({ reachable: r.status === 200 && t.includes('__m15_evil_executed') });
+      } catch (e) { return JSON.stringify({ reachable: false, err: e.message.slice(0, 60) }); }
+    })()`);
+    const reach = JSON.parse(reachRaw);
     await cdp.goto(webUrl('/runtime/'));
     await sleep(1500);
+    cdp.ensureLog();   // Log 域开启——CSP 拦截的浏览器级拒绝记录（violation DOM 事件在 headless 下不可靠）
     const raw = await cdp.evalJs(`(async () => {
       const events = [];
       document.addEventListener('securitypolicyviolation', (e) => {
@@ -443,27 +460,23 @@ async function probeViolationModule() {
         document.head.appendChild(s);
         setTimeout(() => resolve('timeout'), 6000);
       });
-      await new Promise((r) => setTimeout(r, 800));
-      // 网络可达性独立核验（fetch 通道——不经 script-src 策略）
-      let netFetch = 'unknown';
-      try {
-        const fr = await fetch('${evilUrl}', { mode: 'no-cors' });
-        netFetch = fr.type === 'opaque' ? 'reachable' : 'reachable-' + fr.type;
-      } catch (e) { netFetch = 'fetch-blocked:' + e.message.slice(0, 40); }
+      await new Promise((r) => setTimeout(r, 1200));
       return JSON.stringify({
-        netScript: net, netFetch,
+        netScript: net,
         violationEvents: events,
         executed: window.__m15_evil_executed === true,
-        cspHeader: (performance.getEntriesByType('resource') || []).length >= 0 ? undefined : undefined,
       });
     })()`);
     const v = JSON.parse(raw);
+    // 浏览器级拒绝记录（Log 域）——script-src CSP 拦截的权威证据
+    const logDenied = (cdp.browserLog() || []).some((m) =>
+      /violates the following Content Security Policy/i.test(String(m.text || m)));
     return {
       supported: true,
-      networkLoaded: v.netScript === 'loaded' || v.netFetch.startsWith('reachable'),
-      violationEvent: (v.violationEvents || []).some((e) => String(e.blocked || '').includes('attack.js')),
+      networkLoaded: !!reach.reachable,          // 对照组判定（无 CSP 页面可达性）
+      violationEvent: (v.violationEvents || []).some((e) => String(e.blocked || '').includes('attack.js')) || logDenied,
       executedFlag: v.executed === true ? true : false,
-      raw: v,
+      raw: { ...v, reachabilityProbe: reach, logDenied },
     };
   } finally {
     await cdp.close();

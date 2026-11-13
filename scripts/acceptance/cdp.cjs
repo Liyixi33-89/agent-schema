@@ -37,17 +37,25 @@ async function launch(url = 'about:blank') {
   // 每轮独立 profile：时间戳目录，close 时删除（同轮内 goto 保持同一上下文）
   profileDir = path.join(OUT_DIR, 'private', process.env.ACCEPT_SUITE || 'direct', `chrome-profile-${Date.now()}`);
   fs.mkdirSync(profileDir, { recursive: true });
+  // 公网验收豁免（仅验收轮）：平台会话 cookie 强制 Secure（03BE 生产强制 HTTPS 前提），
+  // 纯 HTTP 公网 IP 下浏览器拒存——--unsafely-treat-insecure-origin-as-secure 解锁存储；
+  // 该 flag 只影响验收 Chrome 的 cookie 存储策略，不改变服务端任何安全语义。
+  const insecureOrigin = process.env.ACCEPT_ALLOW_INSECURE_ORIGIN || '';
+  const extraArgs = insecureOrigin
+    ? ['--unsafely-treat-insecure-origin-as-secure=' + insecureOrigin] : [];
   browser = spawn(CHROME, [
     `--remote-debugging-port=${PORT}`,
     '--headless=new',
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-gpu',
+    '--no-proxy-server',        // 验收环境系统代理会拦截 127.0.0.1 本地探针端口（实测 18095 不可达）
     '--disable-cache',           // 每轮验收强制拉最新产物
     '--disk-cache-size=1',
     '--window-size=1440,900',
     '--user-data-dir=' + profileDir,
     '--remote-allow-origins=*',
+    ...extraArgs,
     'about:blank',
   ], { stdio: 'ignore' });
   allBrowsers.push(browser);

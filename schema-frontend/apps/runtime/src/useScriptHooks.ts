@@ -140,7 +140,9 @@ export function useScriptHooks({ page, store, client, recordId }: ScriptHooksOpt
         },
         // ⚠️ 必须绝对 URL：Worker 从 blob: URL 启动，import() 的解析基是 blob URL，
         // 相对路径 '/api/...' 会解析为 blob:http://host/api/... 直接失败（ready ok:false）。
-        artifactUrl: (hash: string) => `${location.origin}/api/build/artifacts/current/${hash}.js`,
+        // API 前缀与请求层同源真源 VITE_API_BASE（验收面 /accept 构建注入——产物路由
+        // 必须与数据请求同域；location.origin 裸拼会把验收面产物打到生产 /api）。
+        artifactUrl: (hash: string) => `${location.origin}${import.meta.env.VITE_API_BASE ?? ''}/api/build/artifacts/current/${hash}.js`,
         staticPage: {
           params: { pageId: String(page.id) },
           query: Object.fromEntries(new URLSearchParams(location.search)),

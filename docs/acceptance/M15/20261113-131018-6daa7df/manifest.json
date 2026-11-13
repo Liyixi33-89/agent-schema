@@ -1,0 +1,73 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M15",
+  "runId": "20261113-131018-6daa7df",
+  "startedAt": "2026-11-13T05:10:18.256Z",
+  "finishedAt": "2026-11-13T05:20:00.000Z",
+  "sourceCommit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "win32",
+    "node": "v24.14.1"
+  },
+  "suites": {
+    "m15-security": {
+      "command": "node scripts\\acceptance\\accept-m15-security.cjs",
+      "startedAt": "2026-11-13T05:10:18.702Z",
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-13T05:12:04.651Z"
+    },
+    "m15-mvp": {
+      "command": "node scripts\\acceptance\\accept-m15-mvp.cjs",
+      "startedAt": "2026-11-13T05:12:06.057Z",
+      "passed": 54,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "finishedAt": "2026-11-13T05:14:00.953Z"
+    }
+  },
+  "files": [
+    {
+      "path": "report.md",
+      "sha256": "b01ff125c7b8581ef96130511506eaf271a58e91814b9cb7e7e78d398ad39a2c"
+    },
+    {
+      "path": "deployment-evidence.json",
+      "sha256": "87de4d0b771c88e40f45b91c69d569fa61a3c592feb1c0790a6a401a08eaea9c"
+    },
+    {
+      "path": "public-smoke-result.json",
+      "sha256": "968d117c2b998d50a73f1d161aafbdcfc37ed7aee75f773ea8a54d406f6edad4"
+    },
+    {
+      "path": "products.json",
+      "sha256": "d421ba53784951ef5b03f971123acc2657722f4f982b6da5c1fa693284f58385"
+    },
+    {
+      "path": "stability.json",
+      "sha256": "1b4ddd2a5a5c9f72d38c724b6e4895841f2245456731366acbaef8be6668411d"
+    },
+    {
+      "path": "m15-security-result.json",
+      "sha256": "4f24ea4ec55c9ce778e5d429409f3c3b07eec1b2e106379a182db1d23968c26c"
+    },
+    {
+      "path": "m15-mvp-result.json",
+      "sha256": "220ca0dc8ad7e22cf0ea6b1bd15e4f2c90a46fc6083d647149d148b570677da2"
+    },
+    {
+      "path": "m15-security-deployment.json",
+      "sha256": "c2ed2d3c0a6e3485c19925680b23bc66e9f9413281f8ce9af0c8ddb35b62cdf7"
+    },
+    {
+      "path": "review.md",
+      "sha256": "35bc0ef629b28715e3dc6adecb4f08624c342716e37b2f50b2ba261c1cdbd19a"
+    }
+  ]
+}

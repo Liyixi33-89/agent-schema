@@ -248,9 +248,10 @@ function wrapWorker(worker: Worker): {
 }
 
 /** 产物端点（04BE §A.5 artifactUrl 回显优先；此处兜底拼同源绝对路径——服务端按会话租户绑定）。
- *  ⚠️ 必须绝对 URL：Worker 从 blob: URL 启动，import() 相对路径以 blob URL 为基解析直接失败。 */
+ *  ⚠️ 必须绝对 URL：Worker 从 blob: URL 启动，import() 相对路径以 blob URL 为基解析直接失败。
+ *  API 前缀与请求层同源真源 VITE_API_BASE（验收面 /accept 构建注入——产物路由与数据请求同域）。 */
 function artifactUrlOf(contentHash: string): string {
-  return `${location.origin}/api/build/artifacts/current/${contentHash}.js`;
+  return `${location.origin}${import.meta.env.VITE_API_BASE ?? ''}/api/build/artifacts/current/${contentHash}.js`;
 }
 
 /** 源码 SHA-256（审计「哪版源码」——08FE §2 sourceHash；浏览器原生 SubtleCrypto）。 */

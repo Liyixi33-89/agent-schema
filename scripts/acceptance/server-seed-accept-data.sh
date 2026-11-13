@@ -74,11 +74,15 @@ DRAFT=$(cat <<EOF
  "id":"accept_form_1","pageKey":"expense_form","name":"报销登记","type":"FORM",
  "modelId":"$MDL_ID","path":"/expense/form","schemaVersion":1,
  "layout":[
-  {"id":"f1","componentName":"Input","fieldRef":"title","props":{"label":"报销事由"}},
-  {"id":"f2","componentName":"InputNumber","fieldRef":"amount","props":{"label":"金额"}},
-  {"id":"f3","componentName":"DatePicker","fieldRef":"expenseDate","props":{"label":"报销日期"}},
-  {"id":"f4","componentName":"Textarea","fieldRef":"remark","props":{"label":"备注"}},
-  {"id":"f5","componentName":"Button","props":{"label":"提交","actionType":"submit"}}
+  {"id":"fw1","componentName":"FormItem","props":{"label":"报销事由"},"children":[
+    {"id":"f1","componentName":"TextInput","fieldRef":"title","props":{"placeholder":"请输入报销事由"}}]},
+  {"id":"fw2","componentName":"FormItem","props":{"label":"金额"},"children":[
+    {"id":"f2","componentName":"NumberInput","fieldRef":"amount","props":{}}]},
+  {"id":"fw3","componentName":"FormItem","props":{"label":"报销日期"},"children":[
+    {"id":"f3","componentName":"DateInput","fieldRef":"expenseDate","props":{}}]},
+  {"id":"fw4","componentName":"FormItem","props":{"label":"备注"},"children":[
+    {"id":"f4","componentName":"RichtextInput","fieldRef":"remark","props":{}}]},
+  {"id":"f5","componentName":"PrimaryButton","props":{"label":"提交","actionType":"submit"}}
  ],
  "dataSource":null,"actions":[]},
  "baseDraftVersion":1}

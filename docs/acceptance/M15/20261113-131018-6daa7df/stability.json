@@ -1,0 +1,20 @@
+﻿{
+  "sourceCommit": "6daa7dfadbe6b2a7bb1fc64f103eaf7745016ba6",
+  "unchanged": true,
+  "checkedAt": "2026-11-13T05:14:01.000Z",
+  "method": "public-deployment-probe-recheck（m15-security-deployment.json 前后探针三态一致 unchanged=true；MVP 套件期间部署面未变化——run.json 双套件时间窗 05:10-05:14 内探针哈希 before=after=expected）",
+  "products": [
+    {
+      "name": "designer-web",
+      "sha256": "b3870513dab36c084f8dde7ffd3f5f4de4d7443d4bac0e54e7038d1b9b75a3a4"
+    },
+    {
+      "name": "runtime-web",
+      "sha256": "0d46a3ccef61f9082239cb5850166af3599dbb8a8917cf4086bdf54e74f8b078"
+    },
+    {
+      "name": "accept-backend",
+      "sha256": "3f30235016495eca156e0c1c8d40430bbb8278bc5d08f8481513ce9c5e536a07"
+    }
+  ]
+}
