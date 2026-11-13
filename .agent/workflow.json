@@ -1661,7 +1661,7 @@
     {
       "id": "M16",
       "title": "试点可靠性与上线门禁",
-      "status": "planned",
+      "status": "implementing",
       "priority": 12,
       "dependsOn": [
         "M14"
