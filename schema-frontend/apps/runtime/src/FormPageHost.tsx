@@ -42,7 +42,8 @@ const SchemaRenderer = bindSchemaRenderer({ createElement: React.createElement, 
 type LoadState =
   | { phase: 'loading' }
   | { phase: 'error'; message: string }
-  | { phase: 'ready'; page: PageSchema; fields: FieldSchema[] };
+  | { phase: 'missing' }
+  | { phase: 'ready'; page: PageSchema; fields: FieldSchema[]; detailRow: Record<string, unknown> | null };
 
 export interface FormPageHostProps {
   client: RequestClient;
@@ -62,7 +63,11 @@ export interface FormPageHostProps {
 export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cachedSchema, onEtag }: FormPageHostProps): React.ReactElement {
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
 
-  // 页面 Schema + 字段元数据装载
+  // 页面 Schema + 字段元数据 + 编辑态详情 一体化装载（M16 竞态修复）：
+  // 此前详情在 SchemaFormPage 内异步回填——外层 effect 因缓存条目引用不稳定
+  // 多余重跑时组件卸载，回填结果丢失且 detailLoaded 状态不再重置（表单页
+  // hash 导航到详情路由时字段全空）。现把详情拉取合并进装载链：recordId
+  // 参与 effect 依赖，同 key 重挂载时必然重新装载详情，一次到位零竞态。
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -81,19 +86,35 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cach
         const fieldsRaw = await client.loadFields(page.modelId);
         const fields = normalizeFields(fieldsRaw);
         validateLoadedFieldRefs(page, fields);
+        // 编辑态：详情记录一并装载（FORM 编辑 / DETAIL 查看；404 转终态缺失）
+        let detailRow: Record<string, unknown> | null = null;
+        if (recordId != null) {
+          try {
+            detailRow = (await client.detail(page.modelId, recordId)) as Record<string, unknown>;
+          } catch (e) {
+            if (e instanceof ServerError && e.code === 'NOT_FOUND') {
+              if (!cancelled) setState({ phase: 'missing' });
+              return;
+            }
+            throw e;
+          }
+        }
         if (cancelled) return;
-        setState({ phase: 'ready', page, fields });
+        setState({ phase: 'ready', page, fields, detailRow });
       } catch (e) {
         if (cancelled) return;
         setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) });
       }
     })();
     return () => { cancelled = true; };
-  }, [client, pageId, etag, cachedSchema]);
+  }, [client, pageId, etag, cachedSchema, recordId]);
 
   if (state.phase === 'loading') return <Spin tip="页面加载中..." />;
   if (state.phase === 'error') {
     return <Alert type="error" showIcon message="页面加载失败" description={state.message} />;
+  }
+  if (state.phase === 'missing') {
+    return <DetailMissing />;
   }
   if (state.page.type === 'LIST') {
     return <ListPageHost key={pageId} client={client} page={state.page} fields={state.fields} />;
@@ -120,6 +141,7 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cach
       page={state.page}
       fields={state.fields}
       recordId={recordId}
+      detailRow={state.detailRow}
       onSubmitted={onSubmitted}
     />
   );
@@ -131,16 +153,16 @@ function DetailMissing(): React.ReactElement {
 }
 
 /** 已装载页面渲染 + 提交闭环。 */
-function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
+function SchemaFormPage({ client, page, fields, recordId, detailRow, onSubmitted }: {
   client: RequestClient;
   page: PageSchema;
   fields: FieldSchema[];
   recordId?: string | number;
+  /** 编辑态详情记录（外层装载链一并拉取——构造期装载初值，零回填竞态）。 */
+  detailRow: Record<string, unknown> | null;
   onSubmitted?: () => void;
 }): React.ReactElement {
   const readOnly = page.type === 'DETAIL';
-  // 详情不存在终态（404）：不回填旧值、不渲染半空表单
-  const [detailMissing, setDetailMissing] = useState(false);
   // FormStore：构造期破环 + 默认值装载 + 初始 effect 求值（M7 三轮收口后行为）
   const store = useMemo(() => new FormStore({
     fields,
@@ -156,16 +178,19 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
   const guard = useRef(new SubmitGuard());
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [detailLoaded, setDetailLoaded] = useState(recordId == null);
+  // 编辑态初值（M16 竞态修复）：detailRow 由外层装载链一并拉取传入，
+  // 构造期直接装载进 store——取代原先组件内异步回填 effect。
+  if (detailRow) {
+    store.setValues(detailRow);
+    store.refreshEffects();
+  }
 
   // M14 页面脚本（08FE §4.3 调度点）：onLoad 挂载完成 / beforeSubmit·afterSubmit 提交前后
   const scripts = useScriptHooks({ page, store, client, recordId });
-  // 编辑态 onLoad 等详情回填完成后再触发（创建态 detailLoaded 初值即 true 立即触发）——
-  // 不等待时钩子读到的表单值是空的（详情回填是异步 effect，早于它执行的 onLoad 拿不到记录）
+  // onLoad 挂载即触发（详情已随装载链就位，无回填等待）
   useEffect(() => {
-    if (!detailLoaded) return;
     void scripts.onLoad();
-  }, [scripts, detailLoaded]);
+  }, [scripts]);
   // 字段变化通知（onFieldChange 绑定时订阅 store 写入——50ms 节流在 hook 内实现）
   useEffect(() => {
     if (!scripts.hasFieldChangeHook) return;
@@ -181,31 +206,6 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
     });
   }, [scripts, store]);
   const fieldSnapshot = useRef(new Map<string, unknown>());
-  // 详情回填（编辑态）
-  useEffect(() => {
-    if (recordId == null || detailLoaded) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const row = (await client.detail(page.modelId!, recordId)) as Record<string, unknown>;
-        if (cancelled) return;
-        store.setValues(row);
-        store.refreshEffects();
-        store.publishErrors({});
-      } catch (e) {
-        if (cancelled) return;
-        // 详情页 404：终态缺失而非网络错误——展示缺失占位，不回填不渲染旧数据
-        if (e instanceof ServerError && e.code === 'NOT_FOUND') {
-          setDetailMissing(true);
-          return;
-        }
-        setGlobalError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setDetailLoaded(true);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [recordId, detailLoaded, client, page.modelId, store]);
 
   // 受控字段包装：value/onChange/失焦校验/唯一预检注入每节点 props。
   // 错误展示走 RenderScope 通道订阅（Enhanced 组件内部 useState 订阅——
@@ -338,9 +338,8 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
 
   return (
     <Card title={page.name} style={{ maxWidth: 720, margin: '24px auto' }}>
-      {detailMissing && <DetailMissing />}
       {globalError ? <Alert type="error" showIcon closable message={globalError} style={{ marginBottom: 16 }} /> : null}
-      {!detailMissing && <SchemaRenderer
+      <SchemaRenderer
         page={page}
         scope={store.scope}
         fields={new Map(fields.map((f) => [f.key, f]))}
@@ -353,7 +352,7 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
             client.uploadAttachment(file, onProgress),
           downloader: (fileId: string) => client.attachmentDownloadUrl(fileId),
         }}
-      />}
+      />
       {!readOnly && <Button type="primary" loading={submitting} onClick={handleSubmit} style={{ marginTop: 16 }}>
         提交
       </Button>}
@@ -363,7 +362,6 @@ function SchemaFormPage({ client, page, fields, recordId, onSubmitted }: {
           不因宿主隐藏提交而失效；DELETE 写操作只读态禁用）。 */}
       {page.actions.filter((a) => a.type === 'CUSTOM_SCRIPT' || a.type === 'CALL_API').map((a) => (
         <Button key={a.type + ('apiName' in a ? a.apiName : '')} style={{ marginTop: 16, marginLeft: 8 }}
-          disabled={detailMissing}
           onClick={() => { void scripts.onActionClick('apiName' in a ? a.apiName : a.type); }}>
           {a.type === 'CALL_API' && 'apiName' in a ? `调用 ${a.apiName}` : a.type}
         </Button>

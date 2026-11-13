@@ -84,8 +84,18 @@ function App(): React.ReactElement {
     return <SessionExpired />;
   }
 
+  // ETag 缓存条目引用稳定化（M16 修复）：hash 导航触发 App 重渲染时
+  // cachedEntry 每次返回新对象 → FormPageHost 外层装载 effect 依赖 cachedSchema
+  // 引用变化多余重跑 → SchemaFormPage 卸载重挂 → 编辑态详情回填竞态丢失。
+  // 按 pageId 记忆化：同 pageId 渲染间保持同一引用，effect 不再重跑。
+  const cacheRef = React.useRef(new Map<string, { etag: string | null; schema: unknown }>());
+
   const pageHost = (pageId: string, recordId?: string): React.ReactElement => {
-    const cached = cachedEntry(pageId);
+    let cached = cacheRef.current.get(pageId);
+    if (!cached) {
+      cached = cachedEntry(pageId);
+      cacheRef.current.set(pageId, cached);
+    }
     return (
       <FormPageHost
         client={client}
@@ -95,7 +105,10 @@ function App(): React.ReactElement {
         cachedSchema={cached.schema}
         onEtag={(etag, schema) => {
           // 304 命中 schema=null：缓存仍有效不覆写；200 全新内容则持久化
-          if (schema != null) cacheEntry(pageId, etag, schema);
+          if (schema != null) {
+            cacheEntry(pageId, etag, schema);
+            cacheRef.current.set(pageId, { etag, schema });
+          }
         }}
         onSubmitted={() => { window.location.reload(); }}
       />
