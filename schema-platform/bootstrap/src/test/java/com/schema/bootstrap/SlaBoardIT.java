@@ -37,9 +37,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-        "spring.datasource.url=jdbc:postgresql://localhost:5432/schema_dev",
-        "spring.datasource.username=schema_dev",
-        "spring.datasource.password=schema_local_only",
+        "spring.datasource.url=jdbc:postgresql://${IT_DB_HOST:localhost}:${IT_DB_PORT:5432}/${IT_DB_NAME:schema_dev}",
+        "spring.datasource.username=${IT_DB_USER:schema_dev}",
+        "spring.datasource.password=${IT_DB_PASS:schema_local_only}",
         "spring.flyway.clean-disabled=false"
 })
 class SlaBoardIT {
