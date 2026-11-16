@@ -35,9 +35,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-        "spring.datasource.url=jdbc:postgresql://localhost:5432/schema_dev",
-        "spring.datasource.username=schema_dev",
-        "spring.datasource.password=schema_local_only",
+        "spring.datasource.url=jdbc:postgresql://${IT_DB_HOST:localhost}:${IT_DB_PORT:5432}/${IT_DB_NAME:schema_dev}",
+        "spring.datasource.username=${IT_DB_USER:schema_dev}",
+        "spring.datasource.password=${IT_DB_PASS:schema_local_only}",
         "spring.flyway.clean-disabled=false",
         "file.local-dir=./target/test-files"
 })
@@ -64,8 +64,13 @@ class FileServiceIT {
 
     @BeforeAll
     void setup() {
-        jdbc.update("INSERT INTO sys_user (id, tenant_id, account, status) VALUES (?, 882, 'it_file_t882', 'ACTIVE') "
-                + "ON CONFLICT (id) DO NOTHING", T882_USER);
+        boolean inserted = jdbc.update("INSERT INTO sys_user (id, tenant_id, account, status) VALUES (?, 882, 'it_file_t882', 'ACTIVE') "
+                + "ON CONFLICT (id) DO NOTHING", T882_USER) > 0;
+        if (inserted) {
+            // 显式 id 不推进 BIGSERIAL：推到 max(id)，防后续自动 id 建号撞主键（序列失同步红线）
+            jdbc.queryForObject("SELECT setval('sys_user_id_seq', (SELECT COALESCE(MAX(id), 1) FROM sys_user))",
+                    Long.class);
+        }
     }
 
     @AfterAll

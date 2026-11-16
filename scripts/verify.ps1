@@ -224,15 +224,20 @@ if (Test-Path $contractDir) {
 } else { Skip 'contract-diff' 'contract/ 尚未导出（spec-001 T6 落地后生效）' }
 
 # ============================================================
-# quick 级（附加）：证据工具自测 —— run-id 隔离/归档/校验门禁自身必须可复验
+# quick 级（附加）：验收/证据工具自测 —— 自动发现 scripts 下全部 *.test.cjs
+# 工具自身必须可复验（run-id 隔离/归档/校验门禁防腐化）
 # ============================================================
-$evidenceTest = Join-Path $root 'scripts\acceptance\evidence.test.cjs'
-if (Test-Path $evidenceTest) {
-    Step 'evidence-gate-test' {
-        node --test $evidenceTest
-        if ($LASTEXITCODE -ne 0) { throw "evidence 自测退出码 $LASTEXITCODE" }
+$toolTests = @(Get-ChildItem (Join-Path $root 'scripts') -Recurse -Filter '*.test.cjs' | ForEach-Object { $_.FullName })
+if ($toolTests.Count -gt 0) {
+    Step 'tools-selftest' {
+        foreach ($t in $toolTests) {
+            Write-Host ("-- {0}" -f (Split-Path $t -Leaf))
+            node --test $t
+            if ($LASTEXITCODE -ne 0) { throw "$(Split-Path $t -Leaf) 自测退出码 $LASTEXITCODE" }
+        }
+        Write-Host ("工具自测: {0} 个套件全过" -f $toolTests.Count)
     }
-} else { Skip 'evidence-gate-test' 'evidence.test.cjs 不存在' }
+} else { Skip 'tools-selftest' '未发现 *.test.cjs（scripts 下）' }
 
 # 台账门禁真实测试（临时 Git 仓库 + 真实 CLI）：verify_commit/audit 拒绝路径
 # 注意：python 把进度写 stderr（PowerShell 已知误报源），退出码必须从 $global:LASTEXITCODE 取
@@ -273,44 +278,66 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         finally { Pop-Location }
     }
     # M2/M3 集成测试门禁（01BE §7 / 03BE §7 硬性要求：真实 PG）：引擎就绪才执行，缺环境降级说明
+    # 数据源注入链：IT 已参数化为 ${IT_DB_HOST}:${IT_DB_PORT}/${IT_DB_NAME}（占位符解析优先级
+    # 系统属性 > 环境变量 > 默认值）——隧道/WSL 场景改 VERIFY_IT_DB_* 即可，无需改代码
     Step 'backend-it' {
-        # 探活地址可注入（WSL 场景 PG 监听 WSL IP 而非 Windows 127.0.0.1）；默认本机
-        $pgHost = $env:VERIFY_PG_HOST
-        if (-not $pgHost) { $pgHost = '127.0.0.1' }
+        $pgHost = $env:VERIFY_IT_DB_HOST; if (-not $pgHost) { $pgHost = $env:VERIFY_PG_HOST }
+        if (-not $pgHost) { $pgHost = 'localhost' }
+        $pgPort = $env:VERIFY_IT_DB_PORT; if (-not $pgPort) { $pgPort = '5432' }
+        $pgDb = $env:VERIFY_IT_DB_NAME; if (-not $pgDb) { $pgDb = 'schema_dev' }
+        $pgUser = $env:VERIFY_IT_DB_USER; if (-not $pgUser) { $pgUser = 'schema_dev' }
+        $pgPass = $env:VERIFY_IT_DB_PASS; if (-not $pgPass) { $pgPass = 'schema_local_only' }
         $pgUp = $false
         try {
             $tcp = New-Object System.Net.Sockets.TcpClient
-            $tcp.Connect($pgHost, 5432)
+            $tcp.Connect($pgHost, [int]$pgPort)
             $pgUp = $true
             $tcp.Close()
         } catch { $pgUp = $false }
-        if (-not $pgUp) { throw '本地 PG 未就绪（docker compose up -d postgres）——集成测试门禁不可跳过' }
+        if (-not $pgUp) { throw "PG 未就绪（${pgHost}:${pgPort}）——集成测试门禁不可跳过（本地 docker compose up -d postgres；或经 VERIFY_IT_DB_* 指向隧道端点）" }
+
+        # 自动发现执行清单：扫描 *IT.java（防腐：新增 IT 漏登命令 = 门禁腐烂）
+        $itDir = Join-Path $be 'bootstrap\src\test\java\com\schema\bootstrap'
+        $itFiles = @(Get-ChildItem $itDir -Filter '*IT.java' | ForEach-Object { $_.BaseName })
+        if ($itFiles.Count -eq 0) { throw "未发现任何 *IT.java（目录: $itDir)" }
+        $itList = ($itFiles -join ',')
+
         Push-Location $be
         try {
-            $itArgs = @('-q', '-pl', 'bootstrap', '-am', 'test',
-                "-Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT,ObjectStorageContractIT,AppServiceIT,SlaBoardIT",
-                '-Dsurefire.failIfNoSpecifiedTests=false')
-            # WSL 场景：IT 硬编码 localhost 不可达时按探活地址改写 JDBC 主机
-            if ($pgHost -ne '127.0.0.1') { $itArgs += "-Dspring.datasource.url=jdbc:postgresql://${pgHost}:5432/schema_dev" }
-            mvn @itArgs
+            # -am 连带构建依赖模块；-Dsurefire.failIfNoSpecifiedTests=false：依赖模块（platform-common 等）
+            # 无匹配 IT 属预期，真漏跑由下方 Surefire 报告核对兜底（bootstrap 模块每个 IT 必须有非零用例报告）
+            mvn -q -pl bootstrap -am test "-Dtest=$itList" '-Dsurefire.failIfNoSpecifiedTests=false' `
+                "-Dit.db.host=$pgHost" "-Dit.db.port=$pgPort" "-Dit.db.name=$pgDb" `
+                "-Dit.db.user=$pgUser" "-Dit.db.pass=$pgPass" `
+                "-DIT_DB_HOST=$pgHost" "-DIT_DB_PORT=$pgPort" "-DIT_DB_NAME=$pgDb" `
+                "-DIT_DB_USER=$pgUser" "-DIT_DB_PASS=$pgPass"
             if ($LASTEXITCODE -ne 0) { throw "集成测试退出码 $LASTEXITCODE（PowerShell 下 mvn/git 把进度写 stderr 是误报来源；真实结论看 BUILD SUCCESS/测试计数）" }
         } finally { Pop-Location }
+
+        # 执行后核对：每个预期 IT 必须有 Surefire 报告且测试数 > 0（防"指定测试不存在"静默漏跑）
+        $reportDir = Join-Path $be 'bootstrap\target\surefire-reports'
+        $missing = @(); $zero = @()
+        foreach ($it in $itFiles) {
+            $xml = Join-Path $reportDir ("TEST-com.schema.bootstrap.{0}.xml" -f $it)
+            if (-not (Test-Path $xml)) { $missing += $it; continue }
+            $c = Get-Content $xml -Raw -Encoding UTF8
+            if ($c -match '<testsuite[^>]*tests="(\d+)"') {
+                if ([int]$Matches[1] -eq 0) { $zero += $it }
+            } else { $missing += $it }
+        }
+        if ($missing.Count -gt 0 -or $zero.Count -gt 0) {
+            $detail = @()
+            if ($missing.Count -gt 0) { $detail += ("缺执行报告: " + ($missing -join ', ')) }
+            if ($zero.Count -gt 0) { $detail += ("零用例: " + ($zero -join ', ')) }
+            throw ("集成测试执行核对 FAIL: " + ($detail -join '; '))
+        }
+        Write-Host ("集成测试执行核对: {0} 个 IT 全部有非零用例报告" -f $itFiles.Count)
     }
 } else { Skip 'backend-test/backend-it' 'schema-platform 尚未初始化' }
 
-# commit 通过后：刷新 active spec 的 last_verified_at（活文档闭环）
-# 读写均显式 UTF8；写回用 .NET WriteAllText 保持无 BOM（PS5.1 的 Set-Content -Encoding UTF8 会加 BOM）
-if ($script:failedCount -eq 0) {
-    Get-ChildItem (Join-Path $root '.agent\specs') -Filter '*.md' |
-        Where-Object { $_.Name -notlike '_*' } | ForEach-Object {
-            $raw = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
-            if ($raw -match 'status:\s*active') {
-                $raw = $raw -replace 'last_verified_at:\s*\S*', ('last_verified_at: ' + (Get-Date -Format 'yyyy-MM-dd'))
-                $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-                [System.IO.File]::WriteAllText($_.FullName, $raw, $utf8NoBom)
-            }
-        }
-}
+# 验证日期纪律（M16 门禁修正）：门禁通过只证明「代码当前可验证」，
+# 不代表全部 active spec 的专项实测已完成——日期刷新权留给真实专项验证（验收套件/实测记录）。
+# 此处仅将代码级检查记录进验证日志（.agent/metrics/verify-log.jsonl，上面已落账）。
 
 if ($Level -in @('commit', 'ci')) {
     # ============================================================

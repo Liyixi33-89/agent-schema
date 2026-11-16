@@ -34,9 +34,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-        "spring.datasource.url=jdbc:postgresql://localhost:5432/schema_dev",
-        "spring.datasource.username=schema_dev",
-        "spring.datasource.password=schema_local_only",
+        "spring.datasource.url=jdbc:postgresql://${IT_DB_HOST:localhost}:${IT_DB_PORT:5432}/${IT_DB_NAME:schema_dev}",
+        "spring.datasource.username=${IT_DB_USER:schema_dev}",
+        "spring.datasource.password=${IT_DB_PASS:schema_local_only}",
         "spring.flyway.clean-disabled=false"
 })
 class AppHttpSecurityIT {
@@ -72,8 +72,10 @@ class AppHttpSecurityIT {
         jdbc.update("INSERT INTO sys_role (tenant_id, app_id, code, name, role_type) "
                 + "VALUES (1, 1, 'it_org_admin', 'IT 组织管理员', 'APP') "
                 + "ON CONFLICT DO NOTHING");
+        // 反查必须带 app_id 精确过滤：AppServiceIT 会插入同名租户级（app_id IS NULL）角色，
+        // 无过滤反查命中两行（IT 执行顺序变化暴露的跨测试冲突）
         Long roleId = jdbc.queryForObject(
-                "SELECT id FROM sys_role WHERE tenant_id=1 AND code='it_org_admin'", Long.class);
+                "SELECT id FROM sys_role WHERE tenant_id=1 AND app_id=1 AND code='it_org_admin'", Long.class);
         jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) "
                 + "VALUES (?, 'ACTION', 0, 'org:manage') ON CONFLICT DO NOTHING", roleId);
         jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?) "

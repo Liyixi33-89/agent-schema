@@ -33,9 +33,9 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
-        "spring.datasource.url=jdbc:postgresql://localhost:5432/schema_dev",
-        "spring.datasource.username=schema_dev",
-        "spring.datasource.password=schema_local_only",
+        "spring.datasource.url=jdbc:postgresql://${IT_DB_HOST:localhost}:${IT_DB_PORT:5432}/${IT_DB_NAME:schema_dev}",
+        "spring.datasource.username=${IT_DB_USER:schema_dev}",
+        "spring.datasource.password=${IT_DB_PASS:schema_local_only}",
         "spring.flyway.clean-disabled=false"
 })
 class WriteConstraintsIT {
@@ -264,7 +264,9 @@ class WriteConstraintsIT {
         jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?)",
                 restrictedUserId, roleId);
 
-        TenantInfo restricted = new TenantInfo(1, restrictedUserId, restrictedUserId);
+        // appId 必须与建模时一致（loadForTenant 应用域绑定同判 404——受租户模型 appId=1，
+        // 受限上下文 appId 偏离会被误判「模型不存在」；此处只收紧字段权限，不变更应用域）
+        TenantInfo restricted = new TenantInfo(1, 1, restrictedUserId);
         Map<String, Object> filtered = TenantContext.with(restricted,
                 () -> engine.visibleFieldViews(modelId));
         @SuppressWarnings("unchecked")
@@ -273,3 +275,4 @@ class WriteConstraintsIT {
         assertEquals("qty", visible.get(0).get("fieldKey"));
     }
 }
+
