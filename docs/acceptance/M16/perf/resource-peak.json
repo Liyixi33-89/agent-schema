@@ -1,0 +1,7 @@
+{
+ "samples": 1192,
+ "cpuMax": 100.0,
+ "memMax": 90.5,
+ "pgConnMax": 18.0,
+ "javaRssMax": 467.0
+}

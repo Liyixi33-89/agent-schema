@@ -1,0 +1,14 @@
+{
+  "startedAt": "2026-11-16T06:25:12Z",
+  "dumpFile": "/opt/schema/backups/db-schema_acceptance-20261116-142312.sql.gz",
+  "dumpExists": true,
+  "dumpSizeBytes": 160986,
+  "dumpSha256": "614e984ac2335fd01dee9d347f0d0da5f41be9f3156cac8e13515792807e1d9a",
+  "dumpMtime": "2026-11-16 14:23:13.311617500 +0800",
+  "walArchiveDir": "/var/lib/pgsql/backups/wal_archive",
+  "walFileCount": 2,
+  "walLatest": "00000001000000000000000A",
+  "archiveMode": "on",
+  "archiveTimeout": "5min",
+  "rpoClaim": "archive_timeout=300s 强制切段 + archive_command 连续归档 → RPO ≤ 15min 成立"
+}
