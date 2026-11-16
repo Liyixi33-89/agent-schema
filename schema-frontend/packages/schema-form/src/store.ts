@@ -156,11 +156,22 @@ export class FormStore {
 
   /** 全量校验（提交触发）：返回首个错误（错误定位滚动到第一个错误字段——03FE §4）。 */
   validateAll(): { fieldKey: string; message: string } | null {
+    const all = this.validateAllDetailed();
+    return all.length > 0 ? all[0] : null;
+  }
+
+  /**
+   * 全量校验·明细版（M16 静默拦截修复）：返回全部错误而非仅首个——
+   * 宿主错误汇总区一次呈现所有未通过字段（用户看得到完整原因，
+   * 不必逐个修复逐次提交才发现下一个错误）。
+   */
+  validateAllDetailed(): { fieldKey: string; message: string }[] {
+    const out: { fieldKey: string; message: string }[] = [];
     for (const [key] of this.fields) {
       const err = this.validate(key);
-      if (err) return { fieldKey: key, message: err };
+      if (err) out.push({ fieldKey: key, message: err });
     }
-    return null;
+    return out;
   }
 
   /** 步骤校验（分步表单——03FE §5：trigger(fieldsOfStep) 通过才允许下一步）。 */

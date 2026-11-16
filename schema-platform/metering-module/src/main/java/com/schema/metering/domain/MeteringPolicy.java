@@ -13,15 +13,16 @@ public final class MeteringPolicy {
     /** 指标口径（09BE §4 表）+ 前端漏斗专用指标（不入计费口径——09FE 前端事件仅漏斗）。 */
     public static final Set<String> METRICS = Set.of(
             "seat.active", "flow.exec", "ai.tokens.in", "ai.tokens.out",
-            "api.calls", "storage.gb", "build.count",
+            "api.calls", "storage.gb", "build.count", "sla.availability",
             "funnel.ai.invoke", "funnel.artifact.load");
 
     /** 服务端终审指标（前端事件仅漏斗；计费口径一律服务端埋点）。
      *  ai.tokens.in/out 一并纳入终审集：token 消耗以 AI 网关服务端为准（09BE §4），
-     *  前端 ai.invoke 发起计数走 funnel.ai.invoke 漏斗指标，不得冒充 token 计量。 */
+     *  前端 ai.invoke 发起计数走 funnel.ai.invoke 漏斗指标，不得冒充 token 计量。
+     *  sla.availability 终审入集（09BE §4：分钟级采样归网关/应用服务端——内部看板不出账）。 */
     public static final Set<String> SERVER_FINAL_METRICS = Set.of(
             "seat.active", "flow.exec", "api.calls", "storage.gb", "build.count",
-            "ai.tokens.in", "ai.tokens.out");
+            "ai.tokens.in", "ai.tokens.out", "sla.availability");
 
     /** 客户端通道准入指标（HTTP 上报白名单）：漏斗专用 + seat.active 漏斗参考。
      *  终审指标（含 ai.tokens）禁走客户端通道——聚合只消费服务端行，前端伪造无从生效。 */

@@ -261,3 +261,50 @@ describe('分步与提交（03FE §5 + §5 提交协议）', () => {
     expect(transport.submit).toHaveBeenCalledWith({ code: 'dup-value' });
   });
 });
+
+describe('错误汇总（M16 静默拦截修复）', () => {
+  it('validateAllDetailed：多字段同时未过 → 返回全部错误（不只首个）', () => {
+    const store = new FormStore({
+      fields: [
+        F('a', { required: true }),
+        F('b', { required: true }),
+        F('c'),
+      ],
+    });
+    const all = store.validateAllDetailed();
+    expect(all).toHaveLength(2);
+    expect(all.map((e) => e.fieldKey)).toEqual(['a', 'b']);
+    // 首错误兼容口径不变
+    expect(store.validateAll()?.fieldKey).toBe('a');
+  });
+
+  it('提交校验未过：clientErrors 明细返回全量错误', async () => {
+    const store = new FormStore({
+      fields: [F('a', { required: true }), F('b', { required: true })],
+    });
+    const transport = { submit: vi.fn() };
+    const result = await executeSubmit(store, { type: 'SUBMIT', successBehavior: 'TOAST' }, transport);
+    expect(result.ok).toBe(false);
+    expect(result.clientErrors).toHaveLength(2);
+    expect(result.fieldErrors).toEqual({ a: '必填项', b: '必填项' });
+    // 校验未过不发请求
+    expect(transport.submit).not.toHaveBeenCalled();
+  });
+
+  it('布局外字段场景模拟：字段在 store 但服务端拒（前端校验全过 → 服务端 422 字段错误透传）', async () => {
+    // 必填字段不在布局 → 前端 store 无该字段 → 前端校验通过 →
+    // 后端 writeNormalize 必填缺失 422 fields 数组 → request.ts 归位为 fieldErrors。
+    // 此处验证提交协议层：服务端字段错误完整透传给宿主（宿主负责布局内外区分呈现）。
+    const store = new FormStore({ fields: [F('visibleField', { required: true })] });
+    store.set('visibleField', 'ok');
+    const transport = {
+      submit: vi.fn().mockRejectedValue(
+        new ServerError('VALIDATION_FAILED', '必填字段缺失: hiddenRequired', { hiddenRequired: '必填项' }),
+      ),
+    };
+    const result = await executeSubmit(store, { type: 'SUBMIT', successBehavior: 'TOAST' }, transport);
+    expect(result.ok).toBe(false);
+    expect(result.fieldErrors['hiddenRequired']).toBe('必填项');
+    expect(result.globalError).toBe('必填字段缺失: hiddenRequired');
+  });
+});

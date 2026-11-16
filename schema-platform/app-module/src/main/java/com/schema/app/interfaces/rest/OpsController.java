@@ -224,6 +224,174 @@ public class OpsController {
         return Map.of("list", merged.subList(0, Math.min(limit, merged.size())));
     }
 
+    // ---------- SLA 可用性看板（PRD11 §2.1 统计口径——org:manage 闸门） ----------
+
+    /**
+     * 月度 SLA 实测（PRD11 §2.1）：可用性 = (有效总分钟 - 不可用分钟) / 有效总分钟。
+     * 口径铁律：
+     * - 有效总分钟 = 当月自然分钟数 - 维护窗口分钟数（窗口从分母扣除，不从不可用扣）；
+     * - 不可用分钟 = 错误率>5% 或全不可达的分钟，且须连续 ≥5 分钟才计入（孤立抖动容忍）；
+     * - 全部数值来自 sla_minute_sample 明细聚合，前端纯展示不计算。
+     * 零样本（月初无采样）：availability 返回 null——前端展示「采样中」，不用编译成功率代替。
+     */
+    @GetMapping("/api/ops/sla/monthly")
+    public Map<String, Object> slaMonthly(@RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        TenantInfo ctx = TenantContext.get();
+        requireOrgManage(ctx);
+        java.time.YearMonth ym = year != null && month != null
+                ? java.time.YearMonth.of(year, month)
+                : java.time.YearMonth.now();
+        java.time.OffsetDateTime monthStart = ym.atDay(1).atStartOfDay(java.time.ZoneOffset.UTC).toOffsetDateTime();
+        java.time.OffsetDateTime monthEnd = ym.plusMonths(1).atDay(1).atStartOfDay(java.time.ZoneOffset.UTC).toOffsetDateTime();
+        long totalMinutes = ym.lengthOfMonth() * 24L * 60L;
+
+        // 维护窗口分钟数（平台级 tenant_id=0 + 本租户；状态非 CANCELLED）
+        Long maintenanceMinutes = jdbc.queryForObject("""
+                SELECT coalesce(sum(extract(epoch from (least(end_at, ?) - greatest(start_at, ?))) / 60), 0)::bigint
+                FROM ops_maintenance_window
+                WHERE (tenant_id = 0 OR tenant_id = ?) AND status <> 'CANCELLED'
+                  AND start_at < ? AND end_at > ?
+                """, Long.class, monthEnd, monthStart, ctx.tenantId(), monthEnd, monthStart);
+        long excludedMinutes = maintenanceMinutes == null ? 0 : maintenanceMinutes;
+        long effectiveMinutes = Math.max(0, totalMinutes - excludedMinutes);
+
+        // 不可用分钟（错误率>5% 或全不可达），仅统计有效分钟内
+        List<Map<String, Object>> badMinutes = jdbc.queryForList("""
+                SELECT minute, total_req, failed_req, unreachable
+                FROM sla_minute_sample
+                WHERE tenant_id = ? AND minute >= ? AND minute < ?
+                  AND (unreachable = TRUE OR (total_req > 0 AND failed_req * 100 > total_req * 5))
+                ORDER BY minute
+                """, ctx.tenantId(), monthStart, monthEnd);
+        // 连续性判定（PRD11 §2.1）：孤立 1 分钟不计；连续 ≥5 分钟才计入
+        long unavailableMinutes = 0;
+        java.time.OffsetDateTime runStart = null;
+        int runLen = 0;
+        List<Map<String, Object>> incidents = new ArrayList<>();
+        for (Map<String, Object> m : badMinutes) {
+            // JDBC 驱动对 timestamptz 可能返回 java.sql.Timestamp（而非 OffsetDateTime）——统一转换
+            java.time.OffsetDateTime minute = m.get("minute") instanceof java.time.OffsetDateTime odt
+                    ? odt
+                    : ((java.sql.Timestamp) m.get("minute")).toInstant().atOffset(java.time.ZoneOffset.UTC);
+            if (runStart != null && minute.equals(runStart.plusMinutes(runLen))) {
+                runLen++;
+            } else {
+                if (runLen >= 5) {
+                    unavailableMinutes += runLen;
+                    Map<String, Object> incident = new LinkedHashMap<>();
+                    incident.put("startAt", runStart.toString());
+                    incident.put("minutes", runLen);
+                    incidents.add(incident);
+                }
+                runStart = minute;
+                runLen = 1;
+            }
+        }
+        if (runLen >= 5) {
+            unavailableMinutes += runLen;
+            Map<String, Object> incident = new LinkedHashMap<>();
+            incident.put("startAt", runStart.toString());
+            incident.put("minutes", runLen);
+            incidents.add(incident);
+        }
+
+        // 采样覆盖检查（零样本口径）：该月无任何采样行 → availability=null（采样中），
+        // 不用 100% 冒充实测（与编译成功率零样本 null 同口径——不编造统计值）
+        Long sampled = jdbc.queryForObject(
+                "SELECT count(*) FROM sla_minute_sample WHERE tenant_id=? AND minute>=? AND minute<?",
+                Long.class, ctx.tenantId(), monthStart, monthEnd);
+
+        Double availability;
+        if (effectiveMinutes <= 0 || sampled == null || sampled == 0) {
+            availability = null;
+        } else {
+            availability = Math.round((effectiveMinutes - unavailableMinutes) * 1000000.0
+                    / effectiveMinutes) / 10000.0;
+        }
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("yearMonth", ym.toString());
+        resp.put("targetSla", 0.999);
+        resp.put("availability", availability);
+        resp.put("totalMinutes", totalMinutes);
+        resp.put("excludedMaintenanceMinutes", excludedMinutes);
+        resp.put("effectiveMinutes", effectiveMinutes);
+        resp.put("unavailableMinutes", unavailableMinutes);
+        resp.put("incidents", incidents);
+        resp.put("sampledMinutes", sampled == null ? 0 : sampled);
+        // 口径追溯（PRD11 §2.1）——前端展示承诺值与口径链接用
+        resp.put("basis", Map.of(
+                "measurement", "minute-level P0/P1 request success rate",
+                "unavailableRule", "errorRate>5% or unreachable, consecutive>=5min",
+                "exclusion", "maintenance windows subtracted from denominator",
+                "source", "sla_minute_sample"));
+        return resp;
+    }
+
+    /** 维护窗口清单（含历史——排除项可追溯）。 */
+    @GetMapping("/api/ops/sla/maintenance-windows")
+    public Map<String, Object> maintenanceWindows() {
+        TenantInfo ctx = TenantContext.get();
+        requireOrgManage(ctx);
+        return Map.of("list", jdbc.queryForList(
+                "SELECT id, tenant_id, title, start_at, end_at, announced_at, status, created_at "
+                        + "FROM ops_maintenance_window "
+                        + "WHERE tenant_id IN (0, ?) ORDER BY start_at DESC LIMIT 50",
+                ctx.tenantId()));
+    }
+
+    /** 登记维护窗口（org:manage + 提前 72h 公告校验——PRD11 §2.1 排除项纪律）。 */
+    @PostMapping("/api/ops/sla/maintenance-windows")
+    public Map<String, Object> createMaintenanceWindow(@RequestBody Map<String, Object> body) {
+        TenantInfo ctx = TenantContext.get();
+        requireOrgManage(ctx);
+        String title = str(body.get("title"));
+        String startAt = str(body.get("startAt"));
+        String endAt = str(body.get("endAt"));
+        if (title == null || title.isBlank()) {
+            throw new IllegalArgumentException("title 必填");
+        }
+        java.time.OffsetDateTime start;
+        java.time.OffsetDateTime end;
+        try {
+            start = java.time.OffsetDateTime.parse(startAt);
+            end = java.time.OffsetDateTime.parse(endAt);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("startAt/endAt 须为 ISO-8601 带时区时间");
+        }
+        if (!end.isAfter(start)) {
+            throw new IllegalArgumentException("end_at 必须晚于 start_at");
+        }
+        // 72h 公告纪律：窗口开始时间须在 72h 之后（紧急维护例外显式声明）
+        boolean emergency = Boolean.TRUE.equals(body.get("emergency"));
+        java.time.OffsetDateTime now = java.time.OffsetDateTime.now();
+        if (!emergency && start.isBefore(now.plusHours(72))) {
+            throw new BizException("MAINT_WINDOW_LEAD_TIME",
+                    "计划内维护须提前 72 小时登记（当前距开始不足 72h）；紧急维护请传 emergency=true 并在事后复盘",
+                    null);
+        }
+        // 单次 ≤2h（PRD11 §2.1）
+        if (start.plusHours(2).isBefore(end) && !emergency) {
+            throw new BizException("MAINT_WINDOW_TOO_LONG",
+                    "计划内维护单次不超过 2 小时；超长维护须拆分为多次窗口", null);
+        }
+        // 每月 ≤1 次：同租户同自然月内已有非取消窗口则拒绝
+        Integer sameMonth = jdbc.queryForObject("""
+                SELECT count(*) FROM ops_maintenance_window
+                WHERE tenant_id = ? AND status <> 'CANCELLED'
+                  AND date_trunc('month', start_at) = date_trunc('month', ?::timestamptz)
+                """, Integer.class, ctx.tenantId(), start.toString());
+        if (sameMonth != null && sameMonth > 0 && !emergency) {
+            throw new BizException("MAINT_WINDOW_MONTHLY_LIMIT",
+                    "每月至多 1 次计划内维护（当月已有窗口记录）", null);
+        }
+        jdbc.update("INSERT INTO ops_maintenance_window "
+                        + "(tenant_id, title, start_at, end_at, announced_at, status, operator_id) "
+                        + "VALUES (?,?,?,?,?,'PLANNED',?)",
+                ctx.tenantId(), title, start, end, now, ctx.operatorId());
+        return Map.of("created", true);
+    }
+
     // ---------- 维护公告 ----------
 
     /** 当前生效公告（登录态即可读——运行时顶部横幅消费）。 */

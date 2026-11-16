@@ -27,7 +27,10 @@ public class AppExceptionHandler {
     public ResponseEntity<Map<String, Object>> biz(BizException e) {
         String traceId = UUID.randomUUID().toString();
         HttpStatus status = switch (e.code()) {
-            case "NAV_VERSION_CONFLICT", "APP_ADMIN_REQUIRED", "APP_DELETE_CONFIRM_REQUIRED" -> HttpStatus.CONFLICT;
+            case "NAV_VERSION_CONFLICT", "APP_ADMIN_REQUIRED", "APP_DELETE_CONFIRM_REQUIRED",
+                 // 维护窗口纪律冲突（M16 SLA）：提前量不足/超长/超频——当前状态不允许该操作
+                 "MAINT_WINDOW_LEAD_TIME", "MAINT_WINDOW_TOO_LONG", "MAINT_WINDOW_MONTHLY_LIMIT"
+                    -> HttpStatus.CONFLICT;
             case "APP_NAME_DUPLICATED", "NAV_PAGE_NOT_FOUND" -> HttpStatus.UNPROCESSABLE_ENTITY;
             case "APP_LIMIT_EXCEEDED", "PERM_DENIED" -> HttpStatus.FORBIDDEN;
             case "APP_NOT_FOUND" -> HttpStatus.NOT_FOUND;
