@@ -1666,12 +1666,96 @@
       "dependsOn": [
         "M14"
       ],
-      "spec": ".agent/workflow.md",
+      "spec": ".agent/specs/016-pilot-reliability-launch-gate.md",
       "acceptance": [
         {
           "id": "pilot",
           "requirement": "备份恢复 RTO/RPO、250 并发、告警演练、健康页、G1-G7 与人工上线评审",
           "evidence": null
+        }
+      ],
+      "implementedBy": "implementation-session-f42b4e21",
+      "requirements": [
+        {
+          "id": "M16-T1-ATTACHMENT",
+          "source": "M15 deferred 项闭环（workflow M15-ATTACHMENT-FILE）",
+          "condition": "附件字段浏览器真实上传交互全链路（选择→上传→回显→提交落库→详情下载；10MB 拦截）",
+          "risk": "low",
+          "status": "passed",
+          "verification": "browser",
+          "userInteraction": true,
+          "implementation": [
+            "schema-frontend/apps/runtime FormPageHost hostProps.uploader/downloader 注入",
+            "packages/component-materials FileUpload 受控回显修复"
+          ],
+          "tests": [
+            "scripts/acceptance/accept-m16-attachment.cjs（30/30 PASS，2026-11-13）"
+          ],
+          "checks": [
+            "mvp-demo"
+          ]
+        },
+        {
+          "id": "M16-T5-HEALTH-UI",
+          "source": "docs/详细PRD/09-运营与计量.md §2.6 + docs/详细前端技术文档/14-admin-console应用.md §5a",
+          "condition": "租户级健康页前端接线：四聚合接口展示（状态/吞吐/编译成功率/近期错误），处理无样本/加载失败/无权限/刷新恢复，不编造统计值",
+          "risk": "medium",
+          "status": "passed",
+          "verification": "unit",
+          "userInteraction": false,
+          "implementation": [
+            "schema-frontend/apps/admin-console HealthTab（四接口接线 + 状态契约按后端字段渲染不猜测转换）",
+            "schema-platform OpsController 四聚合接口（PR #18，线上 18081 实测全通）"
+          ],
+          "tests": [
+            "admin-console 构建通过（tsc + vite build）"
+          ],
+          "checks": [
+            "frontend-build"
+          ]
+        },
+        {
+          "id": "M16-T5-SLA-BOARD",
+          "source": "docs/详细PRD/11-企业级服务保障与上线验收.md §2.1 SLA 口径 + docs/详细技术文档/09-计量与出账服务.md §4 sla.availability",
+          "condition": "SLA 可用性看板：月度可用性实测（分钟级采样、连续≥5min 才计不可用、维护窗口从分母扣除、零样本 null 不用编译成功率代替）+ 维护窗口登记（72h/≤2h/每月≤1 次）——可用性/统计窗口/维护排除项均可追溯，前端纯展示",
+          "risk": "medium",
+          "status": "passed",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [
+            "schema-platform V17__sla_tables.sql（sla_minute_sample/ops_maintenance_window）",
+            "schema-platform OpsController /api/ops/sla/monthly + /maintenance-windows（org:manage 闸门）",
+            "schema-platform MeteringPolicy sla.availability 入白名单（服务端终审集）",
+            "schema-frontend/apps/admin-console SlaTab（basis 口径追溯展示）"
+          ],
+          "tests": [
+            "bootstrap SlaBoardIT（8 用例：孤立抖动不计/连续5min计入/维护分母扣除/零样本null/72h纪律/2h上限/月度1次/权限403）",
+            "线上验收后端 18081 实测 13/13 PASS（2026-11-16：V17 迁移/登录/契约字段/零样本/409 纪律×2/清理/401 负例/overview 回归）"
+          ],
+          "checks": [
+            "backend-it",
+            "frontend-build"
+          ]
+        },
+        {
+          "id": "M16-T5A-SILENT-VALIDATION",
+          "source": "2026-11-13 轮发现产品缺陷：必填字段不在布局时提交被静默拦截无用户反馈",
+          "condition": "提交失败时提供错误汇总；布局中找不到的必填字段明确提示「不在页面中」，不能只尝试标红；布局内外必填字段均有回归测试",
+          "risk": "medium",
+          "status": "passed",
+          "verification": "unit",
+          "userInteraction": false,
+          "implementation": [
+            "packages/schema-form store.validateAllDetailed + SubmitResult.clientErrors（全量错误返回）",
+            "apps/runtime FormPageHost 错误汇总区（布局内外区分呈现 + 操作指引）"
+          ],
+          "tests": [
+            "schema-form test/form.test.ts 错误汇总 describe（3 用例：多字段全量返回/提交明细/布局外字段服务端拒透传）",
+            "全量前端测试 317 用例零回归（2026-11-16 verify frontend-test PASS）"
+          ],
+          "checks": [
+            "frontend-test"
+          ]
         }
       ],
       "review": null

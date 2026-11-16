@@ -25,6 +25,11 @@ export interface SubmitResult {
   /** 成功后的行为指令（宿主执行 REFRESH/REDIRECT/TOAST）。 */
   successBehavior?: SuccessBehavior;
   redirectTo?: string;
+  /**
+   * 前端校验错误明细（M16 静默拦截修复）：提交前全量校验未通过时，
+   * 返回全部错误字段而非仅首个——宿主错误汇总区一次呈现完整原因。
+   */
+  clientErrors?: { fieldKey: string; message: string }[];
 }
 
 /** 提交执行器注入（宿主提供——schema-form 不直接发请求，DIP）。 */
@@ -50,16 +55,21 @@ export async function executeSubmit(
   action: SubmitAction,
   transport: SubmitTransport,
 ): Promise<SubmitResult> {
-  // ① 前端全量校验（含 requiredWhen 动态必填；卸载字段不参与）
-  const firstError = store.validateAll();
-  if (firstError) {
-    return { ok: false, fieldErrors: { [firstError.fieldKey]: firstError.message } };
+  // ① 前端全量校验（含 requiredWhen 动态必填；卸载字段不参与）——
+  // 明细版返回全部错误（M16 静默拦截修复：宿主一次呈现完整错误汇总）
+  const clientErrors = store.validateAllDetailed();
+  if (clientErrors.length > 0) {
+    return {
+      ok: false,
+      fieldErrors: Object.fromEntries(clientErrors.map((e) => [e.fieldKey, e.message])),
+      clientErrors,
+    };
   }
   // ② 唯一性异步校验（提交态才跑——草稿跳过，03FE §5）
   if (!action.draft) {
     for (const [key] of store.fields) {
       const err = await store.validateUnique(key, store.get(key));
-      if (err) return { ok: false, fieldErrors: { [key]: err } };
+      if (err) return { ok: false, fieldErrors: { [key]: err }, clientErrors: [{ fieldKey: key, message: err }] };
     }
   }
   // ③ 序列化提交（草稿全量 / 正常提交剔除卸载字段）

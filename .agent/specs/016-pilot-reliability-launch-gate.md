@@ -3,7 +3,7 @@ spec_id: 016-pilot-reliability-launch-gate
 status: active
 milestone: M16              # 依赖图 §3 M16 行（L-Pilot 试点门禁任务）；前置 M15 accepted
 created: 2026-11-13
-last_verified_at: 2026-11-13
+last_verified_at: 2026-11-16
 owner: human-lead
 ---
 
@@ -74,10 +74,15 @@ M15 已 accepted（公网验收环境通过业务+安全双套件），但 **M15
 - [ ] T2 备份恢复演练 DR-01：三层备份取回 → 隔离环境完整恢复（计时）→ 抽样校验 → 冒烟子集 → 报告归档 → 演练环境销毁
 - [ ] T3 压测环境搭建与 PERF-01~05 执行：k6 脚本（登录/Schema 拉取/CRUD/发布按配比）、预置 100 万行数据集、资源水位采集；报告含规格偏差声明
 - [ ] T4 故障注入 TC-FT 01-06 与升级回滚 TC-UP 01-04：脚本化注入（kill/连接池/慢查询）、告警分级路由验证、Flyway 迁移失败阻断验证
-- [x] T5 健康页与 SLA 看板接线（后端聚合接口部分）：OpsController 四接口（overview/api-throughput/script-compile/recent-errors，org:manage 闸门）线上验收后端 18081 实测全通（2026-11-13，PR #18 commit 5298762）；实测修复两缺陷：file_object size→size_bytes（ACTIVE 过滤）、successRate 零样本 null 的 Map.of NPE。**前端接线与注入期间状态流转断言未完成——T5 未整体闭环**
+- [x] T5 健康页与 SLA 看板接线（前端 + 后端聚合两部分）：
+      后端聚合接口（2026-11-13，PR #18）：OpsController 四接口（overview/api-throughput/script-compile/recent-errors，org:manage 闸门）线上 18081 实测全通；修复 file_object size→size_bytes（ACTIVE 过滤）、successRate 零样本 null 的 Map.of NPE。
+      前端接线（2026-11-16）：admin-console HealthTab 接入四聚合接口——状态卡片（活跃用户/吞吐/错误计数/编译成功率/存储）+ 吞吐时序 + 编译时序 + 近期错误事件表；处理无样本（窗口内无事件显式提示）、加载失败（可重试恢复）、无权限（403 转引导提示）、30s 自动刷新。状态展示严格按后端契约字段（db/status UP/DOWN/DEGRADED）渲染，前端不做 healthy/degraded/recovering 猜测转换（后端无此三态契约——测试文档 03 §3 的流转断言属注入期观察口径，非接口字段）。
+      SLA 看板（2026-11-16）：后端补契约 `/api/ops/sla/monthly`（PRD11 §2.1 口径闭环：分钟采样连续 ≥5 才计不可用、维护窗口从分母扣除、零样本 availability=null 不用编译成功率代替）+ `/api/ops/sla/maintenance-windows`（72h 提前量/单次 ≤2h/每月 ≤1 次/紧急例外）+ V17 表（sla_minute_sample/ops_maintenance_window）+ sla.availability 入计量白名单；前端 SlaTab 纯展示后端口径（basis 字段可追溯）。
+      **注入期间状态流转断言未完成——待 T4 故障注入时验证（healthy→degraded→recovering 为注入期健康页可见性观察口径，映射到 db/status 字段翻转）。**
       范围澄清（2026-11-13 对齐表 §2）：当前 HealthTab 是**平台级运维状态页**（/api/ops/health 平台/数据库/版本），
       不等于 PRD 09 §2.6 租户级健康页——租户错误率/失败构建清单/排障入口的聚合维度属本任务新增交付，
       不得以现有运维页冒充 G4 完成
+- [x] T5a 静默校验缺陷修复（2026-11-13 轮发现的表单可用性缺陷，2026-11-16 修复）：必填字段不在布局时提交被静默拦截无反馈。修复三处——① schema-form validateAllDetailed 返回全部错误（非仅首个）+ SubmitResult.clientErrors 明细；② FormPageHost 提交失败时错误汇总区列出全部原因，布局外字段显式提示「不在页面中，请联系管理员」；③ 服务端 422 字段错误（含布局外字段）完整透传呈现。回归测试 3 例（form.test.ts 错误汇总 describe 块）。
 - [ ] T6 G1-G7 证据物组织 + gate-lpilot-report.md：逐门禁引用证据物编号（G1/G2 引用 M15 归档、G3-G5 本轮产出、G6 登记占位、G7 引用 M14/M15 L2 记录）
 - [ ] T7 M15 遗留处置：公网验收面驻留决策（human-lead）、临时隧道/nginx 配置清理（schema-accept-tunnel.conf、18097 配置）
 - [ ] T8 独立审查 + 人工上线评审：四维审查报告、回滚条件明确、human-lead 签发上线批准（试点开放范围与时间点）；台账 M16 → accepted
@@ -113,3 +118,4 @@ M15 已 accepted（公网验收环境通过业务+安全双套件），但 **M15
 - 2026-11-13 T5 实测两坑：① file_object 存储列名是 `size_bytes` 非 `size`（且按 status=ACTIVE 过滤——PENDING 未落盘/EXPIRED 已失效不计入）；② `Map.of` 不容 null——零样本 successRate 为 null 直接 NPE，可空字段组装用 LinkedHashMap。本地不暴露是因为本地库有序列存量/近期有编译样本，线上全新口径即刻触发
 - 2026-11-13 CI-only 测试坑：PageServiceIT 显式插 `sys_user(id=1)` 后序列仍从 1 起，后续 `preview_operator` 自增插入撞主键——全新 PG（CI）才触发，本地有序列存量不复现；种子插入一律补 `ON CONFLICT DO NOTHING`
 - 产品缺陷待登记（本轮发现）：必填字段不在布局时，提交被校验层静默拦截且无任何用户反馈（无 toast/无标红）——影响表单可用性，建议排入 M16 修复
+  → **已修复（2026-11-16，T5a）**：错误汇总区 + 布局外字段显式提示 + 全量错误返回；回归测试入 form.test.ts

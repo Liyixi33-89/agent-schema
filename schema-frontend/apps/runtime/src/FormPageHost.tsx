@@ -177,6 +177,11 @@ function SchemaFormPage({ client, page, fields, recordId, detailRow, onSubmitted
 
   const guard = useRef(new SubmitGuard());
   const [globalError, setGlobalError] = useState<string | null>(null);
+  // 错误汇总（M16 静默拦截修复）：布局外必填字段无法在页面上标红——
+  // 在顶部汇总区明确列出字段名与提示，用户看得到拦截原因。
+  const [errorSummary, setErrorSummary] = useState<
+    { fieldKey: string; message: string; inLayout: boolean }[] | null
+  >(null);
   const [submitting, setSubmitting] = useState(false);
   // 编辑态初值（M16 竞态修复）：detailRow 由外层装载链一并拉取传入，
   // 构造期直接装载进 store——取代原先组件内异步回填 effect。
@@ -290,6 +295,7 @@ function SchemaFormPage({ client, page, fields, recordId, detailRow, onSubmitted
     if (!guard.current.enter()) return;
     setSubmitting(true);
     setGlobalError(null);
+    setErrorSummary(null);
     try {
       // beforeSubmit 返回 false 阻断提交；超时按「不阻断」放行（08FE §4.3 韧性原则）
       const payload = { record: Object.fromEntries([...store.fields.keys()].map((k) => [k, store.get(k)])) };
@@ -318,9 +324,39 @@ function SchemaFormPage({ client, page, fields, recordId, detailRow, onSubmitted
           if (v) serverFieldErrors[k] = v;
         }
         store.publishErrors(serverFieldErrors);
-        // 前端校验错误补发（validateAll 首错）
+        // 错误汇总（M16 静默拦截修复）：合并前端校验明细 + 服务端字段错误，
+        // 区分布局内/外——布局外字段页面上没有输入位，只标红用户找不到位置，
+        // 须在汇总区明确「该字段不在页面中」。
+        const layoutKeys = new Set<string>();
+        const visit = (nodes: PageSchema['layout']): void => {
+          for (const n of nodes) {
+            if (n.fieldRef !== undefined) layoutKeys.add(n.fieldRef);
+            if (n.children) visit(n.children);
+          }
+        };
+        visit(page.layout);
+        const labelOf = (key: string): string =>
+          store.fields.get(key)?.label || key;
+        const summary: { fieldKey: string; message: string; inLayout: boolean }[] = [];
+        const seen = new Set<string>();
+        for (const e of result.clientErrors ?? []) {
+          if (seen.has(e.fieldKey)) continue;
+          seen.add(e.fieldKey);
+          summary.push({ ...e, inLayout: layoutKeys.has(e.fieldKey) });
+        }
+        for (const [k, v] of Object.entries(serverFieldErrors)) {
+          if (seen.has(k)) continue;
+          seen.add(k);
+          summary.push({ fieldKey: k, message: v, inLayout: layoutKeys.has(k) });
+        }
+        setErrorSummary(summary.map((e) => ({
+          ...e,
+          message: e.inLayout
+            ? `${labelOf(e.fieldKey)}：${e.message}`
+            : `${labelOf(e.fieldKey)}（不在页面中）：${e.message}——请联系管理员将该字段加入页面布局或调整必填设置`,
+        })));
         if (result.globalError) setGlobalError(result.globalError);
-        else if (Object.keys(serverFieldErrors).length === 0) setGlobalError('提交失败');
+        else if (summary.length === 0) setGlobalError('提交失败');
         return;
       }
       store.publishErrors({});
@@ -339,6 +375,22 @@ function SchemaFormPage({ client, page, fields, recordId, detailRow, onSubmitted
   return (
     <Card title={page.name} style={{ maxWidth: 720, margin: '24px auto' }}>
       {globalError ? <Alert type="error" showIcon closable message={globalError} style={{ marginBottom: 16 }} /> : null}
+      {/* 错误汇总区（M16 静默拦截修复）：提交未通过时列出全部原因——
+          布局外必填字段显式提示「不在页面中」，不再只有一条全局文案让用户猜位置 */}
+      {errorSummary && errorSummary.length > 0 ? (
+        <Alert
+          type="error"
+          showIcon
+          closable
+          style={{ marginBottom: 16 }}
+          message={`提交未通过（${errorSummary.length} 项待处理）`}
+          description={(
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {errorSummary.map((e) => <li key={e.fieldKey}>{e.message}</li>)}
+            </ul>
+          )}
+        />
+      ) : null}
       <SchemaRenderer
         page={page}
         scope={store.scope}

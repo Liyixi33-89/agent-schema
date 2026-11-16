@@ -288,7 +288,7 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         Push-Location $be
         try {
             $itArgs = @('-q', '-pl', 'bootstrap', '-am', 'test',
-                "-Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT,ObjectStorageContractIT,AppServiceIT",
+                "-Dtest=MetadataCommandServiceIT,IamServiceIT,IamSecurityChainIT,PageServiceIT,PageSecurityChainIT,MeteringIT,FileServiceIT,NotificationIT,ObjectStorageContractIT,AppServiceIT,SlaBoardIT",
                 '-Dsurefire.failIfNoSpecifiedTests=false')
             # WSL 场景：IT 硬编码 localhost 不可达时按探活地址改写 JDBC 主机
             if ($pgHost -ne '127.0.0.1') { $itArgs += "-Dspring.datasource.url=jdbc:postgresql://${pgHost}:5432/schema_dev" }
