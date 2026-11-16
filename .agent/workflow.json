@@ -1756,6 +1756,74 @@
           "checks": [
             "frontend-test"
           ]
+        },
+        {
+          "id": "M16-T2-BACKUP-DR",
+          "source": "docs/详细PRD/11-企业级服务保障与上线验收.md §2.2（未演练的备份等同没有备份）",
+          "condition": "备份链路真实可用（每日产物非空）+ WAL 归档 RPO≤15min + DR-01 全流程演练（恢复→抽样≥99.9%→RTO 实测→销毁）",
+          "risk": "high",
+          "status": "passed",
+          "verification": "drill",
+          "userInteraction": false,
+          "implementation": [
+            "修复存量缺陷×3：runuser→su（备份自上线起全空 20 字节 gzip）、双库备份（schema_prod 业务空库 + schema_acceptance 真实数据 53 表）、WAL 归档开启（archive_mode=on + archive_timeout=300s）",
+            "scripts/acceptance/m16-relaunch/ 四脚本入库并部署服务器（schema-backup/restore-verify/enable-wal-archive/dr-drill-recovery）",
+            "DR-01 演练：独立恢复库 dr_drill_20261116_142512 → 全量灌入 → 53 表逐表比对 → 冒烟 → 销毁"
+          ],
+          "tests": [
+            "表一致率 100%（53/53）、活跃页面 etag 完整率 100%（88/88，5 NULL 为 DELETED 软删正常态）",
+            "RTO 0.1 分钟（目标 ≤4h）；RPO 证据：archive_timeout=300s + 归档持续堆积",
+            "产物：docs/acceptance/M16/dr-drill/（dr-drill-result.json + precheck/sample-check/source-baseline + run.log）"
+          ],
+          "checks": [
+            "m16-drill"
+          ]
+        },
+        {
+          "id": "M16-T3-PERF",
+          "source": "docs/详细技术文档/03-测试策略与质量保障.md §1 PERF-01~05 + PRD11 §2.4 容量基线",
+          "condition": "隔离环境 100 万行基线 + 250 VU 混合负载（70 读/20 写/10 发布）+ 容量边界测定（SLA p95<1.5s），不碰线上 PG",
+          "risk": "high",
+          "status": "passed",
+          "verification": "perf",
+          "userInteraction": false,
+          "implementation": [
+            "专用测试 PG 实例（独立数据目录 /opt/schema/perf-pgdata，端口 15433，与线上 5432 完全隔离）+ 压测后端 18083",
+            "真实模型 API 建模 + 物理表 biz_model_1 灌数 1,001,004 行/235MB（schema_version 与模型版本一致）",
+            "k6 v1.4 脚本按真实契约（Cookie 会话+CSRF 双提交+POST /api/data/{modelId}）",
+            "修复并发发布竞态（commit 104c284）：nextReleaseVersion 先锁 app 行再取 MAX——压测风暴实测复现 500 后修复，40 并发全 200"
+          ],
+          "tests": [
+            "250 VU 风暴：无崩溃/无数据损坏/零业务错误/恢复探活 200（CPU 100% 饱和为容量事实）",
+            "三档稳态：50VU p95 291ms ✅ / 100VU p95 1,229ms ✅ / 150VU p95 3,329ms ❌ → 安全容量 ≈100 VU",
+            "产物：docs/acceptance/M16/perf/（三档+风暴+阶梯 summary、双脚本、资源峰值 resource-peak.json）"
+          ],
+          "checks": [
+            "m16-perf"
+          ]
+        },
+        {
+          "id": "M16-T4-FAULT-UPGRADE",
+          "source": "docs/详细技术文档/03-测试策略与质量保障.md §2 TC-FT 01-06 + §3 TC-UP 01-04",
+          "condition": "故障注入（连接池耗尽/行锁慢查询/进程 kill -9）恢复验证 + 坏迁移阻断启动（无半升级），全程不碰线上",
+          "risk": "high",
+          "status": "passed",
+          "verification": "drill",
+          "userInteraction": false,
+          "implementation": [
+            "压测栈复用（18083/15433 专用实例），四场景注入脚本 docs/acceptance/M16/fault-drill/fault-drill-run.sh",
+            "TC-FT-01：20 idle-in-transaction 占连接——业务查询 200 不雪崩，清理即恢复",
+            "TC-FT-02：单行 FOR UPDATE 30s——其他行查询全程 200，锁释放正常",
+            "TC-FT-04：kill -9 → 重启 RTO 10s 业务恢复",
+            "TC-UP-02：--spring.flyway.locations 注入 V999 非法 SQL → Flyway 阻断启动（bad-migration-startup.log 证据），还原后正常"
+          ],
+          "tests": [
+            "四场景全 PASS；演练结束态业务探活 200；临时进程/文件全清理",
+            "产物：docs/acceptance/M16/fault-drill/（timeline-merged.jsonl + bad-migration-startup.log + 脚本）"
+          ],
+          "checks": [
+            "m16-drill"
+          ]
         }
       ],
       "review": null

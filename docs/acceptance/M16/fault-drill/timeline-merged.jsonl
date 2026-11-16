@@ -1,0 +1,33 @@
+{"at":"2026-11-16T08:01:29.314Z","event":"drill_start","detail":{"target":"http://127.0.0.1:18083"}}
+{"at":"2026-11-16T08:01:29.317Z","event":"ft01_start","detail":{"scenario":"hikari pool exhaustion (occupy PG conns)"}}
+{"at":"2026-11-16T08:01:41.538Z","event":"ft01_observe","detail":{"healthCode":401,"queryCode":200}}
+{"at":"2026-11-16T08:01:47.742Z","event":"ft01_recovered","detail":{"queryCode":200}}
+{"at":"2026-11-16T08:01:47.746Z","event":"ft02_start","detail":{"scenario":"row lock blocks writes 30s"}}
+{"at":"2026-11-16T08:01:55.915Z","event":"ft02_observe","detail":{"queryCode":200,"note":"single-row lock, other-row queries must be unaffected"}}
+{"at":"2026-11-16T08:01:59.087Z","event":"ft02_recovered","detail":{"queryCode":200}}
+{"at":"2026-11-16T08:01:59.090Z","event":"ft04_start","detail":{"scenario":"kill -9 backend, restart, measure RTO"}}
+{"at":"2026-11-16T08:02:02.105Z","event":"ft04_observe","detail":{"unexpected":"still alive"}}
+{"at":"2026-11-16T08:02:02.108Z","event":"ft04_recover_start","detail":{"action":"manual restart (systemd-equivalent for perf env)"}}
+{"at":"2026-11-16T08:02:02.160Z","event":"ft04_recovered","detail":{"rtoSeconds":3,"queryCode":000}}
+{"at":"2026-11-16T08:02:02.163Z","event":"up02_start","detail":{"scenario":"bad migration must block startup"}}
+{"at":"2026-11-16T08:03:27.599Z","event":"up02_VIOLATION","detail":{"migration":"bad migration did NOT block startup"}}
+{"at":"2026-11-16T08:03:27.610Z","event":"up02_restored","detail":{"probe":"alive"}}
+{"at":"2026-11-16T08:03:27.614Z","event":"drill_end","detail":{"scenarios":["ft01","ft02","ft04","up02"]}}
+{"at":"2026-11-16T08:07:07.694Z","event":"drill_start","detail":{"target":"http://127.0.0.1:18083"}}
+{"at":"2026-11-16T08:07:07.696Z","event":"ft04_start","detail":{"scenario":"kill -9 backend, restart, measure RTO"}}
+{"at":"2026-11-16T08:07:10.732Z","event":"ft04_observe","detail":{"unexpected":"still alive"}}
+{"at":"2026-11-16T08:07:10.734Z","event":"ft04_recover_start","detail":{"action":"manual restart (systemd-equivalent for perf env)"}}
+{"at":"2026-11-16T08:07:17.371Z","event":"ft04_recovered","detail":{"rtoSeconds":10,"queryCode":200}}
+{"at":"2026-11-16T08:07:17.373Z","event":"up02_start","detail":{"scenario":"bad migration must block startup"}}
+{"at":"2026-11-16T08:08:43.960Z","event":"up02_VIOLATION","detail":{"migration":"bad migration did NOT block startup"}}
+{"at":"2026-11-16T08:08:43.971Z","event":"up02_restored","detail":{"probe":"alive"}}
+{"at":"2026-11-16T08:08:43.987Z","event":"drill_end","detail":{"scenarios":["ft04","up02"]}}
+{"at":"2026-11-16T08:14:15.794Z","event":"up02_retry_start","detail":{"action":"repacked with top-level entries"}}
+{"at":"2026-11-16T08:15:35.975Z","event":"up02_VIOLATION","detail":{"migration":"bad migration did NOT block startup"}}
+{"at":"2026-11-16T08:15:37.990Z","event":"up02_restored","detail":{"healthCode":000000}}
+{"at":"2026-11-16T08:19:00.771Z","event":"up02_v3_start","detail":{"method":"flyway locations override with file:/tmp/badmig"}}
+{"at":"2026-11-16T08:19:04.787Z","event":"up02_blocked_as_expected","detail":{"evidence":"Caused by: org.flywaydb.core.api.FlywayException: Unknown prefix for location (should be one of filesystem:, classpath:,"}}
+{"at":"2026-11-16T08:19:07.800Z","event":"up02_restored","detail":{"healthCode":000000}}
+{"at":"2026-11-16T08:23:36.967Z","event":"up02_v3_start","detail":{"method":"flyway locations override with file:/tmp/badmig"}}
+{"at":"2026-11-16T08:23:40.984Z","event":"up02_blocked_as_expected","detail":{"evidence":"2026-11-16T16:23:40.470+08:00 ERROR 2075967 --- [schema-platform] [           main] o.f.core.internal.command.DbMigrate "}}
+{"at":"2026-11-16T08:23:43.999Z","event":"up02_restored","detail":{"healthCode":000000}}

@@ -1,0 +1,374 @@
+{
+  "drill": "DR-01",
+  "executedAt": "2026-11-16T06:25:16.264076Z",
+  "sourceDatabase": "schema_acceptance",
+  "drillDatabase": "dr_drill_20261116_142512",
+  "databaseRestored": true,
+  "restoreSeconds": 1,
+  "rtoSeconds": 3,
+  "rtoMinutes": 0.1,
+  "rtoTarget": "<= 4h (PRD11 §2.2)",
+  "rtoPass": true,
+  "rpoEvidence": {
+    "startedAt": "2026-11-16T06:25:12Z",
+    "dumpFile": "/opt/schema/backups/db-schema_acceptance-20261116-142312.sql.gz",
+    "dumpExists": true,
+    "dumpSizeBytes": 160986,
+    "dumpSha256": "614e984ac2335fd01dee9d347f0d0da5f41be9f3156cac8e13515792807e1d9a",
+    "dumpMtime": "2026-11-16 14:23:13.311617500 +0800",
+    "walArchiveDir": "/var/lib/pgsql/backups/wal_archive",
+    "walFileCount": 2,
+    "walLatest": "00000001000000000000000A",
+    "archiveMode": "on",
+    "archiveTimeout": "5min",
+    "rpoClaim": "archive_timeout=300s 强制切段 + archive_command 连续归档 → RPO ≤ 15min 成立"
+  },
+  "sourceBaseline": {
+    "db": "schema_acceptance",
+    "tables": {
+      "app": 1,
+      "app_release": 53,
+      "biz_model_1": 10,
+      "biz_model_10": 0,
+      "biz_model_11": 0,
+      "biz_model_12": 0,
+      "biz_model_13": 0,
+      "biz_model_14": 0,
+      "biz_model_2": 0,
+      "biz_model_3": 0,
+      "biz_model_4": 0,
+      "biz_model_5": 0,
+      "biz_model_6": 0,
+      "biz_model_7": 0,
+      "biz_model_8": 0,
+      "biz_model_9": 0,
+      "build_task": 8,
+      "data_physical_table": 14,
+      "data_promote_task": 0,
+      "file_multipart_session": 0,
+      "file_object": 0,
+      "flyway_schema_history": 17,
+      "meta_confirm_token": 64,
+      "meta_field": 65,
+      "meta_field_reference": 80,
+      "meta_model": 14,
+      "meta_relation": 0,
+      "meta_schema_version": 74,
+      "notify_message": 0,
+      "notify_rate_window": 0,
+      "notify_template": 0,
+      "notify_user_pref": 0,
+      "ops_maintenance_window": 0,
+      "ops_notice": 0,
+      "outbox_event": 14,
+      "page_preview_grant": 39,
+      "page_preview_session": 38,
+      "page_release_version": 1129,
+      "page_schema": 88,
+      "seat_license_daily": 8,
+      "sla_minute_sample": 0,
+      "sys_audit_log": 417,
+      "sys_audit_log_2026_11": 417,
+      "sys_audit_log_2026_12": 0,
+      "sys_dept": 1,
+      "sys_refresh_token": 300,
+      "sys_role": 5,
+      "sys_role_data_scope": 1,
+      "sys_role_permission": 4,
+      "sys_user": 2,
+      "sys_user_role": 3,
+      "usage_daily": 4,
+      "usage_event": 425
+    },
+    "totalRows": 3295
+  },
+  "sampleCheck": {
+    "verifiedAt": "2026-11-16T06:25:14.804867Z",
+    "tables": {
+      "app": {
+        "source": 1,
+        "restored": 1,
+        "match": true
+      },
+      "app_release": {
+        "source": 53,
+        "restored": 53,
+        "match": true
+      },
+      "biz_model_1": {
+        "source": 10,
+        "restored": 10,
+        "match": true
+      },
+      "biz_model_10": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_11": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_12": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_13": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_14": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_2": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_3": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_4": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_5": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_6": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_7": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_8": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "biz_model_9": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "build_task": {
+        "source": 8,
+        "restored": 8,
+        "match": true
+      },
+      "data_physical_table": {
+        "source": 14,
+        "restored": 14,
+        "match": true
+      },
+      "data_promote_task": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "file_multipart_session": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "file_object": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "flyway_schema_history": {
+        "source": 17,
+        "restored": 17,
+        "match": true
+      },
+      "meta_confirm_token": {
+        "source": 64,
+        "restored": 64,
+        "match": true
+      },
+      "meta_field": {
+        "source": 65,
+        "restored": 65,
+        "match": true
+      },
+      "meta_field_reference": {
+        "source": 80,
+        "restored": 80,
+        "match": true
+      },
+      "meta_model": {
+        "source": 14,
+        "restored": 14,
+        "match": true
+      },
+      "meta_relation": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "meta_schema_version": {
+        "source": 74,
+        "restored": 74,
+        "match": true
+      },
+      "notify_message": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "notify_rate_window": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "notify_template": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "notify_user_pref": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "ops_maintenance_window": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "ops_notice": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "outbox_event": {
+        "source": 14,
+        "restored": 14,
+        "match": true
+      },
+      "page_preview_grant": {
+        "source": 39,
+        "restored": 39,
+        "match": true
+      },
+      "page_preview_session": {
+        "source": 38,
+        "restored": 38,
+        "match": true
+      },
+      "page_release_version": {
+        "source": 1129,
+        "restored": 1129,
+        "match": true
+      },
+      "page_schema": {
+        "source": 88,
+        "restored": 88,
+        "match": true
+      },
+      "seat_license_daily": {
+        "source": 8,
+        "restored": 8,
+        "match": true
+      },
+      "sla_minute_sample": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "sys_audit_log": {
+        "source": 417,
+        "restored": 417,
+        "match": true
+      },
+      "sys_audit_log_2026_11": {
+        "source": 417,
+        "restored": 417,
+        "match": true
+      },
+      "sys_audit_log_2026_12": {
+        "source": 0,
+        "restored": 0,
+        "match": true
+      },
+      "sys_dept": {
+        "source": 1,
+        "restored": 1,
+        "match": true
+      },
+      "sys_refresh_token": {
+        "source": 300,
+        "restored": 300,
+        "match": true
+      },
+      "sys_role": {
+        "source": 5,
+        "restored": 5,
+        "match": true
+      },
+      "sys_role_data_scope": {
+        "source": 1,
+        "restored": 1,
+        "match": true
+      },
+      "sys_role_permission": {
+        "source": 4,
+        "restored": 4,
+        "match": true
+      },
+      "sys_user": {
+        "source": 2,
+        "restored": 2,
+        "match": true
+      },
+      "sys_user_role": {
+        "source": 3,
+        "restored": 3,
+        "match": true
+      },
+      "usage_daily": {
+        "source": 4,
+        "restored": 4,
+        "match": true
+      },
+      "usage_event": {
+        "source": 425,
+        "restored": 425,
+        "match": true
+      }
+    },
+    "mismatches": [],
+    "specialChecks": {
+      "page_schema_complete": 69,
+      "page_schema_total": 69,
+      "flywayMaxVersion": 17
+    },
+    "tableConsistencyRate": 1.0,
+    "pageSchemaConsistencyRate": 1.0
+  },
+  "smoke": [
+    "1",
+    "88",
+    "2",
+    "14"
+  ],
+  "filesLayer": {
+    "note": "附件文件层核对见 run.log 文件层行"
+  },
+  "drillDbDestroyed": true,
+  "conclusion": "备份可恢复、抽样一致率达标、演练环境已销毁"
+}

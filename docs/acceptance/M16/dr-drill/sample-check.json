@@ -1,0 +1,278 @@
+{
+  "verifiedAt": "2026-11-16T06:25:14.804867Z",
+  "tables": {
+    "app": {
+      "source": 1,
+      "restored": 1,
+      "match": true
+    },
+    "app_release": {
+      "source": 53,
+      "restored": 53,
+      "match": true
+    },
+    "biz_model_1": {
+      "source": 10,
+      "restored": 10,
+      "match": true
+    },
+    "biz_model_10": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_11": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_12": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_13": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_14": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_2": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_3": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_4": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_5": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_6": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_7": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_8": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "biz_model_9": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "build_task": {
+      "source": 8,
+      "restored": 8,
+      "match": true
+    },
+    "data_physical_table": {
+      "source": 14,
+      "restored": 14,
+      "match": true
+    },
+    "data_promote_task": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "file_multipart_session": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "file_object": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "flyway_schema_history": {
+      "source": 17,
+      "restored": 17,
+      "match": true
+    },
+    "meta_confirm_token": {
+      "source": 64,
+      "restored": 64,
+      "match": true
+    },
+    "meta_field": {
+      "source": 65,
+      "restored": 65,
+      "match": true
+    },
+    "meta_field_reference": {
+      "source": 80,
+      "restored": 80,
+      "match": true
+    },
+    "meta_model": {
+      "source": 14,
+      "restored": 14,
+      "match": true
+    },
+    "meta_relation": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "meta_schema_version": {
+      "source": 74,
+      "restored": 74,
+      "match": true
+    },
+    "notify_message": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "notify_rate_window": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "notify_template": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "notify_user_pref": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "ops_maintenance_window": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "ops_notice": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "outbox_event": {
+      "source": 14,
+      "restored": 14,
+      "match": true
+    },
+    "page_preview_grant": {
+      "source": 39,
+      "restored": 39,
+      "match": true
+    },
+    "page_preview_session": {
+      "source": 38,
+      "restored": 38,
+      "match": true
+    },
+    "page_release_version": {
+      "source": 1129,
+      "restored": 1129,
+      "match": true
+    },
+    "page_schema": {
+      "source": 88,
+      "restored": 88,
+      "match": true
+    },
+    "seat_license_daily": {
+      "source": 8,
+      "restored": 8,
+      "match": true
+    },
+    "sla_minute_sample": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "sys_audit_log": {
+      "source": 417,
+      "restored": 417,
+      "match": true
+    },
+    "sys_audit_log_2026_11": {
+      "source": 417,
+      "restored": 417,
+      "match": true
+    },
+    "sys_audit_log_2026_12": {
+      "source": 0,
+      "restored": 0,
+      "match": true
+    },
+    "sys_dept": {
+      "source": 1,
+      "restored": 1,
+      "match": true
+    },
+    "sys_refresh_token": {
+      "source": 300,
+      "restored": 300,
+      "match": true
+    },
+    "sys_role": {
+      "source": 5,
+      "restored": 5,
+      "match": true
+    },
+    "sys_role_data_scope": {
+      "source": 1,
+      "restored": 1,
+      "match": true
+    },
+    "sys_role_permission": {
+      "source": 4,
+      "restored": 4,
+      "match": true
+    },
+    "sys_user": {
+      "source": 2,
+      "restored": 2,
+      "match": true
+    },
+    "sys_user_role": {
+      "source": 3,
+      "restored": 3,
+      "match": true
+    },
+    "usage_daily": {
+      "source": 4,
+      "restored": 4,
+      "match": true
+    },
+    "usage_event": {
+      "source": 425,
+      "restored": 425,
+      "match": true
+    }
+  },
+  "mismatches": [],
+  "specialChecks": {
+    "page_schema_complete": 69,
+    "page_schema_total": 69,
+    "flywayMaxVersion": 17
+  },
+  "tableConsistencyRate": 1.0,
+  "pageSchemaConsistencyRate": 1.0
+}

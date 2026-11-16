@@ -209,6 +209,11 @@ public class JdbcPageRepository implements PageRepository {
 
     @Override
     public int nextReleaseVersion(long tenantId, long appId) {
+        // 并发发布竞态修复（M16 T3 压测暴露）：SELECT MAX 与 INSERT 之间并发事务会各自取同值，
+        // 后提交者撞 (app_id, release_version) 唯一约束 500。先锁 app 行（发布事务串行化）再取 MAX。
+        jdbc.queryForList(
+                "SELECT id FROM app WHERE tenant_id=? AND id=? FOR UPDATE",
+                Long.class, tenantId, appId);
         // 空 MAX 集返回 NULL——流式 Optional.of 会 NPE，改 query 直接判空
         List<Integer> max = jdbc.query(
                 "SELECT MAX(release_version) FROM app_release WHERE tenant_id=? AND app_id=?",
