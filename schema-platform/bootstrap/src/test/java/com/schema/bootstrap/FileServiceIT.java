@@ -64,8 +64,13 @@ class FileServiceIT {
 
     @BeforeAll
     void setup() {
-        jdbc.update("INSERT INTO sys_user (id, tenant_id, account, status) VALUES (?, 882, 'it_file_t882', 'ACTIVE') "
-                + "ON CONFLICT (id) DO NOTHING", T882_USER);
+        boolean inserted = jdbc.update("INSERT INTO sys_user (id, tenant_id, account, status) VALUES (?, 882, 'it_file_t882', 'ACTIVE') "
+                + "ON CONFLICT (id) DO NOTHING", T882_USER) > 0;
+        if (inserted) {
+            // 显式 id 不推进 BIGSERIAL：推到 max(id)，防后续自动 id 建号撞主键（序列失同步红线）
+            jdbc.queryForObject("SELECT setval('sys_user_id_seq', (SELECT COALESCE(MAX(id), 1) FROM sys_user))",
+                    Long.class);
+        }
     }
 
     @AfterAll

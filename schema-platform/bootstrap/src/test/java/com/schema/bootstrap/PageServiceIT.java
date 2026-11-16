@@ -82,6 +82,10 @@ class PageServiceIT {
                             + "must_change_password) VALUES (1, 1, 'page_default_op', '页面默认操作员', ?, "
                             + "'ACTIVE', false) ON CONFLICT (id) DO NOTHING",
                     encoder.encode("PageOp!2026x"));
+            // 显式 id 插入不推进 BIGSERIAL 序列：全新库 nextval 仍=1，后续自动 id 建号会撞主键
+            // 被 ON CONFLICT 静默吞掉（CI 顺序变化暴露的序列失同步）——统一把序列推到 max(id)
+            jdbc.queryForObject("SELECT setval('sys_user_id_seq', (SELECT COALESCE(MAX(id), 1) FROM sys_user))",
+                    Long.class);
         }
         List<Long> roleIds = jdbc.query(
                 "SELECT id FROM sys_role WHERE tenant_id=1 AND code='page-test-operator' LIMIT 1",
@@ -325,8 +329,11 @@ class PageServiceIT {
     void previewGrantLifecycle() {
         long operatorId = ensurePreviewOperator();
         TenantInfo adminTenant = new TenantInfo(1, 1, operatorId);
-        // 签发（无 org:manage 的操作者被拒；专用操作者放行）
-        BizException denied = TenantContext.with(t(), () ->
+        // 签发负例：专属无权操作者被拒（不能用 t()=userId 1——其他 IT（AppServiceIT 等）会给
+        // user 1 授 org:manage，跨测试污染使 PERM_DENIED 断言顺序依赖；专用账号无角色恒被拒）
+        long plainUserId = ensurePlainUser("preview_plain_user", "预览无权用户");
+        TenantInfo plainTenant = new TenantInfo(1, 1, plainUserId);
+        BizException denied = TenantContext.with(plainTenant, () ->
                 assertThrows(BizException.class, () -> preview.issueGrant(1, pageId, false)));
         assertEquals("PERM_DENIED", denied.code());
 
@@ -408,6 +415,22 @@ class PageServiceIT {
         jdbc.update("INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
                 userId, roleId);
         return userId;
+    }
+
+    /** 专属无权用户（存在即复用；不带任何角色——签发负例专用，不受其他 IT 对 user 1 的角色污染）。 */
+    private long ensurePlainUser(String account, String name) {
+        List<Long> existing = jdbc.query(
+                "SELECT id FROM sys_user WHERE tenant_id=1 AND account=? LIMIT 1",
+                (rs, i) -> rs.getLong(1), account);
+        if (!existing.isEmpty()) {
+            return existing.get(0);
+        }
+        var encoder = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
+        jdbc.update("INSERT INTO sys_user (tenant_id, account, name, password_hash, status, "
+                        + "must_change_password) VALUES (1, ?, ?, ?, 'ACTIVE', false)",
+                account, name, encoder.encode("Plain!2026x"));
+        return jdbc.queryForObject(
+                "SELECT id FROM sys_user WHERE tenant_id=1 AND account=?", Long.class, account);
     }
 
     // ---------- 租户隔离 ----------

@@ -80,6 +80,9 @@ class AppServiceIT {
             jdbc.update("INSERT INTO sys_user (id, tenant_id, account, name, password_hash, status, "
                             + "must_change_password) VALUES (?, ?, ?, ?, ?, 'ACTIVE', false)",
                     id, id == 9001 ? 2 : 1, account, name, encoder.encode("AppOp!2026x"));
+            // 显式 id 不推进 BIGSERIAL：推到 max(id)，防自动 id 建号撞主键（序列失同步红线）
+            jdbc.queryForObject("SELECT setval('sys_user_id_seq', (SELECT COALESCE(MAX(id), 1) FROM sys_user))",
+                    Long.class);
         }
     }
 
