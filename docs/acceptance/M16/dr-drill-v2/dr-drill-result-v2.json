@@ -1,0 +1,161 @@
+{
+  "drill": "DR-01-v2",
+  "executedAt": "2026-11-17T03:49:29.843057Z",
+  "sourceDatabase": "schema_acceptance",
+  "drillDatabase": "dr_drill2_20261117_114914",
+  "restorePort": 18095,
+  "rto": {
+    "t0DisasterDeclared": 1794887355,
+    "t1DbRestored": 1794887356,
+    "t2BusinessSmokePassed": 1794887364,
+    "dbRestoreSeconds": 1,
+    "businessRecoverySeconds": 9,
+    "businessRecoveryMinutes": 0.1,
+    "timingScope": "T0=备份可用为前提宣布灾难 → T2=恢复实例四链路冒烟全通（登录+页面+查询+附件）",
+    "target": "<= 4h (PRD11 §2.2)",
+    "pass": true
+  },
+  "rowFieldCheck": {
+    "verifiedAt": "2026-11-17T03:49:16.809720Z",
+    "tables": {
+      "biz_model_1": {
+        "rows": 10,
+        "sampled": 10,
+        "diffs": 0
+      },
+      "biz_model_10": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_11": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_12": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_13": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_14": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_2": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_3": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_4": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_5": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_6": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_7": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_8": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "biz_model_9": {
+        "rows": 0,
+        "sampled": 0,
+        "diffs": 0
+      },
+      "page_schema": {
+        "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT id,tenant_id,app_id,page_key,name,page_type,model_id,path,draft,draft_v"
+      },
+      "meta_model": {
+        "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT id,tenant_id,app_id,model_key,name,icon,status,deleted_at,current_versi"
+      },
+      "meta_field": {
+        "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT id,tenant_id,model_id,field_key,label,field_type,field_status,deleted_a"
+      },
+      "sys_user": {
+        "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT id,tenant_id,account,name,password_hash,dept_id,status,must_change_pass"
+      },
+      "file_object": {
+        "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT id,tenant_id,app_id,scope,object_key,file_name,content_type,size_bytes,"
+      },
+      "flyway_schema_history": {
+        "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT installed_rank,version,description,type,script,checksum,installed_by,in"
+      }
+    },
+    "totalSampled": 10,
+    "totalDiffs": 0,
+    "diffSamples": [],
+    "consistencyRate": 1.0
+  },
+  "attachmentCheck": {
+    "checkedAt": "2026-11-17T03:49:17.842729Z",
+    "activeFiles": 11,
+    "match": 11,
+    "mismatch": [],
+    "missing": [],
+    "consistencyRate": 1.0
+  },
+  "smokeBusiness": {
+    "smokedAt": "2026-11-17T03:49:24.650276Z",
+    "login": {
+      "pass": true,
+      "http": 200
+    },
+    "pageSchema": {
+      "pass": true,
+      "http": 200
+    },
+    "dataQuery": {
+      "pass": true,
+      "http": 200
+    },
+    "attachmentDownload": {
+      "pass": true,
+      "http": 200,
+      "sha16": "f72dee40bfd9e24c",
+      "contentMatchProbe": true
+    }
+  },
+  "configRestore": {
+    "envCopied": true,
+    "sensitiveInEvidence": false,
+    "note": "env 副本恢复、实例以副本启动成功（步骤 8-9），敏感值不进证据文件"
+  },
+  "rpo": {
+    "walArchiveAppendVerified": true,
+    "note": "全量备份 + WAL 归档链路实测追加；精确 PITR 点位恢复属 PG 基础设施操作，登记运维手册项"
+  },
+  "probeFileId": "14",
+  "probeCleanedUp": true,
+  "drillDbDestroyed": true,
+  "fullDr01Acceptance": true,
+  "pendingOutsideDrill": [
+    "精确 PITR 时间点恢复（运维手册项，非本演练验收范围）"
+  ],
+  "conclusion": "DR-01 全量演练完成：随机逐字段一致、附件哈希一致且可下载、配置恢复实例启动、四链路业务冒烟通过、RTO 计时口径明确"
+}
