@@ -1691,6 +1691,14 @@
           "topic": "试点范围六项缺口处置",
           "decision": "1 分步表单=B 入口限制 / 2 移动端=C+B 桌面端试点 / 3 流程画布=C / 4 流程服务=C（试点不含审批）/ 5 外部集成=C / 6 云存储=B 单实例声明",
           "reference": "docs/acceptance/M16/pilot-scope-decision.md#批准记录已裁决2026-11-17"
+        },
+        {
+          "id": "M16-DEC-FT05-CHANNEL",
+          "date": "2026-11-17",
+          "decidedBy": "human-lead",
+          "topic": "TC-FT-05 告警通道凭据未提供的处置",
+          "decision": "由实施侧提供自建 webhook 接收端（服务器 python3 零依赖，127.0.0.1:18098，钉钉/企微兼容契约）执行三合一演练闭环阻断；第三方 IM/电话/短信推送段如实声明未验证，凭据到位后改 URL 复测（增强项非阻断）",
+          "reference": "docs/acceptance/M16/ft05-drill/FT05-drill-report.md"
         }
       ],
       "requirements": [
@@ -1878,7 +1886,9 @@
           ],
           "tests": [
             "四场景全 PASS；演练结束态业务探活 200；临时进程/文件全清理",
-            "产物：docs/acceptance/M16/fault-drill/（timeline-merged.jsonl + bad-migration-startup.log + 脚本）"
+            "TC-FT-05 三合一演练 PASS（2026-11-17）：自建 webhook 接收端（127.0.0.1:18098，钉钉/企微兼容契约）+ 注入→告警→触达→大盘对照；3/3 触达（P1/P2/P0），时延 10.3-11.6ms（目标 <5min）；inbox 计数 0→3 精确匹配；kill -9 RTO 9s 复测一致",
+            "第三方 IM/电话/短信推送段未验证（无凭据）——如实声明，凭据到位后改 URL 复测；生产告警源 env 接线随上线窗口执行",
+            "产物：docs/acceptance/M16/ft05-drill/（FT05-drill-report.md + ft05-delivery.json + ft05-timeline.jsonl + ft05-webhook-inbox.jsonl）"
           ],
           "checks": [
             "m16-drill"
