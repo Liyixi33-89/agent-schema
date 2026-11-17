@@ -1671,9 +1671,76 @@
         {
           "id": "pilot",
           "requirement": "备份恢复 RTO/RPO、250 并发、告警演练、健康页、G1-G7 与人工上线评审",
-          "evidence": null
+          "evidence": {
+            "command": "bash scripts/acceptance/m16-relaunch/dr-drill-recovery.sh && bash scripts/acceptance/m16-relaunch/dr-drill-full.sh（服务器隔离栈）",
+            "report": "docs/acceptance/M16/20261117-170600-2d3febd/gate-lpilot-report.md",
+            "commit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+            "suite": "m16-drill",
+            "passed": true,
+            "provenance": "dr-drill-v2/dr-drill-result-v2.json + ft05-drill/ft05-delivery.json + fault-drill/TC-coverage-matrix.md"
+          },
+          "suite": "m16-drill",
+          "command": "bash scripts/acceptance/m16-relaunch/dr-drill-recovery.sh && bash scripts/acceptance/m16-relaunch/dr-drill-full.sh（服务器隔离栈）",
+          "report": "docs/acceptance/M16/20261117-170600-2d3febd/gate-lpilot-report.md",
+          "commit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+          "passed": true,
+          "provenance": "dr-drill-v2/dr-drill-result-v2.json + ft05-drill/ft05-delivery.json + fault-drill/TC-coverage-matrix.md",
+          "scenarios": [
+            "DR-01v2 备份恢复演练：RTO 0.1min（目标≤4h）+ 四链路冒烟 + 附件 11/11 哈希 + 演练库销毁",
+            "F1 补验逐字段一致：六静态表+biz 全量 211 行 0 差异（新鲜备份→恢复→立即比对）",
+            "TC-FT-01 连接池耗尽不雪崩（20 连接占满业务 200，清理自愈）",
+            "TC-FT-02 单行锁隔离（其他行查询全程 200）",
+            "TC-FT-04 kill -9 崩溃恢复（RTO 9-10s 业务 200）",
+            "TC-FT-05 告警三合一触达 3/3（P1/P2/P0，时延 10.3-11.6ms，自建 webhook 接收端）",
+            "TC-FT-06 大盘可信性对照（注入期存活语义 + 演练后回归）",
+            "TC-UP-02 应用回滚（坏迁移阻断 + 配置恢复启动）",
+            "TC-UP-03 schemaVersion 不同步拒渲染（继承 M14）",
+            "TC-UP-04 Flyway 迁移回滚（V999 阻断 + 快照恢复水位一致）",
+            "容量三档定档：50VU/100VU PASS（100VU=裁决水位），150VU FAIL 如实保留",
+            "试点范围六项裁决 + 容量 B 档裁决（human-lead 批准记录）"
+          ]
         }
       ],
+      "review": {
+        "required": true,
+        "approved": false,
+        "reviewer": "independent-review-session",
+        "implementedBy": "implementation-session-f42b4e21",
+        "kind": "independent-session",
+        "approvalReference": "docs/acceptance/M16/20261117-170600-2d3febd/independent-review-lpilot.md",
+        "report": "docs/acceptance/M16/20261117-170600-2d3febd/independent-review-lpilot.md",
+        "commit": "2d3febd",
+        "scope": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "coverage": [
+          "requirements",
+          "code",
+          "tests",
+          "evidence"
+        ],
+        "findings": [
+          {
+            "blocking": true,
+            "status": "resolved",
+            "summary": "F1 DR-v2 静态表比对虚报：rowfield-check.json 六静态表全部 error（脚本引号嵌套缺陷+except 吞错，consistencyRate 按残余 10 行虚报 100%）——脚本已修复（SQL 文件通道+失败显式 exit 5），补验 static-verify-fresh.json 新鲜备份恢复 211 行 0 差异；三处证据文件如实修正（DR-v2 报告/gate 报告 G3/TC 矩阵 TC-UP-04）"
+          },
+          {
+            "blocking": false,
+            "status": "open",
+            "summary": "NF1 100VU 档 query P95=1037ms 逼近阈值（余量 31%）+CPU 瞬时 100%——建议试点期接入容量预警（P95 持续>1.2s）"
+          },
+          {
+            "blocking": false,
+            "status": "open",
+            "summary": "NF2 P0 电话/短信通道依赖第三方凭据未验证（自建通道覆盖 IM 语义）；NF3 精确 PITR 点位恢复登记运维手册项；NF4 TC-FT-03/TC-UP-01 架构性 N/A 已声明"
+          }
+        ],
+        "note": "四维审查通过（2026-11-17，commit 2d3febd）：G1-G5/G7 六门禁实质达成；审查建议 human-lead 签发上线批准——批准动作属 human-lead 权限，审查不代签。上线批准后台账 M16 → accepted"
+      },
       "implementedBy": "implementation-session-f42b4e21",
       "decisions": [
         {
@@ -1682,7 +1749,7 @@
           "decidedBy": "human-lead",
           "topic": "250VU 容量未达标处置",
           "decision": "B：试点期容量目标调整为 100VU 安全水位 + 单实例限制声明；250VU 未达标事实保留，随 Phase 2 多实例架构重验",
-          "reference": "docs/acceptance/M16/perf-reverify/PERF-reverify-report.md#section-3"
+          "reference": "docs/acceptance/M16/20261117-170600-2d3febd/perf-reverify/PERF-reverify-report.md#section-3"
         },
         {
           "id": "M16-DEC-PILOT-SCOPE",
@@ -1690,7 +1757,7 @@
           "decidedBy": "human-lead",
           "topic": "试点范围六项缺口处置",
           "decision": "1 分步表单=B 入口限制 / 2 移动端=C+B 桌面端试点 / 3 流程画布=C / 4 流程服务=C（试点不含审批）/ 5 外部集成=C / 6 云存储=B 单实例声明",
-          "reference": "docs/acceptance/M16/pilot-scope-decision.md#批准记录已裁决2026-11-17"
+          "reference": "docs/acceptance/M16/20261117-170600-2d3febd/pilot-scope-decision.md#批准记录已裁决2026-11-17"
         },
         {
           "id": "M16-DEC-FT05-CHANNEL",
@@ -1698,7 +1765,7 @@
           "decidedBy": "human-lead",
           "topic": "TC-FT-05 告警通道凭据未提供的处置",
           "decision": "由实施侧提供自建 webhook 接收端（服务器 python3 零依赖，127.0.0.1:18098，钉钉/企微兼容契约）执行三合一演练闭环阻断；第三方 IM/电话/短信推送段如实声明未验证，凭据到位后改 URL 复测（增强项非阻断）",
-          "reference": "docs/acceptance/M16/ft05-drill/FT05-drill-report.md"
+          "reference": "docs/acceptance/M16/20261117-170600-2d3febd/ft05-drill/FT05-drill-report.md"
         },
         {
           "id": "M16-DEC-T7T9-DISPOSAL",
@@ -1706,7 +1773,7 @@
           "decidedBy": "human-lead",
           "topic": "验收面/隧道去留（T7/T9，最后一项开放阻断）",
           "decision": "执行处置：/accept/ 验收面保留（80 反代唯一入口，安全头基线完整）；M15 临时隧道 18082 与攻击探针 18097 配置下线（备份可回滚）；验收后端 18081 收敛为 127.0.0.1（关闭公网直连绕过面）；生产 18080 与数据库全程未动，公网终态五点实测+全链路业务 200 验证",
-          "reference": "docs/acceptance/M16/t7-t9-disposal-record.md"
+          "reference": "docs/acceptance/M16/20261117-170600-2d3febd/t7-t9-disposal-record.md"
         }
       ],
       "requirements": [
@@ -1807,7 +1874,7 @@
           "tests": [
             "表一致率 100%（53/53）、活跃页面 etag 完整率 100%（88/88，5 NULL 为 DELETED 软删正常态）",
             "RTO 0.1 分钟（目标 ≤4h）；RPO 证据：archive_timeout=300s + 归档持续堆积",
-            "产物：docs/acceptance/M16/dr-drill/（dr-drill-result.json + precheck/sample-check/source-baseline + run.log）"
+            "产物：docs/acceptance/M16/20261117-170600-2d3febd/dr-drill/（dr-drill-result.json + precheck/sample-check/source-baseline + run.log）"
           ],
           "checks": [
             "m16-drill"
@@ -1830,7 +1897,7 @@
           "tests": [
             "250 VU 风暴：无崩溃/无数据损坏/零业务错误/恢复探活 200（CPU 100% 饱和为容量事实）",
             "三档稳态：50VU p95 291ms ✅ / 100VU p95 1,229ms ✅ / 150VU p95 3,329ms ❌ → 安全容量 ≈100 VU",
-            "产物：docs/acceptance/M16/perf/（三档+风暴+阶梯 summary、双脚本、资源峰值 resource-peak.json）"
+            "产物：docs/acceptance/M16/20261117-170600-2d3febd/perf/（三档+风暴+阶梯 summary、双脚本、资源峰值 resource-peak.json）"
           ],
           "checks": [
             "m16-perf"
@@ -1838,7 +1905,7 @@
         },
         {
           "id": "M16-T6-SCOPE-DECISION",
-          "source": "spec 016 §8 范围决议 + docs/acceptance/M16/pilot-scope-decision.md（2026-11-17 用户裁决输入）",
+          "source": "spec 016 §8 范围决议 + docs/acceptance/M16/20261117-170600-2d3febd/pilot-scope-decision.md（2026-11-17 用户裁决输入）",
           "condition": "试点范围六项缺口裁决（分步表单/移动端/流程画布/流程服务/外部集成/云存储）落为批准记录表，成为试点范围边界真源；对齐表 DR-03/04/05 同步批准状态",
           "risk": "high",
           "status": "passed",
@@ -1859,7 +1926,7 @@
         },
         {
           "id": "M16-T6-CAPACITY-DECISION",
-          "source": "spec 016 §8 容量门禁 + docs/acceptance/M16/perf-reverify/PERF-reverify-report.md §3（2026-11-17 用户裁决输入）",
+          "source": "spec 016 §8 容量门禁 + docs/acceptance/M16/20261117-170600-2d3febd/perf-reverify/PERF-reverify-report.md §3（2026-11-17 用户裁决输入）",
           "condition": "250VU 未达标处置裁决落档：试点期容量目标调整为 100VU 安全水位+单实例限制声明；250VU 未达标事实保留随 Phase 2 多实例架构重验；不降阈值冒充 A3 全过",
           "risk": "high",
           "status": "passed",
@@ -1886,7 +1953,7 @@
           "verification": "drill",
           "userInteraction": false,
           "implementation": [
-            "压测栈复用（18083/15433 专用实例），四场景注入脚本 docs/acceptance/M16/fault-drill/fault-drill-run.sh",
+            "压测栈复用（18083/15433 专用实例），四场景注入脚本 docs/acceptance/M16/20261117-170600-2d3febd/fault-drill/fault-drill-run.sh",
             "TC-FT-01：20 idle-in-transaction 占连接——业务查询 200 不雪崩，清理即恢复",
             "TC-FT-02：单行 FOR UPDATE 30s——其他行查询全程 200，锁释放正常",
             "TC-FT-04：kill -9 → 重启 RTO 10s 业务恢复",
@@ -1896,14 +1963,13 @@
             "四场景全 PASS；演练结束态业务探活 200；临时进程/文件全清理",
             "TC-FT-05 三合一演练 PASS（2026-11-17）：自建 webhook 接收端（127.0.0.1:18098，钉钉/企微兼容契约）+ 注入→告警→触达→大盘对照；3/3 触达（P1/P2/P0），时延 10.3-11.6ms（目标 <5min）；inbox 计数 0→3 精确匹配；kill -9 RTO 9s 复测一致",
             "第三方 IM/电话/短信推送段未验证（无凭据）——如实声明，凭据到位后改 URL 复测；生产告警源 env 接线随上线窗口执行",
-            "产物：docs/acceptance/M16/ft05-drill/（FT05-drill-report.md + ft05-delivery.json + ft05-timeline.jsonl + ft05-webhook-inbox.jsonl）"
+            "产物：docs/acceptance/M16/20261117-170600-2d3febd/ft05-drill/（FT05-drill-report.md + ft05-delivery.json + ft05-timeline.jsonl + ft05-webhook-inbox.jsonl）"
           ],
           "checks": [
             "m16-drill"
           ]
         }
-      ],
-      "review": null
+      ]
     }
   ],
   "singleReviewerMode": {

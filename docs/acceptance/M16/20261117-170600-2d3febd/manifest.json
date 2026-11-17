@@ -1,0 +1,283 @@
+{
+  "formatVersion": 1,
+  "workPackage": "M16",
+  "runId": "20261117-170600-2d3febd",
+  "startedAt": "2026-11-16T06:00:00.000Z",
+  "finishedAt": "2026-11-17T09:30:00.000Z",
+  "sourceCommit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+  "workingTreeClean": true,
+  "environment": {
+    "os": "linux (OpenCloudOS, 验收服务器 111.231.57.177)",
+    "postgres": "15.19",
+    "k6": "v1.4.0",
+    "note": "演练/压测在服务器隔离栈执行（15433/18083/127.0.0.1:18098），不触碰生产 18080/5432"
+  },
+  "suites": {
+    "m16-drill": {
+      "command": "bash scripts/acceptance/m16-relaunch/dr-drill-recovery.sh && bash scripts/acceptance/m16-relaunch/dr-drill-full.sh（服务器隔离栈）",
+      "kind": "演练类：DR-01v2 恢复+逐字段比对+冒烟、故障注入 TC-FT/TC-UP、FT05 三合一告警触达",
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "countingBasis": [
+        "DR-01v2 结构化判定 7 项全 PASS（rto.pass + smoke 4 链路 + attachment 11/11 + drillDbDestroyed）——dr-drill-v2/dr-drill-result-v2.json",
+        "F1 补验逐字段一致 1 项（六静态表+biz 全量 211 行 0 差异）——dr-drill-v2/static-verify-fresh.json",
+        "FT05 触达 3 项（P1/P2/P0 delivered=true，时延 10.3-11.6ms）——ft05-drill/ft05-delivery.json",
+        "TC 全判定 PASS 5 项（FT-05/FT-06/UP-02/UP-03/UP-04）——fault-drill/TC-coverage-matrix.md"
+      ],
+      "honestBoundary": "TC-FT-01/02/04 主判定段 PASS 但增强段（水位告警/大盘对照/P0 触达）部分未验=PARTIAL 3 项如实登记；TC-FT-03/TC-UP-01 架构性 N/A 2 项（单实例无注入点，pilot-scope-decision 项 6 声明豁免，Phase 2 补）；第三方 IM/电话/短信推送段未验证（无凭据）",
+      "results": [
+        "dr-drill-v2/dr-drill-result-v2.json",
+        "dr-drill-v2/static-verify-fresh.json",
+        "fault-drill/timeline-merged.jsonl",
+        "fault-drill/TC-coverage-matrix.md",
+        "ft05-drill/ft05-delivery.json"
+      ]
+    },
+    "m16-perf": {
+      "command": "k6 run perf-levels.js（专用 PG 15433 + 压测后端 18083，隔离环境 100 万行基线）",
+      "kind": "压测类：50/100/150 三档稳态 + 250VU 风暴；100VU 安全水位经裁决 M16-DEC-250VU 定为试点容量目标",
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "countingBasis": [
+        "50VU 档 3 项 PASS（query/write/publish p95 全 <1500ms）——perf-reverify/levels-result.json",
+        "100VU 档 3 项 PASS（试点水位裁决值；query p95 1036.6ms 余量 31%）——perf-reverify/levels-result.json"
+      ],
+      "honestBoundary": "150VU 档 3 项 FAIL（p95 2541-2748ms）如实保留于 levels-result.json 与 PERF-reverify-report.md §2，不纳入 passed 计数；250VU 风暴 exit=99 饱和为容量事实——经 M16-DEC-250VU 裁决试点期按 100VU 安全水位 + 单实例限制声明运行，250VU 随 Phase 2 多实例重验；本套件 passed 仅计试点水位内实测通过项",
+      "results": [
+        "perf-reverify/levels-result.json",
+        "perf-reverify/reverify-result.json",
+        "perf-reverify/PERF-reverify-report.md"
+      ]
+    },
+    "pilot": {
+      "command": "人工裁决记录固化（pilot-scope-decision.md §批准记录 + PERF-reverify-report.md §3）",
+      "kind": "裁决类：试点范围六项 + 容量 B 档——human-lead 批准记录，非自动套件",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "missedRequired": 0,
+      "exitCode": 0,
+      "countingBasis": [
+        "范围六项裁决批准记录 1 项（1=B/2=C+B/3=C/4=C/5=C/6=B）——pilot-scope-decision.md §批准记录（2026-11-17）",
+        "容量裁决 B 档 1 项（100VU 安全水位+单实例声明，250VU 事实保留）——perf-reverify/PERF-reverify-report.md §3"
+      ],
+      "honestBoundary": "人工批准记录类证据，非可执行套件——判定权在 human-lead，本计数仅为台账绑定所需的最小结构化登记",
+      "results": [
+        "pilot-scope-decision.md",
+        "perf-reverify/PERF-reverify-report.md"
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "M16-reliability-drills-report.md",
+      "sha256": "d7308a4f0cb77913532a526808b346a61f84b433061cfeffe05d0f7d4cd34bcd"
+    },
+    {
+      "path": "dr-drill-v2/DR-drill-v2-report.md",
+      "sha256": "f536350ab7f42450e5f98842a36bc881a46526dceafa294f89a5342ef9362727"
+    },
+    {
+      "path": "dr-drill-v2/attachment-check.json",
+      "sha256": "754844b9057bb5d53b36b75b0eba9dfecb36b1b8fd19f4f1395839ccd0e7eded"
+    },
+    {
+      "path": "dr-drill-v2/dr-drill-result-v2.json",
+      "sha256": "dd20674e1aff03b6ed7355ec4fb67589a8e4b77b67df45561e8a8891971f394f"
+    },
+    {
+      "path": "dr-drill-v2/dr-drill-run.log",
+      "sha256": "d56affc11666959c1aed0e0937076edab5305b884b84c08916e718bf03594ef8"
+    },
+    {
+      "path": "dr-drill-v2/rowfield-check.json",
+      "sha256": "be716d9aa5d1600bef8b066ad48802c96960ada1fd28f59e4baed8ab93ebe5a9"
+    },
+    {
+      "path": "dr-drill-v2/smoke-business.json",
+      "sha256": "35a9fd2b83f14f1290d7ee0af57864d86bac9cc96f28724d504a1d5c2440651a"
+    },
+    {
+      "path": "dr-drill-v2/static-verify-fresh.json",
+      "sha256": "d407df6a0cbc57becc37c8126a016b27f220bc1d2d2248a298bed5cdf78b22d0"
+    },
+    {
+      "path": "dr-drill/dr-drill-result.json",
+      "sha256": "f364a57e9ae324dc7ea3ecbc1d7845318d35a4fcde859f99321b97ec3c00c516"
+    },
+    {
+      "path": "dr-drill/dr-drill-run.log",
+      "sha256": "e68c822372190dbf164cd9b806a2b07f553454f1171cc55eda7823e1796bca00"
+    },
+    {
+      "path": "dr-drill/precheck.json",
+      "sha256": "60981a454fddc2e47084799e74a64cef709cc66aeba1fbce6cdaf3bdf5ab7e6c"
+    },
+    {
+      "path": "dr-drill/sample-check.json",
+      "sha256": "dbe4c8901e7f85aac7ec695bb3af852d3a26c176114e3ed0b44b6bb8a2089c4e"
+    },
+    {
+      "path": "dr-drill/source-baseline.json",
+      "sha256": "bcbaee606b2689df34895488f958ed5dcd08cc4b89d2b9c001d8862916a01b04"
+    },
+    {
+      "path": "fault-drill/TC-coverage-matrix.md",
+      "sha256": "ba05fc1620aa3715fa4f667ded393a990eae94164bf828d5d669fe0693e78b86"
+    },
+    {
+      "path": "fault-drill/bad-migration-startup.log",
+      "sha256": "10fe2f4c13039056f3772daed6530f6c6ee4f019c7f1f59d784bcf371a2affd8"
+    },
+    {
+      "path": "fault-drill/fault-drill-run.sh",
+      "sha256": "2482420e1627a3cb876b0611015912ca26011ead15eaed530c3bd8abfc48bc43"
+    },
+    {
+      "path": "fault-drill/timeline-merged.jsonl",
+      "sha256": "732e5873f1cff687ea887f49cad618fa9ad496c34be5ddb5733eee851cd8eba8"
+    },
+    {
+      "path": "ft05-drill/FT05-drill-report.md",
+      "sha256": "bc32598c83adcf3fa31facb4ea096e3b3ad6a75fac804c35225c924bcbc09d83"
+    },
+    {
+      "path": "ft05-drill/ft05-delivery.json",
+      "sha256": "20619cde87507989c57b776636ab35f3c2acaa2a7c692173b368124ae477f841"
+    },
+    {
+      "path": "ft05-drill/ft05-result.json",
+      "sha256": "8ea42be0f52630923ff6fd9979d2088e3bea9dfe191cab5e194cbd5d669e0f1d"
+    },
+    {
+      "path": "ft05-drill/ft05-timeline.jsonl",
+      "sha256": "4c9fa8dae26ad762b90f312c2c8590005f0ef49092260ea6d0659d71b98f2dac"
+    },
+    {
+      "path": "ft05-drill/ft05-webhook-inbox.jsonl",
+      "sha256": "b1e5832e3a3098cbb2c541fbd318a46b5f8ca20ba36aaf889b93401c5fa8a982"
+    },
+    {
+      "path": "gap-review-update-20261117.md",
+      "sha256": "6062b3932ee689386e5ee8ee0eef015495e823281e7d49b5251e0757e0c2f055"
+    },
+    {
+      "path": "gate-lpilot-report.md",
+      "sha256": "6453f387f203fe3749561f8c4a86311d2e559655f720cd03051cfe45687b5314"
+    },
+    {
+      "path": "independent-review-lpilot.md",
+      "sha256": "f3f549e6b34f7e69bac9d3eef575066bd82c40b01ee724c63ab8f12b9f9ee6bb"
+    },
+    {
+      "path": "oncall-and-escalation.md",
+      "sha256": "112d64e6ad69423c7e842ddbcb73741506815f044df24635d7e28fb56678108a"
+    },
+    {
+      "path": "perf-reverify/PERF-reverify-report.md",
+      "sha256": "21b79d78c14911b3f509dad31b2fcae0bf54af95a45932b25af6858a6696d769"
+    },
+    {
+      "path": "perf-reverify/k6-level100.json",
+      "sha256": "42256039a9becd40676853de311bf162eceafc170082b0e00ea84332839e31e6"
+    },
+    {
+      "path": "perf-reverify/k6-level150.json",
+      "sha256": "16b389aa81c3fae57f20c2ebef996125f37b499ce15bf2ad3f4dcbc06a351826"
+    },
+    {
+      "path": "perf-reverify/k6-level50.json",
+      "sha256": "0f19e9d39f6e4f2fc5bb96198e07efe048714a76fffd6f06f158329655588637"
+    },
+    {
+      "path": "perf-reverify/k6-reverify.json",
+      "sha256": "7d40e9fc8b7a69f7c198abc45aaa666002f2943d95f5256105fd938ebfc784fe"
+    },
+    {
+      "path": "perf-reverify/levels-result.json",
+      "sha256": "1c7325f0f2252fdaf1728f05c0b316560e2bd4418d6519f23bdd159f93eafd71"
+    },
+    {
+      "path": "perf-reverify/perf-levels-console.log",
+      "sha256": "9b85103a0f79232ed035b016656a76c863754c258625097e9f6298aeb04d03a1"
+    },
+    {
+      "path": "perf-reverify/perf-reverify-console.log",
+      "sha256": "83091894fcee93fa7ab8b6f1ec74f6f192539a4278b0965d73fa4a6384ae6fce"
+    },
+    {
+      "path": "perf-reverify/resources-100.csv",
+      "sha256": "913fac85354b297f3907074f59c5ba21f3ca10af4ec737a5114824e1be642a89"
+    },
+    {
+      "path": "perf-reverify/resources-150.csv",
+      "sha256": "a1927c97f2d7c7f18e4e0317a5783b3393a0dd8a394f9e7fe2c66fbb86d31519"
+    },
+    {
+      "path": "perf-reverify/resources-50.csv",
+      "sha256": "a0017fa94bf946b3dfa78d9aa4b461cd37742c553e8178659b901847a7c58114"
+    },
+    {
+      "path": "perf-reverify/resources.csv",
+      "sha256": "8fca728915b0cf48d944608afa7265f3180f71275e70274dbed3929af6281d27"
+    },
+    {
+      "path": "perf-reverify/reverify-result.json",
+      "sha256": "d20d5b97edc7d10a75dcd88d9b009ca4218f1c5a454cba03e5ef549589dd2256"
+    },
+    {
+      "path": "perf/k6-ladder-summary.json",
+      "sha256": "5a02ff361d86d4b75b82590c301769cfcf57152ce25f813ebefd66569706dfe9"
+    },
+    {
+      "path": "perf/k6-level100.json",
+      "sha256": "5b4321cad027a799dbd9e7b0222c28ab7a5cddbcb35351cd6834d2a1f2592de5"
+    },
+    {
+      "path": "perf/k6-level150.json",
+      "sha256": "66594fab9f2c5453626987ffd559661a29a6792a342dfda6590b3fef9b7d098d"
+    },
+    {
+      "path": "perf/k6-level50.json",
+      "sha256": "b33c1f7bb8af18de1ac1216d08765a8cdb5b28e66966caf6a82cdfaff2327119"
+    },
+    {
+      "path": "perf/k6-summary.json",
+      "sha256": "c0a78cfd40916b1eb7ca112b9ea6aa5ed1b4aab84a8cccd50dd20dfeecab2457"
+    },
+    {
+      "path": "perf/levels-console.log",
+      "sha256": "bad3aeee1d235a91fb467b7b2d0e08d28cfb57d0785daeade784a2da2fbd25e9"
+    },
+    {
+      "path": "perf/perf-ladder.js",
+      "sha256": "ad9448b9f63e168f2bbd7065a77ae801e12f6c407776a41fd61f2f99a30afdf7"
+    },
+    {
+      "path": "perf/perf-mixed.js",
+      "sha256": "9437582cd668ba1e6395e62355125a0405c0be33375f3e30555f5123bda3e18c"
+    },
+    {
+      "path": "perf/resource-peak.json",
+      "sha256": "c027b2d1312ff2a73205e4031bf43fb7bca61e258be29c35db5bc7eeaa68a301"
+    },
+    {
+      "path": "perf/run-perf-console.log",
+      "sha256": "6a074db6519bdaad7bab0dc1c6a1b73e7cc2db948ee25194f784ae3ce5f060c7"
+    },
+    {
+      "path": "pilot-scope-decision.md",
+      "sha256": "feef3c7c505f9b6721ad562ede16dcde4375f5a466a7f6fe92f4d1aaa8d9d827"
+    },
+    {
+      "path": "t7-t9-disposal-record.md",
+      "sha256": "1dd87cd6de0630601a6b5c597d9344c01d8df4798d74d7ef361bb7075e2b3c41"
+    }
+  ]
+}
