@@ -86,6 +86,7 @@ M15 已 accepted（公网验收环境通过业务+安全双套件），但 **M15
 - [x] T6 G1-G7 证据物组织 + gate-lpilot-report.md：逐门禁引用证据物编号（G1/G2 引用 M15 归档、G3-G5 本轮产出、G6 登记占位、G7 引用 M14/M15 L2 记录）——**已完成（2026-11-17）：`docs/acceptance/M16/gate-lpilot-report.md`（EV-M16-G1~G7 共 23 项编号，G6 占位显式声明）；G5 值班表/升级路径补齐 `oncall-and-escalation.md`；待 T8 独立审查+签发**
 - [x] T7 M15 遗留处置：公网验收面驻留决策（human-lead）、临时隧道/nginx 配置清理（schema-accept-tunnel.conf、18097 配置）——**已处置（2026-11-17）：验收面保留；隧道/探针配置下线（备份可回滚）；18081 收敛 127.0.0.1。记录：`docs/acceptance/M16/t7-t9-disposal-record.md`**
 - [ ] T8 独立审查 + 人工上线评审：四维审查报告、回滚条件明确、human-lead 签发上线批准（试点开放范围与时间点）；台账 M16 → accepted
+      → **独立审查已完成（2026-11-17）**：`docs/acceptance/M16/independent-review-lpilot.md`（四维通过；F1 阻断发现已闭环——DR-v2 静态表比对首轮失败被吞构成虚报，根因引号嵌套，脚本已修复+补验 211 行 0 差异）；**待 human-lead 签发上线批准**
 - [x] T9 服务器配置变更执行（隧道清理等）——**已执行（2026-11-17，human-lead 指令「执行」授权）：配置备份→隧道/探针下线→18081 收敛本机→公网终态实测五点验证→全链路业务 200。记录：`docs/acceptance/M16/t7-t9-disposal-record.md`；执行日志：`/opt/schema/staging/t9-execution.log`**
 
 ## 5. Acceptance

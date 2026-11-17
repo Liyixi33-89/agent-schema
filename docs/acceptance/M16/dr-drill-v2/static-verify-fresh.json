@@ -1,0 +1,115 @@
+{
+  "purpose": "F1 补验收口（终）：新鲜备份→恢复→立即比对（静态表比对路径修复后复刻 DR 演练步骤）",
+  "verifiedAt": "2026-11-17T08:56:51.495926Z",
+  "tables": {
+    "page_schema": {
+      "rows": 89,
+      "diffs": 0,
+      "fullCompare": true,
+      "diffSamples": []
+    },
+    "meta_model": {
+      "rows": 14,
+      "diffs": 0,
+      "fullCompare": true,
+      "diffSamples": []
+    },
+    "meta_field": {
+      "rows": 65,
+      "diffs": 0,
+      "fullCompare": true,
+      "diffSamples": []
+    },
+    "sys_user": {
+      "rows": 2,
+      "diffs": 0,
+      "fullCompare": true,
+      "diffSamples": []
+    },
+    "file_object": {
+      "rows": 14,
+      "diffs": 0,
+      "fullCompare": true,
+      "diffSamples": []
+    },
+    "flyway_schema_history": {
+      "rows": 17,
+      "diffs": 0,
+      "fullCompare": true,
+      "diffSamples": []
+    },
+    "biz_model_1": {
+      "rows": 10,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_10": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_11": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_12": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_13": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_14": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_2": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_3": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_4": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_5": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_6": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_7": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_8": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    },
+    "biz_model_9": {
+      "rows": 0,
+      "diffs": 0,
+      "fullCompare": true
+    }
+  },
+  "totalSampled": 211,
+  "totalDiffs": 0,
+  "consistencyRate": 1.0
+}

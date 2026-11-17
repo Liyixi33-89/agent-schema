@@ -22,7 +22,7 @@
 | TC-UP-01 平滑升级 | 滚动升级新旧并存；Schema 缓存一致性 | **不适用（本轮）** | — | ⚠️ N/A：单实例架构无滚动升级能力（需 ≥2 实例+网关摘除）。部署脚本 `schema-release.sh` 已具备版本目录/切换/回滚链路（TC-DEP 系列），单实例发布走「停机窗口」。处置：多实例架构演进时补演练，登记 Phase 2 |
 | TC-UP-02 应用回滚 | 应用层+配置回滚演练一次 | **已执行×2**：①2026-11-16 fault-drill up02（坏迁移阻断启动→恢复原 jar）；②发布竞态修复轮的 `release-state.json` 回滚路径验证；③本轮 DR-01 v2 恢复演练含「env 配置副本→恢复实例启动」即配置恢复路径 | fault-drill timeline `up02_*`；dr-drill-v2/smoke-business.json（恢复实例四链路全通） | ✅ PASS：坏迁移阻断无半升级 + 回滚后业务冒烟通过 + 配置恢复可启动 |
 | TC-UP-03 schemaVersion 双端不同步 | FutureSchemaVersionError 拒渲染不白屏 | **已执行（M14 验收轮）**：前端 A2 契约测试含双端不同步用例——运行时收到未来版本 schema 拒渲染+错误上报 | M14 验收套件记录；前端测试套件 runtime 相关用例 | ✅ PASS（继承 M14 证据，本轮无需重跑） |
-| TC-UP-04 Flyway 迁移回滚 | 迁移失败阻断发布；恢复到迁移前快照 | **已执行**（2026-11-16）：V999 坏迁移注入→启动阻断（无半升级态）；本轮 DR-01 v2 补「迁移前快照恢复」证据链（全量备份→独立库恢复→Flyway 水位一致） | perf-backend-bad.log（阻断证据）；dr-drill-v2/rowfield-check.json（flyway_schema_history 全量比对 0 差异） | ✅ PASS |
+| TC-UP-04 Flyway 迁移回滚 | 迁移失败阻断发布；恢复到迁移前快照 | **已执行**（2026-11-16）：V999 坏迁移注入→启动阻断（无半升级态）；本轮 DR-01 v2 补「迁移前快照恢复」证据链（全量备份→独立库恢复→Flyway 水位一致） | perf-backend-bad.log（阻断证据）；dr-drill-v2/static-verify-fresh.json（flyway_schema_history 17 行全量比对 0 差异——首轮该表比对因脚本缺陷失败为 error，F1 补验覆盖） | ✅ PASS |
 
 ## 3. 汇总判定与阻断项处置
 
