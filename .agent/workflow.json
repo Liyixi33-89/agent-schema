@@ -1487,13 +1487,13 @@
           },
           {
             "blocking": false,
-            "status": "open",
-            "summary": "公网验收面长期驻留（80 端口 /accept/）——随 M16 上线评审统一处置保留或下线"
+            "status": "resolved",
+            "summary": "公网验收面长期驻留（80 端口 /accept/）——2026-11-17 T7/T9 处置：验收面保留（G1-G7 引用+DR 比对源），18081 收敛 127.0.0.1 公网直连闭合；记录 docs/acceptance/M16/t7-t9-disposal-record.md"
           },
           {
             "blocking": false,
-            "status": "open",
-            "summary": "服务器隧道 nginx 配置收尾清理（schema-accept-tunnel.conf 与 18097 配置）"
+            "status": "resolved",
+            "summary": "服务器隧道 nginx 配置收尾清理（schema-accept-tunnel.conf 与 18097 配置）——2026-11-17 T9 执行：配置移入备份目录下线（/opt/schema/backups/nginx-config-bak-20261117-144156/，可回滚），端口 18082/18097 关闭；记录 docs/acceptance/M16/t7-t9-disposal-record.md"
           }
         ],
         "note": "四维审查通过（需求矩阵 7 项真源可溯含 1 项显式分期批准、证据三面核对+版本关系分层如实声明、双套件 30+54 零 skip 零必验缺失、部署证据含备份恢复演练 exit=0）；单人模式 GitHub 实时审批豁免登记于 singleReviewerMode"
@@ -1699,6 +1699,14 @@
           "topic": "TC-FT-05 告警通道凭据未提供的处置",
           "decision": "由实施侧提供自建 webhook 接收端（服务器 python3 零依赖，127.0.0.1:18098，钉钉/企微兼容契约）执行三合一演练闭环阻断；第三方 IM/电话/短信推送段如实声明未验证，凭据到位后改 URL 复测（增强项非阻断）",
           "reference": "docs/acceptance/M16/ft05-drill/FT05-drill-report.md"
+        },
+        {
+          "id": "M16-DEC-T7T9-DISPOSAL",
+          "date": "2026-11-17",
+          "decidedBy": "human-lead",
+          "topic": "验收面/隧道去留（T7/T9，最后一项开放阻断）",
+          "decision": "执行处置：/accept/ 验收面保留（80 反代唯一入口，安全头基线完整）；M15 临时隧道 18082 与攻击探针 18097 配置下线（备份可回滚）；验收后端 18081 收敛为 127.0.0.1（关闭公网直连绕过面）；生产 18080 与数据库全程未动，公网终态五点实测+全链路业务 200 验证",
+          "reference": "docs/acceptance/M16/t7-t9-disposal-record.md"
         }
       ],
       "requirements": [
