@@ -625,8 +625,12 @@ function App(): React.ReactElement {
           <Space>
             <Typography.Text style={{ color: '#ccc' }}>{session.account}</Typography.Text>
             <Button size="small" onClick={() => {
-              void sdkLogout(BASE).finally(() => {
-                broadcastLogout();
+              void sdkLogout(BASE).then((result) => {
+                if (!result.revoked) {
+                  // 服务端撤销失败：本地已清屏但 HttpOnly 会话可能仍有效——明确提示
+                  message.warning(`登出未完成：${result.message ?? '服务端撤销失败'}，请关闭浏览器或稍后重试`);
+                }
+                broadcastLogout(BASE);
                 sessionStorage.removeItem('schema_session');
                 setSession(null);
               });

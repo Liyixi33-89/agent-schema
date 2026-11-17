@@ -32,7 +32,11 @@ function useSession(): [Session | null, () => void] {
     setSession(null);
   }, []);
   const logout = React.useCallback(() => {
-    void sdkLogout().finally(() => {
+    void sdkLogout().then((result) => {
+      if (!result.revoked) {
+        // 服务端撤销失败：本地已清屏但 HttpOnly 会话可能仍有效——明确提示，不伪装安全退出
+        message.warning(`登出未完成：${result.message ?? '服务端撤销失败'}，请关闭浏览器或稍后重试`);
+      }
       broadcastLogout();
       expire();
     });
