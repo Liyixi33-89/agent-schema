@@ -168,9 +168,22 @@ python3 - "$SRC_DB" "$DRILL_DB" "$STAGE_DIR" <<'PYEOF'
 import subprocess, json, sys, datetime
 src, drill, stage = sys.argv[1], sys.argv[2], sys.argv[3]
 def q(db, sql):
-    r = subprocess.run(["su", "-", "postgres", "-c", f"psql -d {db} -Atc \"{sql}\""],
-                       capture_output=True, text=True, check=True)
-    return r.stdout.strip()
+    # F1 根因修复：SQL 写全局可读临时文件经 psql -f 执行——不经嵌套引号解析
+    # （旧形态 `su - postgres -c 'psql ... -Atc "SQL"'` 在 SQL 含单引号时被三层 shell 拆断）
+    import os
+    path = "/tmp/dr_drill_query.sql"
+    with open(path, "w") as f:
+        f.write(sql)
+    os.chmod(path, 0o644)
+    try:
+        r = subprocess.run(["su", "-", "postgres", "-c",
+                            f"psql -d {db} -At -v ON_ERROR_STOP=1 -f {path}"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise RuntimeError(f"psql failed: {r.stderr.strip()[:200]}")
+        return r.stdout.strip()
+    finally:
+        os.unlink(path)
 def rowdiff(table, cols_sql, pk, sample_sql, order_by):
     """随机抽样逐字段比对（按稳定主键排序消除随机序错位）：返回 (抽样数, 差异数, 差异样本)"""
     ordered = sample_sql + f" ORDER BY {order_by}"
@@ -201,6 +214,9 @@ for t in biz_tables:
     result["totalDiffs"] += diffs
     result["diffSamples"].extend(samples[:5])
 # 关键静态表全量逐字段（行数小）：page_schema / meta_model / meta_field / sys_user / file_object
+# ⚠️ F1 修复（2026-11-17 审查）：静态表比对失败必须显式失败退出（exit 5）——
+# 首轮缺陷为 except 只记 error 被吞、consistencyRate 仍按已采样行计算 100% 造成虚报；
+# q() 已改 SQL 文件通道，本段不再触发引号拆断。
 for t in ["page_schema", "meta_model", "meta_field", "sys_user", "file_object", "flyway_schema_history"]:
     try:
         n = int(q(src, f"SELECT count(*) FROM {t}"))
@@ -213,6 +229,9 @@ for t in ["page_schema", "meta_model", "meta_field", "sys_user", "file_object", 
         result["diffSamples"].extend(samples[:5])
     except Exception as e:
         result["tables"][t] = {"error": str(e)[:150]}
+        json.dump(result, open(f"{stage}/rowfield-check.json", "w"), indent=2, ensure_ascii=False)
+        print(f"STATIC_TABLE_FAIL: {t}: {str(e)[:120]}")
+        sys.exit(5)
 result["consistencyRate"] = round((result["totalSampled"] - result["totalDiffs"]) / result["totalSampled"], 6) if result["totalSampled"] else None
 json.dump(result, open(f"{stage}/rowfield-check.json", "w"), indent=2, ensure_ascii=False)
 print(json.dumps({k: result[k] for k in ["totalSampled", "totalDiffs", "consistencyRate"]}, ensure_ascii=False))

@@ -47,7 +47,7 @@
 | 项 | 判定 | 实测值 | 证据物 |
 |---|---|---|---|
 | 备份恢复演练（隔离环境完整恢复） | PASS | 53/53 表一致 | EV-M16-G3-01 |
-| 数据抽样校验 ≥ 99.9% | PASS | **随机逐字段一致率 100%**（0 差异）+ 6 张关键静态表全量逐字段 | EV-M16-G3-02 |
+| 数据抽样校验 ≥ 99.9% | PASS | **随机逐字段一致率 100%**（0 差异）+ 6 张关键静态表全量逐字段（首轮静态表段比对失败被吞——F1 审查发现；补验 static-verify-fresh.json：新鲜备份恢复 211 行 0 差异） | EV-M16-G3-02 |
 | 非空附件恢复（哈希一致+可下载） | PASS | 11/11 sha256 一致，恢复实例下载内容哈希匹配 | EV-M16-G3-03 |
 | 配置恢复（服务可启动） | PASS | env 副本→恢复实例 health 200（敏感值不入证据） | EV-M16-G3-04 |
 | RTO ≤ 4h | PASS | **实测 0.1min**（口径：T0 宣布灾难→T2 四链路冒烟全通） | EV-M16-G3-05 |
@@ -55,7 +55,7 @@
 | 恢复流程文档化 | PASS | 恢复规程内置脚本（dr-drill-full.sh 属主重赋步骤） | EV-M16-G3-07 |
 
 - **EV-M16-G3-01**：`docs/acceptance/M16/dr-drill-v2/dr-drill-result-v2.json`（时间线 + 实测值结构化）
-- **EV-M16-G3-02**：`docs/acceptance/M16/dr-drill-v2/rowfield-check.json`（逐字段比对结果）
+- **EV-M16-G3-02**：`docs/acceptance/M16/dr-drill-v2/rowfield-check.json`（首轮产物，静态表段含 error——F1 痕迹保留）+ `static-verify-fresh.json`（2026-11-17 审查轮补验：新鲜备份→恢复→立即比对，六静态表+biz 全量 211 行 0 差异）
 - **EV-M16-G3-03**：`docs/acceptance/M16/dr-drill-v2/attachment-check.json`（探针附件经真实 API 灌入后恢复比对）
 - **EV-M16-G3-04/05**：同 EV-M16-G3-01（rto 段 + smoke 段）
 - **EV-M16-G3-06**：`dr-drill-result-v2.json` walArchive 段 + `scripts/acceptance/m16-relaunch/enable-wal-archive.sh`
