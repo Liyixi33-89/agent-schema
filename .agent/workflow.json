@@ -1709,7 +1709,7 @@
         "kind": "independent-session",
         "approvalReference": "docs/acceptance/M16/20261117-170600-2d3febd/independent-review-lpilot.md",
         "report": "docs/acceptance/M16/20261117-170600-2d3febd/independent-review-lpilot.md",
-        "commit": "2d3febd",
+        "commit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
         "scope": [
           "requirements",
           "code",
