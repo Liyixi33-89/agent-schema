@@ -1675,6 +1675,24 @@
         }
       ],
       "implementedBy": "implementation-session-f42b4e21",
+      "decisions": [
+        {
+          "id": "M16-DEC-250VU",
+          "date": "2026-11-17",
+          "decidedBy": "human-lead",
+          "topic": "250VU 容量未达标处置",
+          "decision": "B：试点期容量目标调整为 100VU 安全水位 + 单实例限制声明；250VU 未达标事实保留，随 Phase 2 多实例架构重验",
+          "reference": "docs/acceptance/M16/perf-reverify/PERF-reverify-report.md#section-3"
+        },
+        {
+          "id": "M16-DEC-PILOT-SCOPE",
+          "date": "2026-11-17",
+          "decidedBy": "human-lead",
+          "topic": "试点范围六项缺口处置",
+          "decision": "1 分步表单=B 入口限制 / 2 移动端=C+B 桌面端试点 / 3 流程画布=C / 4 流程服务=C（试点不含审批）/ 5 外部集成=C / 6 云存储=B 单实例声明",
+          "reference": "docs/acceptance/M16/pilot-scope-decision.md#批准记录已裁决2026-11-17"
+        }
+      ],
       "requirements": [
         {
           "id": "M16-T1-ATTACHMENT",
@@ -1800,6 +1818,47 @@
           ],
           "checks": [
             "m16-perf"
+          ]
+        },
+        {
+          "id": "M16-T6-SCOPE-DECISION",
+          "source": "spec 016 §8 范围决议 + docs/acceptance/M16/pilot-scope-decision.md（2026-11-17 用户裁决输入）",
+          "condition": "试点范围六项缺口裁决（分步表单/移动端/流程画布/流程服务/外部集成/云存储）落为批准记录表，成为试点范围边界真源；对齐表 DR-03/04/05 同步批准状态",
+          "risk": "high",
+          "status": "passed",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [
+            "pilot-scope-decision.md §批准记录填写生效（1=B 入口限制/2=C+B 桌面端试点/3=C/4=C 试点不含审批/5=C/6=B 单实例声明）",
+            "对齐表 DR-03/04/05 由待批准改已批准并链接批准真源；DR-06 云存储并入项 6 声明",
+            "试点期入口显式限制条款写入批准记录（分步物料不入物料面板/流程无入口/外部集成无入口）",
+            "Phase 2 重验承诺六项登记（250VU 多实例/分步引擎/移动端结构适配/流程全链路/外部集成/S3 适配）"
+          ],
+          "tests": [
+            "裁决文件与对齐表状态一致性核对（三处引用同一天批准记录，无遗留待批准字样于 DR-03/04/05）"
+          ],
+          "checks": [
+            "pilot"
+          ]
+        },
+        {
+          "id": "M16-T6-CAPACITY-DECISION",
+          "source": "spec 016 §8 容量门禁 + docs/acceptance/M16/perf-reverify/PERF-reverify-report.md §3（2026-11-17 用户裁决输入）",
+          "condition": "250VU 未达标处置裁决落档：试点期容量目标调整为 100VU 安全水位+单实例限制声明；250VU 未达标事实保留随 Phase 2 多实例架构重验；不降阈值冒充 A3 全过",
+          "risk": "high",
+          "status": "passed",
+          "verification": "integration",
+          "userInteraction": false,
+          "implementation": [
+            "PERF-reverify-report.md §3 由裁决请求改裁决生效记录（选项 B；150VU FAIL 与 250VU 不可达事实原文保留）",
+            "试点并发上限 ~100VU（活跃用户 ~500 按 20% 并发率折算）与 pilot-scope-decision.md 项 6 单实例声明联动",
+            "选项 A（8C/8G 扩容复验）留作 Phase 2 容量复验路径备选"
+          ],
+          "tests": [
+            "报告 §2 定档数据未改动（50/100 PASS、150 FAIL exit=99 如实保留）；§5 threshold 明细未改动"
+          ],
+          "checks": [
+            "pilot"
           ]
         },
         {
