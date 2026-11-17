@@ -11,8 +11,11 @@ describe('列表响应契约', () => {
   it('空列表是合法结果', () => {
     expect(parseListResult({ list: [], total: 0 })).toEqual({ list: [], total: 0 });
   });
-  it('坏响应不能冒充空列表成功', () => {
-    for (const value of [null, {}, { rows: [], total: 0 }, { list: [null], total: 1 }, { list: [], total: -1 }]) {
+  it('坏响应不能冒充空列表成功（含 NaN/Infinity/小数 total——非有限整数一律拒绝）', () => {
+    for (const value of [
+      null, {}, { rows: [], total: 0 }, { list: [null], total: 1 }, { list: [], total: -1 },
+      { list: [], total: Number.NaN }, { list: [], total: Number.POSITIVE_INFINITY }, { list: [], total: 1.5 },
+    ]) {
       expect(() => parseListResult(value)).toThrow();
     }
   });
@@ -60,5 +63,32 @@ describe('行跳转目标解析（OPEN_PAGE + queryMapping）', () => {
   it('行缺 ID 且无字面量映射时返回 no-id', () => {
     const page = { ...base, actions: [{ type: 'OPEN_PAGE', targetPageId: 'p10' }] } as unknown as PageSchema;
     expect(resolveOpenTarget(page, { title: '无 ID 行' }, '#/page/p9')).toEqual({ ok: false, reason: 'no-id' });
+  });
+
+  it('【M16 校验收口】recordId 空串/含斜杠/对象字面量等坏值显式拒绝（不生成坏路由）', () => {
+    const mapping = (recordId: unknown) => ({ ...base, actions: [{ type: 'OPEN_PAGE', targetPageId: 'p10', queryMapping: { recordId } }] }) as unknown as PageSchema;
+    // 空串：生成 `#/page/p10/` 尾段空路由——拒绝
+    expect(resolveOpenTarget(mapping(''), row, '#/page/p9')).toEqual({ ok: false, reason: 'bad-mapping' });
+    // 含斜杠：会被路由解析器拆段——拒绝
+    expect(resolveOpenTarget(mapping('a/b'), row, '#/page/p9')).toEqual({ ok: false, reason: 'bad-mapping' });
+    // 对象字面量（非 field 引用形态）——不支持的表达式明确拒绝
+    expect(resolveOpenTarget(mapping({ kind: 'literal', value: 1 }), row, '#/page/p9')).toEqual({ ok: false, reason: 'bad-mapping' });
+    // 布尔/数组同理
+    expect(resolveOpenTarget(mapping(true), row, '#/page/p9')).toEqual({ ok: false, reason: 'bad-mapping' });
+    expect(resolveOpenTarget(mapping(['a']), row, '#/page/p9')).toEqual({ ok: false, reason: 'bad-mapping' });
+    // 行值取到对象（field 引用指向附件等复合字段）——拒绝
+    expect(
+      resolveOpenTarget(mapping({ kind: 'field', source: 'attachment' }), { attachment: { fileId: 'f1' } }, '#/page/p9'),
+    ).toEqual({ ok: false, reason: 'bad-mapping' });
+  });
+
+  it('【M16 校验收口】targetPageId 缺失显式拒绝', () => {
+    const page = { ...base, actions: [{ type: 'OPEN_PAGE' }] } as unknown as PageSchema;
+    expect(resolveOpenTarget(page, row, '#/page/p9')).toEqual({ ok: false, reason: 'bad-mapping' });
+  });
+
+  it('合法 recordId 数字与字符串均放行', () => {
+    const page = { ...base, actions: [{ type: 'OPEN_PAGE', targetPageId: 'p10', queryMapping: { recordId: 42 } }] } as unknown as PageSchema;
+    expect(resolveOpenTarget(page, row, '#/page/p9')).toEqual({ ok: true, hash: '#/page/p10/42' });
   });
 });
