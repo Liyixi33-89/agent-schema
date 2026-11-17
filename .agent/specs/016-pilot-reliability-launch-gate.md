@@ -83,7 +83,7 @@ M15 已 accepted（公网验收环境通过业务+安全双套件），但 **M15
       不等于 PRD 09 §2.6 租户级健康页——租户错误率/失败构建清单/排障入口的聚合维度属本任务新增交付，
       不得以现有运维页冒充 G4 完成
 - [x] T5a 静默校验缺陷修复（2026-11-13 轮发现的表单可用性缺陷，2026-11-16 修复）：必填字段不在布局时提交被静默拦截无反馈。修复三处——① schema-form validateAllDetailed 返回全部错误（非仅首个）+ SubmitResult.clientErrors 明细；② FormPageHost 提交失败时错误汇总区列出全部原因，布局外字段显式提示「不在页面中，请联系管理员」；③ 服务端 422 字段错误（含布局外字段）完整透传呈现。回归测试 3 例（form.test.ts 错误汇总 describe 块）。
-- [ ] T6 G1-G7 证据物组织 + gate-lpilot-report.md：逐门禁引用证据物编号（G1/G2 引用 M15 归档、G3-G5 本轮产出、G6 登记占位、G7 引用 M14/M15 L2 记录）
+- [x] T6 G1-G7 证据物组织 + gate-lpilot-report.md：逐门禁引用证据物编号（G1/G2 引用 M15 归档、G3-G5 本轮产出、G6 登记占位、G7 引用 M14/M15 L2 记录）——**已完成（2026-11-17）：`docs/acceptance/M16/gate-lpilot-report.md`（EV-M16-G1~G7 共 23 项编号，G6 占位显式声明）；G5 值班表/升级路径补齐 `oncall-and-escalation.md`；待 T8 独立审查+签发**
 - [x] T7 M15 遗留处置：公网验收面驻留决策（human-lead）、临时隧道/nginx 配置清理（schema-accept-tunnel.conf、18097 配置）——**已处置（2026-11-17）：验收面保留；隧道/探针配置下线（备份可回滚）；18081 收敛 127.0.0.1。记录：`docs/acceptance/M16/t7-t9-disposal-record.md`**
 - [ ] T8 独立审查 + 人工上线评审：四维审查报告、回滚条件明确、human-lead 签发上线批准（试点开放范围与时间点）；台账 M16 → accepted
 - [x] T9 服务器配置变更执行（隧道清理等）——**已执行（2026-11-17，human-lead 指令「执行」授权）：配置备份→隧道/探针下线→18081 收敛本机→公网终态实测五点验证→全链路业务 200。记录：`docs/acceptance/M16/t7-t9-disposal-record.md`；执行日志：`/opt/schema/staging/t9-execution.log`**
