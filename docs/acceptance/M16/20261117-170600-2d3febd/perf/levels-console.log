@@ -1,0 +1,16 @@
+===== LEVEL 50VU =====
+    http_req_duration{type:query}
+    http_req_duration{type:write}
+    http_req_failed................: 0.00%  0 out of 4230
+    iterations.....................: 4130   45.348746/s
+===== LEVEL 100VU =====
+    http_req_duration{type:query}
+    http_req_duration{type:write}
+    http_req_failed................: 0.00%  0 out of 6061
+    iterations.....................: 5861   64.20147/s
+===== LEVEL 150VU =====
+    http_req_duration{type:query}
+    http_req_duration{type:write}
+    http_req_failed................: 0.00%  0 out of 5781
+    iterations.....................: 5481   59.514039/s
+time="2026-11-16T15:55:28+08:00" level=error msg="thresholds on metrics 'http_req_duration{type:query}, http_req_duration{type:write}' have been crossed"

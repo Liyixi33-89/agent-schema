@@ -1,0 +1,32 @@
+[2026-11-17T03:49:14Z] DR-01 v2 完整演练开始（源库 schema_acceptance，恢复实例端口 18095）
+[2026-11-17T03:49:14Z] [precheck] 备份与 WAL 链路盘点
+[2026-11-17T03:49:14Z] [precheck] jar=/opt/schema/current/schema-platform.jar，archive_mode=on wal=26
+[2026-11-17T03:49:14Z] [probe] 经真实 API 上传探针附件
+[2026-11-17T03:49:14Z] [probe] 探针附件已上传 fileId=14 sha=f72dee40bfd9…
+[2026-11-17T03:49:14Z] [probe] 源库 file_object 行数（含探针）：14
+[2026-11-17T03:49:14Z] [backup] 强制全量备份（演练真源）
+[2026-11-17T03:49:15Z] [backup] DB=/opt/schema/backups/db-schema_acceptance-dr-20261117-114914.sql.gz (164K) sha=95f49d7a10b8…
+[2026-11-17T03:49:15Z] [backup] FILES=/opt/schema/backups/files-dr-20261117-114914.tar.gz (4.0K) sha=5b525f5e971a…
+[2026-11-17T03:49:15Z] [rto] T0 灾难宣布：1794887355（03:49:15Z）——计时开始
+[2026-11-17T03:49:15Z] [restore] 演练库 dr_drill2_20261117_114914 已建，灌入全量备份
+[2026-11-17T03:49:16Z] [restore] 属主已重赋给应用账号 schema_accept（恢复操作规程步骤——演练发现的缺陷修复）
+[2026-11-17T03:49:16Z] [restore] 数据库层恢复完成 +1s
+[2026-11-17T03:49:16Z] [restore] 文件层恢复完成：11 个文件
+[2026-11-17T03:49:16Z] [verify] 随机逐字段校验（biz 页面记录 + 元数据表）
+[2026-11-17T03:49:17Z] [verify] 随机逐字段一致率 100%（0 差异）
+[2026-11-17T03:49:17Z] [verify] 附件文件层逐文件 sha256 对照
+[2026-11-17T03:49:17Z] [verify] 附件恢复核对通过（含探针附件）
+[2026-11-17T03:49:17Z] [config] 配置层恢复（env 副本，敏感不入证据）
+[2026-11-17T03:49:17Z] [config] 演练 env 就绪（演练库 + 恢复文件目录 + 独立端口；账号指向属主）
+[2026-11-17T03:49:17Z] [restore] 恢复实例启动（端口 18095）
+[2026-11-17T03:49:17Z] [restore] 恢复实例启动（端口 18095，pid=2415775，java=/usr/lib/jvm/java-21-konajdk-21.0.12-4.oc9/bin/java）
+[2026-11-17T03:49:24Z] [restore] 恢复实例就绪（health=401）
+[2026-11-17T03:49:24Z] [smoke] 业务冒烟四链路
+[2026-11-17T03:49:24Z] [smoke] 四链路全通——业务恢复完成 +9s
+[2026-11-17T03:49:24Z] [rpo] WAL 归档链路实测（事务落盘 → 强制切换 → 归档追加）
+[2026-11-17T03:49:29Z] [rpo] WAL 归档追加验证通过（26 → 27）
+[2026-11-17T03:49:29Z] [cleanup] 探针附件清理（经 API 逻辑删除）
+[2026-11-17T03:49:29Z] [cleanup][WARN] 探针删除失败（残留 fileId=14）
+[2026-11-17T03:49:29Z] DR-01 v2 演练完成：/opt/schema/staging/dr-drill-v2/dr-drill-result-v2.json
+[2026-11-17T03:49:29Z] [cleanup] 恢复实例（pid=2415775）已停止
+[2026-11-17T03:49:30Z] [cleanup] 完成（exit rc=0）

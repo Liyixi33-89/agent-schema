@@ -1,0 +1,467 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+     execution: local
+        script: perf-mixed.js
+        output: -
+
+     scenarios: (100.00%) 3 scenarios, 250 max VUs, 10m30s max duration (incl. graceful stop):
+              * publishes: 125 iterations shared among 25 VUs (maxDuration: 10m0s, exec: publishWorkload, gracefulStop: 30s)
+              * reads: 1750 iterations shared among 175 VUs (maxDuration: 10m0s, exec: readWorkload, gracefulStop: 30s)
+              * writes: 500 iterations shared among 50 VUs (maxDuration: 10m0s, exec: writeWorkload, gracefulStop: 30s)
+
+
+running (00m01.0s), 250/250 VUs, 0 complete and 0 interrupted iterations
+publishes   [   0% ] 25 VUs   00m01.0s/10m0s  000/125 shared iters
+reads       [   0% ] 175 VUs  00m01.0s/10m0s  0000/1750 shared iters
+writes      [   0% ] 50 VUs   00m01.0s/10m0s  000/500 shared iters
+
+running (00m02.0s), 250/250 VUs, 0 complete and 0 interrupted iterations
+publishes   [   0% ] 25 VUs   00m02.0s/10m0s  000/125 shared iters
+reads       [   0% ] 175 VUs  00m02.0s/10m0s  0000/1750 shared iters
+writes      [   0% ] 50 VUs   00m02.0s/10m0s  000/500 shared iters
+
+running (00m03.0s), 250/250 VUs, 6 complete and 0 interrupted iterations
+publishes   [   0% ] 25 VUs   00m03.0s/10m0s  000/125 shared iters
+reads       [   0% ] 175 VUs  00m03.0s/10m0s  0000/1750 shared iters
+writes      [   1% ] 50 VUs   00m03.0s/10m0s  006/500 shared iters
+
+running (00m04.0s), 250/250 VUs, 9 complete and 0 interrupted iterations
+publishes   [   0% ] 25 VUs   00m04.0s/10m0s  000/125 shared iters
+reads       [   0% ] 175 VUs  00m04.0s/10m0s  0001/1750 shared iters
+writes      [   2% ] 50 VUs   00m04.0s/10m0s  008/500 shared iters
+
+running (00m05.0s), 250/250 VUs, 27 complete and 0 interrupted iterations
+publishes   [   1% ] 25 VUs   00m05.0s/10m0s  001/125 shared iters
+reads       [   1% ] 175 VUs  00m05.0s/10m0s  0011/1750 shared iters
+writes      [   3% ] 50 VUs   00m05.0s/10m0s  015/500 shared iters
+
+running (00m06.0s), 250/250 VUs, 46 complete and 0 interrupted iterations
+publishes   [   2% ] 25 VUs   00m06.0s/10m0s  002/125 shared iters
+reads       [   1% ] 175 VUs  00m06.0s/10m0s  0018/1750 shared iters
+writes      [   5% ] 50 VUs   00m06.0s/10m0s  026/500 shared iters
+
+running (00m07.0s), 250/250 VUs, 67 complete and 0 interrupted iterations
+publishes   [   3% ] 25 VUs   00m07.0s/10m0s  004/125 shared iters
+reads       [   2% ] 175 VUs  00m07.0s/10m0s  0031/1750 shared iters
+writes      [   6% ] 50 VUs   00m07.0s/10m0s  032/500 shared iters
+
+running (00m08.0s), 250/250 VUs, 88 complete and 0 interrupted iterations
+publishes   [   5% ] 25 VUs   00m08.0s/10m0s  006/125 shared iters
+reads       [   2% ] 175 VUs  00m08.0s/10m0s  0039/1750 shared iters
+writes      [   9% ] 50 VUs   00m08.0s/10m0s  043/500 shared iters
+
+running (00m09.0s), 250/250 VUs, 109 complete and 0 interrupted iterations
+publishes   [   6% ] 25 VUs   00m09.0s/10m0s  007/125 shared iters
+reads       [   3% ] 175 VUs  00m09.0s/10m0s  0051/1750 shared iters
+writes      [  10% ] 50 VUs   00m09.0s/10m0s  051/500 shared iters
+
+running (00m10.0s), 250/250 VUs, 133 complete and 0 interrupted iterations
+publishes   [  10% ] 25 VUs   00m10.0s/10m0s  012/125 shared iters
+reads       [   4% ] 175 VUs  00m10.0s/10m0s  0062/1750 shared iters
+writes      [  12% ] 50 VUs   00m10.0s/10m0s  059/500 shared iters
+
+running (00m11.0s), 250/250 VUs, 160 complete and 0 interrupted iterations
+publishes   [  10% ] 25 VUs   00m11.0s/10m0s  013/125 shared iters
+reads       [   4% ] 175 VUs  00m11.0s/10m0s  0077/1750 shared iters
+writes      [  14% ] 50 VUs   00m11.0s/10m0s  070/500 shared iters
+
+running (00m12.0s), 250/250 VUs, 187 complete and 0 interrupted iterations
+publishes   [  14% ] 25 VUs   00m12.0s/10m0s  018/125 shared iters
+reads       [   5% ] 175 VUs  00m12.0s/10m0s  0090/1750 shared iters
+writes      [  16% ] 50 VUs   00m12.0s/10m0s  079/500 shared iters
+
+running (00m13.0s), 250/250 VUs, 218 complete and 0 interrupted iterations
+publishes   [  16% ] 25 VUs   00m13.0s/10m0s  020/125 shared iters
+reads       [   6% ] 175 VUs  00m13.0s/10m0s  0107/1750 shared iters
+writes      [  18% ] 50 VUs   00m13.0s/10m0s  091/500 shared iters
+
+running (00m14.0s), 250/250 VUs, 257 complete and 0 interrupted iterations
+publishes   [  18% ] 25 VUs   00m14.0s/10m0s  023/125 shared iters
+reads       [   7% ] 175 VUs  00m14.0s/10m0s  0128/1750 shared iters
+writes      [  21% ] 50 VUs   00m14.0s/10m0s  106/500 shared iters
+
+running (00m15.0s), 250/250 VUs, 292 complete and 0 interrupted iterations
+publishes   [  20% ] 25 VUs   00m15.0s/10m0s  025/125 shared iters
+reads       [   9% ] 175 VUs  00m15.0s/10m0s  0150/1750 shared iters
+writes      [  23% ] 50 VUs   00m15.0s/10m0s  117/500 shared iters
+
+running (00m16.0s), 250/250 VUs, 334 complete and 0 interrupted iterations
+publishes   [  23% ] 25 VUs   00m16.0s/10m0s  029/125 shared iters
+reads       [  10% ] 175 VUs  00m16.0s/10m0s  0175/1750 shared iters
+writes      [  26% ] 50 VUs   00m16.0s/10m0s  130/500 shared iters
+
+running (00m17.0s), 250/250 VUs, 383 complete and 0 interrupted iterations
+publishes   [  30% ] 25 VUs   00m17.0s/10m0s  037/125 shared iters
+reads       [  11% ] 175 VUs  00m17.0s/10m0s  0199/1750 shared iters
+writes      [  29% ] 50 VUs   00m17.0s/10m0s  147/500 shared iters
+
+running (00m18.0s), 250/250 VUs, 433 complete and 0 interrupted iterations
+publishes   [  34% ] 25 VUs   00m18.0s/10m0s  043/125 shared iters
+reads       [  13% ] 175 VUs  00m18.0s/10m0s  0228/1750 shared iters
+writes      [  32% ] 50 VUs   00m18.0s/10m0s  162/500 shared iters
+
+running (00m19.0s), 250/250 VUs, 478 complete and 0 interrupted iterations
+publishes   [  38% ] 25 VUs   00m19.0s/10m0s  048/125 shared iters
+reads       [  15% ] 175 VUs  00m19.0s/10m0s  0254/1750 shared iters
+writes      [  35% ] 50 VUs   00m19.0s/10m0s  176/500 shared iters
+
+running (00m20.0s), 250/250 VUs, 516 complete and 0 interrupted iterations
+publishes   [  42% ] 25 VUs   00m20.0s/10m0s  052/125 shared iters
+reads       [  16% ] 175 VUs  00m20.0s/10m0s  0275/1750 shared iters
+writes      [  38% ] 50 VUs   00m20.0s/10m0s  189/500 shared iters
+
+running (00m21.0s), 250/250 VUs, 550 complete and 0 interrupted iterations
+publishes   [  44% ] 25 VUs   00m21.0s/10m0s  055/125 shared iters
+reads       [  17% ] 175 VUs  00m21.0s/10m0s  0295/1750 shared iters
+writes      [  40% ] 50 VUs   00m21.0s/10m0s  200/500 shared iters
+
+running (00m22.0s), 250/250 VUs, 598 complete and 0 interrupted iterations
+publishes   [  47% ] 25 VUs   00m22.0s/10m0s  059/125 shared iters
+reads       [  19% ] 175 VUs  00m22.0s/10m0s  0324/1750 shared iters
+writes      [  43% ] 50 VUs   00m22.0s/10m0s  215/500 shared iters
+
+running (00m23.0s), 250/250 VUs, 652 complete and 0 interrupted iterations
+publishes   [  51% ] 25 VUs   00m23.0s/10m0s  064/125 shared iters
+reads       [  20% ] 175 VUs  00m23.0s/10m0s  0350/1750 shared iters
+writes      [  48% ] 50 VUs   00m23.0s/10m0s  238/500 shared iters
+
+running (00m24.0s), 250/250 VUs, 693 complete and 0 interrupted iterations
+publishes   [  57% ] 25 VUs   00m24.0s/10m0s  071/125 shared iters
+reads       [  21% ] 175 VUs  00m24.0s/10m0s  0371/1750 shared iters
+writes      [  50% ] 50 VUs   00m24.0s/10m0s  251/500 shared iters
+
+running (00m25.0s), 250/250 VUs, 735 complete and 0 interrupted iterations
+publishes   [  59% ] 25 VUs   00m25.0s/10m0s  074/125 shared iters
+reads       [  23% ] 175 VUs  00m25.0s/10m0s  0397/1750 shared iters
+writes      [  53% ] 50 VUs   00m25.0s/10m0s  264/500 shared iters
+
+running (00m26.0s), 250/250 VUs, 768 complete and 0 interrupted iterations
+publishes   [  62% ] 25 VUs   00m26.0s/10m0s  077/125 shared iters
+reads       [  24% ] 175 VUs  00m26.0s/10m0s  0422/1750 shared iters
+writes      [  54% ] 50 VUs   00m26.0s/10m0s  269/500 shared iters
+
+running (00m27.0s), 250/250 VUs, 812 complete and 0 interrupted iterations
+publishes   [  69% ] 25 VUs   00m27.0s/10m0s  086/125 shared iters
+reads       [  25% ] 175 VUs  00m27.0s/10m0s  0446/1750 shared iters
+writes      [  56% ] 50 VUs   00m27.0s/10m0s  280/500 shared iters
+
+running (00m28.0s), 250/250 VUs, 854 complete and 0 interrupted iterations
+publishes   [  74% ] 25 VUs   00m28.0s/10m0s  093/125 shared iters
+reads       [  27% ] 175 VUs  00m28.0s/10m0s  0470/1750 shared iters
+writes      [  58% ] 50 VUs   00m28.0s/10m0s  291/500 shared iters
+
+running (00m29.0s), 250/250 VUs, 908 complete and 0 interrupted iterations
+publishes   [  79% ] 25 VUs   00m29.0s/10m0s  099/125 shared iters
+reads       [  29% ] 175 VUs  00m29.0s/10m0s  0500/1750 shared iters
+writes      [  62% ] 50 VUs   00m29.0s/10m0s  309/500 shared iters
+
+running (00m30.0s), 244/250 VUs, 956 complete and 0 interrupted iterations
+publishes   [  85% ] 25 VUs   00m30.0s/10m0s  106/125 shared iters
+reads       [  30% ] 175 VUs  00m30.0s/10m0s  0528/1750 shared iters
+writes      [  64% ] 50 VUs   00m30.0s/10m0s  322/500 shared iters
+
+running (00m31.0s), 237/250 VUs, 1006 complete and 0 interrupted iterations
+publishes   [  90% ] 25 VUs   00m31.0s/10m0s  113/125 shared iters
+reads       [  32% ] 175 VUs  00m31.0s/10m0s  0553/1750 shared iters
+writes      [  68% ] 50 VUs   00m31.0s/10m0s  340/500 shared iters
+
+running (00m32.0s), 230/250 VUs, 1053 complete and 0 interrupted iterations
+publishes   [  96% ] 25 VUs   00m32.0s/10m0s  120/125 shared iters
+reads       [  33% ] 175 VUs  00m32.0s/10m0s  0579/1750 shared iters
+writes      [  71% ] 50 VUs   00m32.0s/10m0s  354/500 shared iters
+
+running (00m33.0s), 228/250 VUs, 1100 complete and 0 interrupted iterations
+publishes   [  98% ] 25 VUs   00m33.0s/10m0s  122/125 shared iters
+reads       [  35% ] 175 VUs  00m33.0s/10m0s  0608/1750 shared iters
+writes      [  74% ] 50 VUs   00m33.0s/10m0s  370/500 shared iters
+
+running (00m34.0s), 227/250 VUs, 1135 complete and 0 interrupted iterations
+publishes   [  98% ] 25 VUs   00m34.0s/10m0s  123/125 shared iters
+reads       [  36% ] 175 VUs  00m34.0s/10m0s  0631/1750 shared iters
+writes      [  76% ] 50 VUs   00m34.0s/10m0s  381/500 shared iters
+
+running (00m35.0s), 226/250 VUs, 1163 complete and 0 interrupted iterations
+publishes   [  99% ] 25 VUs   00m35.0s/10m0s  124/125 shared iters
+reads       [  37% ] 175 VUs  00m35.0s/10m0s  0655/1750 shared iters
+writes      [  77% ] 50 VUs   00m35.0s/10m0s  384/500 shared iters
+
+running (00m36.0s), 225/250 VUs, 1207 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  39% ] 175 VUs  00m36.0s/10m0s  0680/1750 shared iters
+writes      [  80% ] 50 VUs   00m36.0s/10m0s  402/500 shared iters
+
+running (00m37.0s), 225/250 VUs, 1243 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  40% ] 175 VUs  00m37.0s/10m0s  0705/1750 shared iters
+writes      [  83% ] 50 VUs   00m37.0s/10m0s  413/500 shared iters
+
+running (00m38.0s), 225/250 VUs, 1277 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  42% ] 175 VUs  00m38.0s/10m0s  0731/1750 shared iters
+writes      [  84% ] 50 VUs   00m38.0s/10m0s  421/500 shared iters
+
+running (00m39.0s), 225/250 VUs, 1315 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  43% ] 175 VUs  00m39.0s/10m0s  0757/1750 shared iters
+writes      [  87% ] 50 VUs   00m39.0s/10m0s  433/500 shared iters
+
+running (00m40.0s), 225/250 VUs, 1349 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  44% ] 175 VUs  00m40.0s/10m0s  0775/1750 shared iters
+writes      [  90% ] 50 VUs   00m40.0s/10m0s  449/500 shared iters
+
+running (00m41.0s), 215/250 VUs, 1383 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  46% ] 175 VUs  00m41.0s/10m0s  0798/1750 shared iters
+writes      [  92% ] 50 VUs   00m41.0s/10m0s  460/500 shared iters
+
+running (00m42.0s), 205/250 VUs, 1420 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  47% ] 175 VUs  00m42.0s/10m0s  0825/1750 shared iters
+writes      [  94% ] 50 VUs   00m42.0s/10m0s  470/500 shared iters
+
+running (00m43.0s), 198/250 VUs, 1456 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  49% ] 175 VUs  00m43.0s/10m0s  0854/1750 shared iters
+writes      [  95% ] 50 VUs   00m43.0s/10m0s  477/500 shared iters
+
+running (00m44.0s), 186/250 VUs, 1494 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  50% ] 175 VUs  00m44.0s/10m0s  0880/1750 shared iters
+writes      [  98% ] 50 VUs   00m44.0s/10m0s  489/500 shared iters
+
+running (00m45.0s), 179/250 VUs, 1526 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  52% ] 175 VUs  00m45.0s/10m0s  0905/1750 shared iters
+writes      [  99% ] 50 VUs   00m45.0s/10m0s  496/500 shared iters
+
+running (00m46.0s), 177/250 VUs, 1562 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  54% ] 175 VUs  00m46.0s/10m0s  0939/1750 shared iters
+writes      [ 100% ] 50 VUs   00m46.0s/10m0s  498/500 shared iters
+
+running (00m47.0s), 175/250 VUs, 1590 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  55% ] 175 VUs  00m47.0s/10m0s  0965/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m48.0s), 175/250 VUs, 1614 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  57% ] 175 VUs  00m48.0s/10m0s  0989/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m49.0s), 175/250 VUs, 1641 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  58% ] 175 VUs  00m49.0s/10m0s  1016/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m50.0s), 175/250 VUs, 1668 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  60% ] 175 VUs  00m50.0s/10m0s  1043/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m51.0s), 175/250 VUs, 1688 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  61% ] 175 VUs  00m51.0s/10m0s  1063/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m52.0s), 175/250 VUs, 1721 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  63% ] 175 VUs  00m52.0s/10m0s  1096/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m53.0s), 175/250 VUs, 1752 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  64% ] 175 VUs  00m53.0s/10m0s  1127/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m54.0s), 175/250 VUs, 1777 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  66% ] 175 VUs  00m54.0s/10m0s  1152/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m55.0s), 175/250 VUs, 1802 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  67% ] 175 VUs  00m55.0s/10m0s  1177/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m56.0s), 175/250 VUs, 1836 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  69% ] 175 VUs  00m56.0s/10m0s  1211/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m57.0s), 175/250 VUs, 1856 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  70% ] 175 VUs  00m57.0s/10m0s  1231/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m58.0s), 175/250 VUs, 1877 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  72% ] 175 VUs  00m58.0s/10m0s  1252/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (00m59.0s), 175/250 VUs, 1892 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  72% ] 175 VUs  00m59.0s/10m0s  1267/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m00.0s), 175/250 VUs, 1903 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  73% ] 175 VUs  01m00.0s/10m0s  1278/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m01.0s), 175/250 VUs, 1921 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  74% ] 175 VUs  01m01.0s/10m0s  1296/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m02.0s), 175/250 VUs, 1938 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  75% ] 175 VUs  01m02.0s/10m0s  1313/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m03.0s), 175/250 VUs, 1957 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  76% ] 175 VUs  01m03.0s/10m0s  1332/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m04.0s), 175/250 VUs, 1984 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  78% ] 175 VUs  01m04.0s/10m0s  1359/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m05.0s), 175/250 VUs, 2009 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  79% ] 175 VUs  01m05.0s/10m0s  1384/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m06.0s), 175/250 VUs, 2030 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  80% ] 175 VUs  01m06.0s/10m0s  1405/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m07.0s), 175/250 VUs, 2058 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  82% ] 175 VUs  01m07.0s/10m0s  1433/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m08.0s), 175/250 VUs, 2089 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  84% ] 175 VUs  01m08.0s/10m0s  1464/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m09.0s), 175/250 VUs, 2114 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  85% ] 175 VUs  01m09.0s/10m0s  1489/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m10.0s), 175/250 VUs, 2142 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  87% ] 175 VUs  01m10.0s/10m0s  1517/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m11.0s), 175/250 VUs, 2167 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  88% ] 175 VUs  01m11.0s/10m0s  1542/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m12.0s), 175/250 VUs, 2191 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  89% ] 175 VUs  01m12.0s/10m0s  1566/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m13.0s), 154/250 VUs, 2221 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  91% ] 175 VUs  01m13.0s/10m0s  1596/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m14.0s), 127/250 VUs, 2248 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  93% ] 175 VUs  01m14.0s/10m0s  1623/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m15.0s), 093/250 VUs, 2282 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  95% ] 175 VUs  01m15.0s/10m0s  1657/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m16.0s), 060/250 VUs, 2315 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  97% ] 175 VUs  01m16.0s/10m0s  1690/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+running (01m17.0s), 015/250 VUs, 2360 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads       [  99% ] 175 VUs  01m17.0s/10m0s  1735/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+
+
+  █ THRESHOLDS 
+
+    http_req_duration{scenario:publishes}
+    ✗ 'p(95)<1500' p(95)=9.88s
+
+    http_req_duration{scenario:reads}
+    ✗ 'p(95)<1500' p(95)=6.77s
+
+    http_req_duration{scenario:writes}
+    ✗ 'p(95)<1500' p(95)=8.15s
+
+    http_req_failed{scenario:publishes}
+    ✓ 'rate<0.005' rate=0.00%
+
+    http_req_failed{scenario:reads}
+    ✗ 'rate<0.01' rate=31.25%
+
+    http_req_failed{scenario:writes}
+    ✓ 'rate<0.005' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 6125    79.399344/s
+    checks_succeeded...: 100.00% 6125 out of 6125
+    checks_failed......: 0.00%   0 out of 6125
+
+    ✓ health responded
+    ✓ login ok
+    ✓ write 2xx
+    ✓ query ok
+    ✓ paged query ok
+    ✓ publish ok
+
+    HTTP
+    http_req_duration..............: avg=2.12s min=187.43µs med=1.46s max=18.13s p(90)=5.56s  p(95)=6.95s
+      { expected_response:true }...: avg=2.9s  min=454.86µs med=2.49s max=18.13s p(90)=6.26s  p(95)=7.75s
+      { scenario:publishes }.......: avg=3.02s min=9.42ms   med=1.53s max=18.13s p(90)=7.78s  p(95)=9.88s
+      { scenario:reads }...........: avg=2.03s min=187.43µs med=1.44s max=17.01s p(90)=5.34s  p(95)=6.77s
+      { scenario:writes }..........: avg=2.71s min=6.16ms   med=1.73s max=14.2s  p(90)=6.12s  p(95)=8.15s
+    http_req_failed................: 27.45% 1750 out of 6375
+      { scenario:publishes }.......: 0.00%  0 out of 175
+      { scenario:reads }...........: 31.25% 1750 out of 5600
+      { scenario:writes }..........: 0.00%  0 out of 600
+    http_reqs......................: 6375   82.640134/s
+
+    EXECUTION
+    iteration_duration.............: avg=6.75s min=1s       med=6.06s max=29.2s  p(90)=11.52s p(95)=14.5s
+    iterations.....................: 2375   30.787501/s
+    vus............................: 15     min=15           max=250
+    vus_max........................: 250    min=250          max=250
+
+    NETWORK
+    data_received..................: 6.9 MB 89 kB/s
+    data_sent......................: 2.7 MB 35 kB/s
+
+
+
+
+running (01m17.1s), 000/250 VUs, 2375 complete and 0 interrupted iterations
+publishes ✓ [ 100% ] 25 VUs   00m35.1s/10m0s  125/125 shared iters
+reads     ✓ [ 100% ] 175 VUs  01m17.1s/10m0s  1750/1750 shared iters
+writes    ✓ [ 100% ] 50 VUs   00m46.2s/10m0s  500/500 shared iters
+time="2026-11-16T15:34:50+08:00" level=error msg="thresholds on metrics 'http_req_duration{scenario:publishes}, http_req_duration{scenario:reads}, http_req_duration{scenario:writes}, http_req_failed{scenario:reads}' have been crossed"
