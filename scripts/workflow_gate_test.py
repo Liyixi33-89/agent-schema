@@ -487,6 +487,40 @@ class RequirementGateTest(unittest.TestCase):
         t['requirements'][0]['status'] = 'deferred'
         self.assertTrue(self.issues(t))
 
+    def test_malformed_deferral_rejected_without_crash(self):
+        for approval in ['approved', ['human-lead'], {'approvedBy': '   ',
+                         'reference': 'decision', 'owner': 'owner', 'workPackage': 'Phase2'}]:
+            with self.subTest(approval=approval):
+                t = self.task()
+                t['requirements'][0].update(status='deferred', deferral=approval)
+                self.assertTrue(self.issues(t))
+
+    def test_self_approved_deferral_rejected(self):
+        t = self.task()
+        t['requirements'][0].update(status='deferred', deferral={
+            'approvedBy': t['implementedBy'], 'reference': 'decision-1',
+            'owner': 'owner', 'workPackage': 'Phase2',
+        })
+        self.assertIn('R1: implementer cannot approve own deferral', self.issues(t))
+
+    def test_self_approval_identity_variants_rejected(self):
+        for identity in [' author-session ', 'AUTHOR-SESSION']:
+            with self.subTest(identity=identity):
+                t = self.task()
+                t['requirements'][0].update(status='deferred', deferral={
+                    'approvedBy': identity, 'reference': 'decision-1',
+                    'owner': 'owner', 'workPackage': 'Phase2',
+                })
+                self.assertIn('R1: implementer cannot approve own deferral', self.issues(t))
+
+    def test_explicit_independent_deferral_passes(self):
+        t = self.task()
+        t['requirements'][0].update(status='deferred', deferral={
+            'approvedBy': 'human-lead', 'reference': 'decision-1',
+            'owner': 'owner', 'workPackage': 'Phase2',
+        })
+        self.assertEqual(self.issues(t), [])
+
     def test_unresolved_blocker_rejected(self):
         t = self.task()
         t['review']['findings'] = [{'blocking': True, 'status': 'open'}]

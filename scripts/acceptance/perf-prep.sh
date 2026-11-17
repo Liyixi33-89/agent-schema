@@ -11,7 +11,12 @@ set -euo pipefail
 
 STAGE_DIR="${1:-/opt/schema/staging/perf}"
 PERF_DB="${PERF_DB:-schema_perf}"
-BASE_URL="${BASE_URL:-http://127.0.0.1:18081}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:18083}"
+PG_PORT="${PG_PORT:-15433}"
+if [ "$PERF_DB" != 'schema_perf' ] || [ "$PG_PORT" != '15433' ] || [ "$BASE_URL" != 'http://127.0.0.1:18083' ]; then
+  echo '拒绝非专用压测栈：需独立 schema_perf / 15433 / 18083' >&2
+  exit 2
+fi
 VUS="${VUS:-250}"
 DURATION="${DURATION:-10m}"
 
@@ -26,7 +31,7 @@ echo "[$(TS)] [env] 服务器规格盘点"
   echo "  \"cpu\": \"$(grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)\","
   echo "  \"cpuCores\": $(nproc),"
   echo "  \"memory\": \"$(free -h | awk '/Mem:/{print $2}')\","
-  echo "  \"pgVersion\": \"$(su - postgres -c 'psql -Atc \"SELECT version()\"' | head -1)\","
+  echo "  \"pgVersion\": \"$(su - postgres -c 'psql -p 15433 -v ON_ERROR_STOP=1 -Atc \"SELECT version()\"' | head -1)\","
   echo "  \"javaVersion\": \"$(java -version 2>&1 | head -1)\","
   echo "  \"disk\": \"$(df -h / | awk 'NR==2{print $2\" total, \"$4\" free\"}')\","
   echo '}' 
@@ -36,10 +41,10 @@ echo "  ⚠️ 单节点规格——报告须登记规格偏差（PRD11 §2.4 �
 
 # ---------- 步骤 2：独立预发布库（禁止生产库） ----------
 echo "[$(TS)] [db] 预发布库 $PERF_DB 就绪检查"
-DB_EXISTS=$(su - postgres -c "psql -Atc \"SELECT 1 FROM pg_database WHERE datname='$PERF_DB'\"")
+DB_EXISTS=$(su - postgres -c "psql -p 15433 -v ON_ERROR_STOP=1 -Atc \"SELECT 1 FROM pg_database WHERE datname='$PERF_DB'\"")
 if [ "$DB_EXISTS" != "1" ]; then
   echo "[$(TS)] [db] 创建预发布库 $PERF_DB（从生产 schema 克隆结构）"
-  su - postgres -c "psql -c \"CREATE DATABASE $PERF_DB\""
+  su - postgres -c "psql -p 15433 -v ON_ERROR_STOP=1 -c \"CREATE DATABASE $PERF_DB\""
   echo "  ⚠️ 结构由目标后端 Flyway 自动迁移——启动后端指向 $PERF_DB 后自动建表"
 fi
 
@@ -49,22 +54,35 @@ python3 - "$STAGE_DIR" "$PERF_DB" <<'PYEOF'
 import subprocess, sys, json, datetime
 stage, perf_db = sys.argv[1], sys.argv[2]
 def q(sql):
-    r = subprocess.run(["su", "-", "postgres", "-c", f"psql -d {perf_db} -Atc \"{sql}\""],
-                       capture_output=True, text=True)
+    r = subprocess.run(["su", "-", "postgres", "-c", f"psql -p 15433 -v ON_ERROR_STOP=1 -d {perf_db} -Atc \"{sql}\""],
+                       capture_output=True, text=True, check=True)
     return r.stdout.strip()
-# 基线表：data_engine_record（按实际业务表核对）
-count = q("SELECT count(*) FROM data_engine_record WHERE tenant_id=999") if \
-    q("SELECT 1 FROM information_schema.tables WHERE table_name='data_engine_record'") == "1" else "-1"
-report = {"collectedAt": datetime.datetime.utcnow().isoformat() + "Z", "tenantId": 999, "existingRows": count}
+# 只核查实际动态物理表；本准备步骤不造数。
+import os, re
+model_id = os.environ.get('PERF_MODEL_ID', '')
+if not re.fullmatch(r'[1-9][0-9]*', model_id):
+    raise SystemExit('PERF_MODEL_ID 必须为正整数')
+tenant_id = os.environ.get('PERF_TENANT_ID', '')
+if not re.fullmatch(r'[1-9][0-9]*', tenant_id):
+    raise SystemExit('PERF_TENANT_ID 必须为独立测试租户正整数 ID')
+version = q(f"SELECT current_version FROM meta_model WHERE id={model_id} AND tenant_id={tenant_id} AND status != 'DELETED'")
+if not re.fullmatch(r'[1-9][0-9]*', version):
+    raise SystemExit('模型不存在、已删除或不属于测试租户')
+table = f'biz_model_{model_id}'
+count = q(f"SELECT count(*) FROM {table} WHERE tenant_id={tenant_id} AND schema_version={version}") if \
+    q(f"SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='{table}'") == "1" else "-1"
+report = {"collectedAt": datetime.datetime.utcnow().isoformat() + "Z", "tenantId": tenant_id, "modelId": model_id, "schemaVersion": version, "existingRows": count}
 if count.isdigit() and int(count) >= 1_000_000:
     print(f"基线已就绪：{count} 行 ≥ 100 万——跳过造数")
     report["status"] = "READY"
 else:
-    print(f"基线不足（{count} 行）——执行批量造数（INSERT ... SELECT 倍增法）")
+    print(f"基线不足（{count} 行）——未执行造数；需按模型版本及独立租户补齐数据后复核")
     report["status"] = "NEED_SEED"
-    # 造数入口：种子 1000 行 → 倍增 10 次 → 100 万行（tenant_id=999 隔离）
+    # 数据准备需另行执行；禁止将缺少基线视为准备成功。
 json.dump(report, open(f"{stage}/baseline-check.json", "w"), indent=2, ensure_ascii=False)
 print(json.dumps(report, ensure_ascii=False))
+if report['status'] != 'READY':
+    raise SystemExit(2)
 PYEOF
 
 # ---------- 步骤 4：k6 脚本生成（70 读 / 20 写 / 10 发布） ----------
@@ -73,63 +91,88 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 // M16 PERF-01~05：登录态混合负载（配比 70/20/10 = 读/写/发布）
 // 运行：k6 run -e BASE_URL=... -e ACCOUNT=... -e PASSWORD=... perf-mixed.js
-const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:18081';
+const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:18083';
+if (BASE_URL !== 'http://127.0.0.1:18083') throw new Error('Only isolated perf backend is allowed');
 const ACCOUNT = __ENV.ACCOUNT || 'perf_user';
 const PASSWORD = __ENV.PASSWORD || '';
+for (const key of ['PERF_MODEL_ID', 'PERF_APP_ID', 'PERF_PAGE_ID']) {
+  if (!/^[1-9]\d*$/.test(__ENV[key] || '')) throw new Error(`Missing or invalid ${key}`);
+}
+if (!PASSWORD) throw new Error('PASSWORD is required');
 export const options = {
   scenarios: {
     reads: { executor: 'shared-iterations', vus: 175, iterations: 1750,
       exec: 'readWorkload', startTime: '0s' },                     // 70% 读
     writes: { executor: 'shared-iterations', vus: 50, iterations: 500,
       exec: 'writeWorkload', startTime: '0s' },                    // 20% 写
-    publishes: { executor: 'shared-iterations', vus: 25, iterations: 125,
-      exec: 'publishWorkload', startTime: '0s', gracefulRampDown: '30s' }, // 10% 发布
+    publishes: { executor: 'shared-iterations', vus: 25, iterations: 250,
+      exec: 'publishWorkload', startTime: '0s', gracefulStop: '30s' }, // 10% 发布
   },
   thresholds: {
-    'http_req_duration{name:login}': ['p(95)<1500'],
-    'http_req_duration{name:schema_pull}': ['p(95)<1000'],
-    'http_req_duration{name:read}': ['p(95)<1500'],
-    'http_req_duration{name:write}': ['p(95)<1500'],
+    'http_req_duration{type:login}': ['p(95)<1500'],
+    'http_req_duration{type:schema_pull}': ['p(95)<1000'],
+    'http_req_duration{type:read}': ['p(95)<1500'],
+    'http_req_duration{type:write}': ['p(95)<1500'],
+    'http_req_duration{type:publish}': ['p(95)<1500'],
+    'http_req_failed{type:read}': ['rate<0.005'],
+    'http_req_failed{type:write}': ['rate<0.005'],
+    'http_req_failed{type:publish}': ['rate<0.005'],
+    'checks': ['rate==1'],
     'http_req_failed': ['rate<0.005'],   // 错误率 < 0.5%（整体与分组各自判定）
   },
 };
 const TOKEN_TTL_MS = 25 * 60 * 1000;
-let token = null, tokenAt = 0;
+let session = null, tokenAt = 0;
 function login() {
-  if (token && Date.now() - tokenAt < TOKEN_TTL_MS) return token;
+  if (session && Date.now() - tokenAt < TOKEN_TTL_MS) return session;
+  const pre = http.get(`${BASE_URL}/api/auth/csrf`, { tags: { type: 'csrf' } });
+  const csrf = (pre.cookies.schema_csrf || []).map(c => c.value).pop();
+  if (!csrf) throw new Error('Missing CSRF cookie');
   const r = http.post(`${BASE_URL}/api/auth/login`,
-    JSON.stringify({ account: ACCOUNT, password: PASSWORD }),
-    { headers: { 'Content-Type': 'application/json' }, name: 'login' });
-  check(r, { 'login 200': (res) => res.status === 200 });
-  token = r.json('accessToken') || r.json('token') || null;
+    JSON.stringify({ username: ACCOUNT, password: PASSWORD }),
+    { headers: { 'Content-Type': 'application/json', Origin: BASE_URL,
+      Cookie: `schema_csrf=${csrf}`, 'X-CSRF-Token': csrf }, tags: { type: 'login' } });
+  const cookies = {};
+  ['schema_at', 'schema_rt', 'schema_csrf'].forEach(key => {
+    cookies[key] = (r.cookies[key] || []).map(c => c.value).pop();
+  });
+  if (!check(r, { 'login credentials': res => res.status === 200 && Boolean(cookies.schema_at && cookies.schema_rt && cookies.schema_csrf) })) {
+    throw new Error('Login failed or incomplete credentials');
+  }
+  session = cookies;
   tokenAt = Date.now();
-  return token;
+  return session;
 }
-function auth() { return { headers: { Authorization: `Bearer ${login()}`, 'Content-Type': 'application/json' } }; }
+function auth() {
+  const cookies = login();
+  return { headers: { 'Content-Type': 'application/json', Origin: BASE_URL,
+    Cookie: Object.entries(cookies).map(([key, value]) => `${key}=${value}`).join('; '),
+    'X-CSRF-Token': cookies.schema_csrf } };
+}
 
 export function readWorkload() {
   login();
-  const schema = http.get(`${BASE_URL}/api/pages/1/schema`, auth().headers ? { headers: auth().headers, name: 'schema_pull' } : {});
+  const schema = http.get(`${BASE_URL}/api/pages/${__ENV.PERF_PAGE_ID}/schema`, { headers: auth().headers, tags: { type: 'schema_pull' } });
   check(schema, { 'schema ok': (r) => r.status === 200 || r.status === 304 });
-  const list = http.get(`${BASE_URL}/api/models/1/records?page=1&size=20`, { headers: auth().headers, name: 'read' });
+  const list = http.post(`${BASE_URL}/api/data/${__ENV.PERF_MODEL_ID}/query`, JSON.stringify({ page: 1, size: 20 }), { headers: auth().headers, tags: { type: 'read' } });
   check(list, { 'list <500': (r) => r.status === 200 });
   sleep(1);
 }
 export function writeWorkload() {
   login();
-  const r = http.post(`${BASE_URL}/api/models/1/records`,
-    JSON.stringify({ record: { title: `perf_${__VU}_${__ITER}`, amount: __ITER % 1000 } }),
-    { headers: auth().headers, name: 'write' });
-  check(r, { 'write 2xx/422': (res) => res.status < 500 });
+  const r = http.post(`${BASE_URL}/api/data/${__ENV.PERF_MODEL_ID}`,
+    JSON.stringify({ title: `perf_${__VU}_${__ITER}`, amount: __ITER % 1000 }),
+    { headers: auth().headers, tags: { type: 'write' } });
+  check(r, { 'write success': (res) => res.status === 200 || res.status === 201 });
   sleep(1);
 }
 export function publishWorkload() {
   login();
   // 独立压测页面（pageId 由环境注入——禁止指向真实业务页面）
-  const PAGE_ID = __ENV.PERF_PAGE_ID || '0';
-  const r = http.post(`${BASE_URL}/api/pages/${PAGE_ID}/publish`, '{}',
-    { headers: auth().headers, name: 'publish' });
-  check(r, { 'publish no-5xx': (res) => res.status < 500 });
+  // 发布目标为专用测试应用，其页面 ID 已在初始化阶段校验。
+  const r = http.post(`${BASE_URL}/api/apps/${__ENV.PERF_APP_ID}/publish`, JSON.stringify({ changelog: `perf_${__VU}_${__ITER}` }),
+    { headers: auth().headers, tags: { type: 'publish' } });
+  check(r, { 'publish success': (res) => res.status === 200 });
   sleep(2);
 }
 JSEOF
@@ -145,7 +188,7 @@ echo "ts,cpu_pct,mem_pct,pg_connections" > "$OUT"
 while true; do
   CPU=$(top -bn1 | awk '/Cpu\(s\)/{print 100 - $8}')
   MEM=$(free | awk '/Mem:/{printf "%.1f", $3/$2*100}')
-  CONN=$(su - postgres -c "psql -Atc \"SELECT count(*) FROM pg_stat_activity WHERE datname='$PG_DB'\"" 2>/dev/null || echo -1)
+  CONN=$(su - postgres -c "psql -p 15433 -v ON_ERROR_STOP=1 -Atc \"SELECT count(*) FROM pg_stat_activity WHERE datname='$PG_DB'\"" 2>/dev/null || echo -1)
   echo "$(date +%s),$CPU,$MEM,$CONN" >> "$OUT"
   sleep 1
 done
@@ -159,5 +202,5 @@ echo "1. 后端指向 $PERF_DB 启动（独立端口，勿动生产 18080/18081�
 echo "2. 造数至 100 万行（baseline-check.json NEED_SEED 时执行种子脚本）"
 echo "3. 建 PERF_PAGE_ID 独立发布测试页面"
 echo "4. bash $STAGE_DIR/sample-resources.sh $STAGE_DIR/resources.csv &"
-echo "5. k6 run -e BASE_URL=$BASE_URL -e ACCOUNT=... -e PASSWORD=... -e PERF_PAGE_ID=... $STAGE_DIR/perf-mixed.js"
+echo "5. k6 run -e BASE_URL=$BASE_URL -e ACCOUNT=... -e PASSWORD=... -e PERF_MODEL_ID=... -e PERF_APP_ID=... -e PERF_PAGE_ID=... --summary-export=$STAGE_DIR/k6-summary.json $STAGE_DIR/perf-mixed.js（保留实际退出码）"
 echo "6. 结果汇总：P95 分接口 + 错误率 + 资源峰值 → perf-report.json（含 env-spec.json 规格偏差声明）"

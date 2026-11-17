@@ -7,14 +7,26 @@
 # 铁律：
 #   - 禁止覆盖当前服务库/目录——恢复目标一律独立命名（dr_drill_YYYYMMDD_HHMMSS）
 #   - 每步记录时间戳（RTO 实测）；恢复后记录业务水位
-#   - 抽样一致率 ≥ 99.9%（逐表行数比对 + 关键表字段完整性）
-#   - RPO 证据：WAL 归档链路存在且持续堆积（archive_timeout=300s → RPO ≤ 15min 成立）
-set -uo pipefail
+#   - 本脚本仅核对逐表行数与关键字段非空，不等同随机逐字段抽样一致率
+#   - WAL 归档仅为恢复前提；端到端 RPO 须通过独立 PITR 恢复实测证明
+set -euo pipefail
 
 STAGE_DIR="${1:-/opt/schema/staging/dr-drill}"
 PROD_DB="${PROD_DB:-schema_acceptance}"    # 真实业务数据所在库（演练对象）
 DRILL_DB="dr_drill_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$STAGE_DIR"
+if [[ ! "$PROD_DB" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+  echo 'Invalid source database name' >&2
+  exit 2
+fi
+DRILL_CREATED=0
+cleanup() {
+  if [ "$DRILL_CREATED" -eq 1 ]; then
+    su - postgres -c "psql -v ON_ERROR_STOP=1 -qc 'DROP DATABASE IF EXISTS $DRILL_DB'" || return 1
+    DRILL_CREATED=0
+  fi
+}
+trap cleanup EXIT
 TS() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 LOGF="$STAGE_DIR/dr-drill-run.log"
 log() { echo "[$(TS)] $*" | tee -a "$LOGF"; }
@@ -23,7 +35,12 @@ log "DR-01 演练开始（恢复目标库：$DRILL_DB，源库：$PROD_DB）"
 
 # ---------- 步骤 0：precheck（备份方式盘点——RPO 证据判定） ----------
 log "[precheck] 备份方式盘点"
-DUMP_FILE=$(ls -1t /opt/schema/backups/db-schema_acceptance-*.sql.gz 2>/dev/null | head -1)
+DUMP_FILE="${DUMP_FILE:-$(find /opt/schema/backups -maxdepth 1 -name "db-${PROD_DB}-*.sql.gz" -printf '%T@ %p\n' | sort -nr | sed -n '1s/^[^ ]* //p')}"
+if [ ! -s "$DUMP_FILE" ]; then
+  log '[FAIL] 无有效数据库备份'
+  exit 2
+fi
+gzip -t "$DUMP_FILE"
 WAL_ARCHIVE=/var/lib/pgsql/backups/wal_archive
 PRECHECK="$STAGE_DIR/precheck.json"
 DUMP_SHA=$(sha256sum "$DUMP_FILE" | cut -d' ' -f1)
@@ -46,7 +63,7 @@ cat > "$PRECHECK" <<EOF
   "walLatest": "$WAL_LATEST",
   "archiveMode": "$ARCHIVE_MODE",
   "archiveTimeout": "$ARCHIVE_TIMEOUT",
-  "rpoClaim": "archive_timeout=300s 强制切段 + archive_command 连续归档 → RPO ≤ 15min 成立"
+  "rpoClaim": "仅验证 WAL 归档前提；尚未通过 PITR 恢复证明端到端 RPO"
 }
 EOF
 cat "$PRECHECK"
@@ -66,7 +83,7 @@ import subprocess, json, sys
 db, out = sys.argv[1], sys.argv[2]
 def q(sql):
     r = subprocess.run(["su", "-", "postgres", "-c", f"psql -d {db} -Atc \"{sql}\""],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, check=True)
     return r.stdout.strip()
 tables = q("SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY 1").split()
 rows = {}
@@ -81,7 +98,8 @@ PYEOF
 # ---------- 步骤 2：建立独立恢复库（禁止覆盖生产） ----------
 T0=$(date +%s)
 log "[restore] 建独立恢复库 $DRILL_DB"
-su - postgres -c "psql -qc 'CREATE DATABASE $DRILL_DB'"
+su - postgres -c "psql -v ON_ERROR_STOP=1 -qc 'CREATE DATABASE $DRILL_DB'"
+DRILL_CREATED=1
 
 # ---------- 步骤 3：恢复全量（计时） ----------
 log "[restore] 灌入全量备份（$DUMP_FILE）"
@@ -107,13 +125,14 @@ fi
 
 # ---------- 步骤 5：抽样校验（逐表行数 vs 源库 + 字段完整性 + Flyway 版本表） ----------
 log "[verify] 抽样校验（恢复库 vs 源库逐表比对）"
-python3 - "$DRILL_DB" "$BASELINE" "$STAGE_DIR" <<'PYEOF'
+VERIFY_RC=0
+python3 - "$DRILL_DB" "$BASELINE" "$STAGE_DIR" <<'PYEOF' || VERIFY_RC=$?
 import subprocess, json, sys, datetime
 db, baseline_path, stage = sys.argv[1], sys.argv[2], sys.argv[3]
 baseline = json.load(open(baseline_path))
 def q(sql):
     r = subprocess.run(["su", "-", "postgres", "-c", f"psql -d {db} -Atc \"{sql}\""],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, check=True)
     return r.stdout.strip()
 result = {"verifiedAt": datetime.datetime.utcnow().isoformat() + "Z",
           "tables": {}, "mismatches": [], "specialChecks": {}}
@@ -145,7 +164,6 @@ print(json.dumps({k: result[k] for k in ["tableConsistencyRate", "pageSchemaCons
 ok = (result["tableConsistencyRate"] or 0) >= 0.999 and (result["pageSchemaConsistencyRate"] is None or result["pageSchemaConsistencyRate"] >= 0.999)
 sys.exit(0 if ok else 4)
 PYEOF
-VERIFY_RC=$?
 if [ $VERIFY_RC -ne 0 ]; then
   log "[FAIL] 抽样一致率 < 99.9%——详见 $STAGE_DIR/sample-check.json"
   su - postgres -c "psql -qc 'DROP DATABASE IF EXISTS $DRILL_DB'"
@@ -188,7 +206,9 @@ report = {
     "smoke": open(f"{stage}/smoke.txt").read().split(),
     "filesLayer": {"note": "附件文件层核对见 run.log 文件层行"},
     "drillDbDestroyed": True,
-    "conclusion": "备份可恢复、抽样一致率达标、演练环境已销毁",
+    "fullAcceptancePassed": False,
+    "pendingChecks": ["随机逐字段校验", "非空附件恢复", "配置恢复", "恢复后业务链路", "PITR/RPO 实测"],
+    "conclusion": "逻辑备份恢复与表行数核对完成；全量 DR-01 验收未完成",
 }
 json.dump(report, open(f"{stage}/dr-drill-result.json", "w"), indent=2, ensure_ascii=False)
 print(json.dumps({k: report[k] for k in ["rtoMinutes", "rtoPass", "restoreSeconds"]}, ensure_ascii=False))
