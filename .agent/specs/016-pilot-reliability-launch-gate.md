@@ -127,14 +127,15 @@ M15 已 accepted（公网验收环境通过业务+安全双套件），但 **M15
 | 门禁维度 | 已有证据入口 | 尚缺证据／决定 | 当前结论 |
 |---|---|---|---|
 | 业务与安全 | `docs/acceptance/M15/`；M14/M15 台账 | 核查部署版本差异及本轮变更影响，引用准确场景编号 | 待引用核对 |
-| 数据库恢复 | `docs/acceptance/M16/dr-drill/` | 随机逐字段抽样、附件与配置恢复、实际 WAL/PITR 恢复覆盖须核查；归档配置不等于恢复成功 | 部分证据已有，不勾 A2 |
-| 容量 | `docs/acceptance/M16/perf/` | 250 VU 的 P95 与资源阈值未达标；需扩容复验或明确人工试点范围决定，禁止降低原阈值冒充 A3 全过 | A3 未通过 |
-| 故障与升级 | `docs/acceptance/M16/fault-drill/` | 四场景之外的下游超时、告警分级触达、健康页时间线、滚动升级、应用回滚及版本不同步仍须核查 | A4/A5 未全覆盖 |
-| 范围决议 | `docs/文档-代码实现对齐表.md` DR-03/04/05 | 流程只读、分步表单、移动适配须补齐或取得人工批准 | 待决定 |
+| 数据库恢复 | `docs/acceptance/M16/dr-drill/`；**v2 全量：`dr-drill-v2/`（2026-11-17）** | ~~随机逐字段抽样、附件与配置恢复、实际 WAL/PITR 恢复覆盖须核查~~ → v2 已全部执行（含真实缺陷修复）；PITR 点位恢复登记运维手册项 | **A2 完整证据已有**（dr-drill-v2/DR-drill-v2-report.md） |
+| 容量 | `docs/acceptance/M16/perf/`；**复验：`perf-reverify/`（2026-11-17）** | 250VU 如实未达标（150VU 已 FAIL）；分档资源时间线与发布独立 P95 已补 | A3 达标部分完成；**250VU 已裁决选 B**（2026-11-17：100VU 安全水位+单实例声明，250VU 随 Phase 2 多实例重验——PERF-reverify-report.md §3） |
+| 故障与升级 | `docs/acceptance/M16/fault-drill/`；**映射真源：`TC-coverage-matrix.md`（2026-11-17）** | TC-FT/TC-UP 全量映射完成；连接池占满真实性已复核；**TC-FT-05 告警触达未执行（上线前阻断）**；TC-FT-03/TC-UP-01 架构性 N/A 已声明 | A4/A5 映射完成；**告警通道待接通** |
+| 范围决议 | `docs/文档-代码实现对齐表.md` DR-03/04/05；**裁决材料：`pilot-scope-decision.md`（2026-11-17）** | 六项缺口 A/B/C 选项与代价已列明 | **已批准**（2026-11-17）：1=B/2=C+B/3=C/4=C（试点不含审批）/5=C/6=B——pilot-scope-decision.md §批准记录即试点范围边界真源 |
 | 运维驻留 | T7/T9 | 验收面与隧道保留／清理决定、执行窗口与完成记录 | 待决定，禁止擅自清理 |
 | 上线批准 | T8 | 独立审查、G1-G7 精确引用、试点范围、回滚条件、批准人 | 未批准 |
 
 本节是差距核查清单，不是正式 gate-lpilot-report，不构成独立审查或 accepted 证据。后续核查须补入实际文件及场景编号，不仅引用目录。
+**更新（2026-11-17）**：§T6 差距补齐执行结果（见本节末尾）已完成三线交付——A2 完整证据、A3 修正口径证据与 250VU 裁决请求、A4/A5 映射真源。**裁决更新（2026-11-17）**：250VU 已裁决选 B、试点范围六项已批准（见 §8 表）。仍开放阻断项：告警通道（TC-FT-05）、验收面去留（T7/T9）。
 
 ### T6 证据定位结果（2026-11-16）
 
@@ -155,3 +156,44 @@ M15 已 accepted（公网验收环境通过业务+安全双套件），但 **M15
 5. `resource-peak.json` 是 1192 个采样的汇总峰值（CPU 100%、内存 90.5%、连接 18），无分档时间关联，不能证明 100 VU 时 CPU <70% 或连接池 <80%。补充按运行档位关联资源时间线及连接池分母。
 
 下一项安全可执行工作：核查本地演练脚本，补非空附件／配置恢复和随机逐字段校验的可重复检查；只准备脚本与测试，不擅自重跑服务器演练。压测补发布独立指标与分档资源映射，保留旧证据，不覆盖历史结果。
+
+### T6 差距补齐执行结果（2026-11-17，用户指令「开始执行空缺内容，进行补充」）
+
+三线交付全部完成，证据按 run 归档：
+
+**一、恢复门禁（A2）——已完整执行（不再部分）**
+- 演练：`scripts/acceptance/m16-relaunch/dr-drill-full.sh`（v2 全量脚本）；结果：`docs/acceptance/M16/dr-drill-v2/`（dr-drill-result-v2.json + rowfield-check.json + attachment-check.json + smoke-business.json + dr-drill-run.log + DR-drill-v2-report.md）
+- 随机逐字段：抽样逐字段比对一致率 100%（0 差异），静态表（page_schema/meta_model/meta_field/sys_user/file_object/flyway）全量逐字段比对
+- 非空附件：探针经真实 API（presign→PUT→complete）灌入 → 备份 → 恢复 → 11/11 sha256 一致 + 恢复实例下载内容哈希匹配
+- 配置恢复：env 副本 → 恢复实例以副本启动成功（health 200）；敏感值不入证据
+- 业务冒烟：独立实例 18095 四链路全通（登录/运行态页面/数据查询/附件下载）
+- RTO 口径：T0=宣布灾难→T2=四链路冒烟全通，秒记录分钟换算；实测 0.1min（口径写入结果 JSON timingScope 字段）
+- PITR/RPO：WAL 实测追加（pg_switch_wal 后 26→27）；精确 PITR 点位恢复如实登记 `pendingOutsideDrill`——不冒充已完成
+- 失败与清理：EXIT trap 全路径清理；演练库销毁、实例停止、探针清理（含历史轮次残留 11 个）全部确认
+- **真实缺陷修复**：pg_dump 恢复后表属主=postgres 致应用无权（旧演练从未启动实例故未暴露）→ 恢复操作规程补属主重赋步骤（脚本内置）
+
+**二、容量门禁（A3）——修正口径复验完成，250VU 裁决请求已呈报**
+- 脚本：`perf-reverify.js`（ramping 混合）+ `perf-level-steady.js`（50/100/150 定档）+ `perf-reverify-run.sh`/`perf-levels-run.sh`
+- 结果：`docs/acceptance/M16/perf-reverify/`（levels-result.json + k6-level*.json + resources-*.csv 时间线 + PERF-reverify-report.md）
+- 定档：50VU 全 PASS（query 338ms）；100VU 全 PASS（query 1037ms）；150VU 全 FAIL（2.5-2.7s，exit=99 如实保留）
+- 发布独立 P95：50/100/150 各档独立导出（66/855/2658ms）
+- 资源分档关联：1s 采样按档独立成文件；连接池分母澄清（Hikari max=10，PG 侧稳定 17，瓶颈为应用 CPU 非 PG 连接）
+- 错误率口径：expectedStatuses 修正（旧轮 72.55% failed 为 csrf/health 401 与 304 的口径伪影）；本轮业务 check 全档 0 失败
+- 250VU：如实登记不可达（150VU 已 FAIL）；裁决选项 A 扩容复验 / B 容量调整批准已写入报告 §3 待用户裁决——**禁止降阈值冒充 A3 全过**
+
+**三、故障与升级门禁（A4/A5）——TC 全量映射完成**
+- 映射真源：`docs/acceptance/M16/fault-drill/TC-coverage-matrix.md`（TC-FT 01-06 / TC-UP 01-04 逐项：PASS/PARTIAL/NOT-RUN/N-A + 证据引用 + 处置）
+- TC-FT-01 连接池真实性复核：占 20 连接（>池上限两倍）期间业务 200/0s（池内排队不雪崩）、恢复自愈、清理后连接回落基线——「启动 20 连接」不再被质疑未真实占满
+- TC-FT-05 告警触达：**仍未执行**——接收端凭据未配置，登记为上线前阻断项（脚本侧 webhook 告警位已就绪）
+- TC-FT-03 下游超时 / TC-UP-01 滚动升级：单实例架构无注入点，判定不适用（N/A）并声明为 Phase 2 演练项——不冒充通过
+
+**四、范围决议材料——已裁决（2026-11-17）**
+- `docs/acceptance/M16/pilot-scope-decision.md`：六项缺口裁决生效——1 分步表单=B 入口限制 / 2 移动端=C+B 桌面端试点 / 3 流程画布=C / 4 流程服务=C（试点不含审批）/ 5 外部集成=C / 6 云存储=B 单实例声明；批准记录表即试点范围边界真源
+
+**仍开放的阻断项（转入上线批准门禁）**：
+1. TC-FT-05 告警通道接通（需接收端凭据）——上线前必须实测触达
+2. ~~250VU 容量裁决~~ → 已裁决选 B（100VU 安全水位+单实例声明，PERF-reverify-report.md §3）
+3. ~~试点范围六项裁决~~ → 已批准（pilot-scope-decision.md §批准记录）
+4. 验收面/隧道去留决定（T7/T9 范畴，本轮未动）
+
+本节执行结果构成 A2 完整证据 + A3 修正口径证据 + A4/A5 映射真源；**不构成上线批准**——独立审查与人工批准仍按 §8 门禁执行。

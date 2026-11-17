@@ -1,0 +1,21 @@
+{
+  "smokedAt": "2026-11-17T03:49:24.650276Z",
+  "login": {
+    "pass": true,
+    "http": 200
+  },
+  "pageSchema": {
+    "pass": true,
+    "http": 200
+  },
+  "dataQuery": {
+    "pass": true,
+    "http": 200
+  },
+  "attachmentDownload": {
+    "pass": true,
+    "http": 200,
+    "sha16": "f72dee40bfd9e24c",
+    "contentMatchProbe": true
+  }
+}

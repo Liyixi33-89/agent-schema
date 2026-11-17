@@ -1,0 +1,155 @@
+{
+  "executedAt": "2026-11-17T04:37:41.414245Z",
+  "levels": {
+    "50VU": {
+      "publish": {
+        "p95": 66.4,
+        "avg": 23.4
+      },
+      "query": {
+        "p95": 338.2,
+        "avg": 112.3
+      },
+      "write": {
+        "p95": 51.0,
+        "avg": 22.1
+      },
+      "failedRate": 0,
+      "totalReqs": 8368,
+      "checks": {
+        "query ok": {
+          "passes": 5778,
+          "fails": 0
+        },
+        "publish ok": {
+          "passes": 807,
+          "fails": 0
+        },
+        "write 2xx": {
+          "passes": 1683,
+          "fails": 0
+        }
+      },
+      "thresholds": [
+        {
+          "verdict": "PASS",
+          "detail": "✓ 'p(95)<1500' p(95)=66.43ms"
+        },
+        {
+          "verdict": "PASS",
+          "detail": "✓ 'p(95)<1500' p(95)=338.19ms"
+        },
+        {
+          "verdict": "PASS",
+          "detail": "✓ 'p(95)<1500' p(95)=51ms"
+        }
+      ],
+      "resource": {
+        "cpuMax": 100.0,
+        "memMax": 87.5,
+        "pgConnMax": 17.0,
+        "javaRssMax": 402.0
+      }
+    },
+    "100VU": {
+      "publish": {
+        "p95": 855.3,
+        "avg": 335.1
+      },
+      "query": {
+        "p95": 1036.6,
+        "avg": 507.9
+      },
+      "write": {
+        "p95": 809.1,
+        "avg": 330.6
+      },
+      "failedRate": 0,
+      "totalReqs": 12490,
+      "checks": {
+        "write 2xx": {
+          "passes": 2464,
+          "fails": 0
+        },
+        "query ok": {
+          "passes": 8582,
+          "fails": 0
+        },
+        "publish ok": {
+          "passes": 1244,
+          "fails": 0
+        }
+      },
+      "thresholds": [
+        {
+          "verdict": "PASS",
+          "detail": "✓ 'p(95)<1500' p(95)=855.27ms"
+        },
+        {
+          "verdict": "PASS",
+          "detail": "✓ 'p(95)<1500' p(95)=1.03s"
+        },
+        {
+          "verdict": "PASS",
+          "detail": "✓ 'p(95)<1500' p(95)=809.1ms"
+        }
+      ],
+      "resource": {
+        "cpuMax": 100.0,
+        "memMax": 88.0,
+        "pgConnMax": 17.0,
+        "javaRssMax": 412.0
+      }
+    },
+    "150VU": {
+      "publish": {
+        "p95": 2657.5,
+        "avg": 1177.4
+      },
+      "query": {
+        "p95": 2748.4,
+        "avg": 1318.7
+      },
+      "write": {
+        "p95": 2541.1,
+        "avg": 1138.1
+      },
+      "failedRate": 0,
+      "totalReqs": 12069,
+      "checks": {
+        "write 2xx": {
+          "passes": 2316,
+          "fails": 0
+        },
+        "publish ok": {
+          "passes": 1159,
+          "fails": 0
+        },
+        "query ok": {
+          "passes": 8294,
+          "fails": 0
+        }
+      },
+      "thresholds": [
+        {
+          "verdict": "FAIL",
+          "detail": "✗ 'p(95)<1500' p(95)=2.65s"
+        },
+        {
+          "verdict": "FAIL",
+          "detail": "✗ 'p(95)<1500' p(95)=2.74s"
+        },
+        {
+          "verdict": "FAIL",
+          "detail": "✗ 'p(95)<1500' p(95)=2.54s"
+        }
+      ],
+      "resource": {
+        "cpuMax": 100.0,
+        "memMax": 88.7,
+        "pgConnMax": 17.0,
+        "javaRssMax": 419.0
+      }
+    }
+  }
+}

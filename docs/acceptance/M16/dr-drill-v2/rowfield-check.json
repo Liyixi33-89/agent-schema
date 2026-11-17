@@ -1,0 +1,97 @@
+{
+  "verifiedAt": "2026-11-17T03:49:16.809720Z",
+  "tables": {
+    "biz_model_1": {
+      "rows": 10,
+      "sampled": 10,
+      "diffs": 0
+    },
+    "biz_model_10": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_11": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_12": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_13": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_14": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_2": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_3": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_4": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_5": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_6": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_7": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_8": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "biz_model_9": {
+      "rows": 0,
+      "sampled": 0,
+      "diffs": 0
+    },
+    "page_schema": {
+      "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT id,tenant_id,app_id,page_key,name,page_type,model_id,path,draft,draft_v"
+    },
+    "meta_model": {
+      "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT id,tenant_id,app_id,model_key,name,icon,status,deleted_at,current_versi"
+    },
+    "meta_field": {
+      "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT id,tenant_id,model_id,field_key,label,field_type,field_status,deleted_a"
+    },
+    "sys_user": {
+      "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT id,tenant_id,account,name,password_hash,dept_id,status,must_change_pass"
+    },
+    "file_object": {
+      "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT id,tenant_id,app_id,scope,object_key,file_name,content_type,size_bytes,"
+    },
+    "flyway_schema_history": {
+      "error": "Command '['su', '-', 'postgres', '-c', 'psql -d schema_acceptance -Atc \"SELECT installed_rank,version,description,type,script,checksum,installed_by,in"
+    }
+  },
+  "totalSampled": 10,
+  "totalDiffs": 0,
+  "diffSamples": [],
+  "consistencyRate": 1.0
+}
