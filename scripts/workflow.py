@@ -300,8 +300,17 @@ def coverage_issues(task):
             issues.append(label + ': missing baseline source or observable condition')
         if r.get('status') == 'deferred':
             approval = r.get('deferral') or {}
-            if not all(approval.get(k) for k in ('approvedBy', 'reference', 'owner', 'workPackage')):
+            if not isinstance(approval, dict):
+                issues.append(label + ': invalid deferral approval structure')
+                continue
+            if not all(isinstance(approval.get(k), str) and approval[k].strip()
+                       for k in ('approvedBy', 'reference', 'owner', 'workPackage')):
                 issues.append(label + ': missing explicit deferral approval or owner')
+            approver = approval.get('approvedBy')
+            implementer = task.get('implementedBy')
+            if (isinstance(approver, str) and isinstance(implementer, str)
+                    and approver.strip().casefold() == implementer.strip().casefold()):
+                issues.append(label + ': implementer cannot approve own deferral')
             continue
         if r.get('status') != 'passed':
             issues.append(label + ': requirement not verified')
