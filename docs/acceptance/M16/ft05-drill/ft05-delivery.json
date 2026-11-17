@@ -1,0 +1,26 @@
+[
+  {
+    "level": "P1",
+    "text": "[TC-FT-05 演练] TC-FT-01 连接池耗尽注入：健康 401 查询 200",
+    "send_ts": 1794896538.714,
+    "recv_at": "2026-11-17T06:22:18.724Z",
+    "latency_ms": 10.3,
+    "delivered": true
+  },
+  {
+    "level": "P2",
+    "text": "[TC-FT-05 演练] TC-FT-02 单行锁注入：其他行查询 200",
+    "send_ts": 1794896551.953,
+    "recv_at": "2026-11-17T06:22:31.964Z",
+    "latency_ms": 11.6,
+    "delivered": true
+  },
+  {
+    "level": "P0",
+    "text": "[TC-FT-05 演练] TC-FT-04 后端进程即将 kill -9（演练注入）pid=2515627",
+    "send_ts": 1794896555.002,
+    "recv_at": "2026-11-17T06:22:35.012Z",
+    "latency_ms": 10.4,
+    "delivered": true
+  }
+]

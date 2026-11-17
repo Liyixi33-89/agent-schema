@@ -1,0 +1,30 @@
+{"at":"2026-11-17T06:20:05.502Z","event":"drill_start","detail":{"scenario":"TC-FT-05 alert delivery + TC-FT-06 dashboard cross-check","target":"http://127.0.0.1:18083"}}
+{"at":"2026-11-17T06:20:05.518Z","event":"receiver_probe","detail":{"resp":"{"ok": true, "recv_t"}}
+{"at":"2026-11-17T06:20:05.547Z","event":"ft01_start","detail":{"scenario":"pool exhaustion 20 idle-in-transaction"}}
+{"at":"2026-11-17T06:20:17.747Z","event":"ft01_observe","detail":{"healthCode":401,"queryCode":200}}
+{"at":"2026-11-17T06:20:17.775Z","event":"alert_sent","detail":{"level":"P1","send_ts":1794896417.761,"receiverResp":"{"errcode": 0, "errmsg": "ok"}"}}
+{"at":"2026-11-17T06:20:22.819Z","event":"ft02_start","detail":{"scenario":"single-row FOR UPDATE 30s"}}
+{"at":"2026-11-17T06:20:30.976Z","event":"ft02_observe","detail":{"queryCode":200}}
+{"at":"2026-11-17T06:20:31.001Z","event":"alert_sent","detail":{"level":"P2","send_ts":1794896430.988,"receiverResp":"{"errcode": 0, "errmsg": "ok"}"}}
+{"at":"2026-11-17T06:20:34.024Z","event":"ft04_start","detail":{"pid":2076252,"scenario":"kill -9 + restart, RTO"}}
+{"at":"2026-11-17T06:20:34.048Z","event":"alert_sent","detail":{"level":"P0","send_ts":1794896434.036,"receiverResp":"{"errcode": 0, "errmsg": "ok"}"}}
+{"at":"2026-11-17T06:20:37.065Z","event":"ft04_observe","detail":{"healthCode":000000}}
+{"at":"2026-11-17T06:20:43.745Z","event":"ft04_recovered","detail":{"rtoSeconds":9}}
+{"at":"2026-11-17T06:20:45.774Z","event":"inbox_check","detail":{"before":1,"after":4,"expect":"4"}}
+{"at":"2026-11-17T06:20:45.818Z","event":"dashboard_post_drill","detail":{"opsHealthCode":401,"note":"post-drill ops endpoint regression"}}
+{"at":"2026-11-17T06:20:45.853Z","event":"drill_end","detail":{"delivery":"False","inboxAfter":4}}
+{"at":"2026-11-17T06:22:06.470Z","event":"drill_start","detail":{"scenario":"TC-FT-05 alert delivery + TC-FT-06 dashboard cross-check","target":"http://127.0.0.1:18083"}}
+{"at":"2026-11-17T06:22:06.482Z","event":"receiver_probe","detail":{"resp":"{"ok": true, "recv_t"}}
+{"at":"2026-11-17T06:22:06.507Z","event":"ft01_start","detail":{"scenario":"pool exhaustion 20 idle-in-transaction"}}
+{"at":"2026-11-17T06:22:18.701Z","event":"ft01_observe","detail":{"healthCode":401,"queryCode":200}}
+{"at":"2026-11-17T06:22:18.727Z","event":"alert_sent","detail":{"level":"P1","send_ts":1794896538.714,"receiverResp":"{"errcode": 0, "errmsg": "ok"}"}}
+{"at":"2026-11-17T06:22:23.762Z","event":"ft02_start","detail":{"scenario":"single-row FOR UPDATE 30s"}}
+{"at":"2026-11-17T06:22:31.935Z","event":"ft02_observe","detail":{"queryCode":200}}
+{"at":"2026-11-17T06:22:31.967Z","event":"alert_sent","detail":{"level":"P2","send_ts":1794896551.953,"receiverResp":"{"errcode": 0, "errmsg": "ok"}"}}
+{"at":"2026-11-17T06:22:34.989Z","event":"ft04_start","detail":{"pid":2515627,"scenario":"kill -9 + restart, RTO"}}
+{"at":"2026-11-17T06:22:35.015Z","event":"alert_sent","detail":{"level":"P0","send_ts":1794896555.002,"receiverResp":"{"errcode": 0, "errmsg": "ok"}"}}
+{"at":"2026-11-17T06:22:38.028Z","event":"ft04_observe","detail":{"healthCode":000000}}
+{"at":"2026-11-17T06:22:44.609Z","event":"ft04_recovered","detail":{"rtoSeconds":9}}
+{"at":"2026-11-17T06:22:46.638Z","event":"inbox_check","detail":{"before":0,"after":3,"expect":"3"}}
+{"at":"2026-11-17T06:22:46.675Z","event":"dashboard_post_drill","detail":{"opsHealthCode":401,"note":"post-drill ops endpoint regression"}}
+{"at":"2026-11-17T06:22:46.703Z","event":"drill_end","detail":{"delivery":"True","inboxAfter":3}}

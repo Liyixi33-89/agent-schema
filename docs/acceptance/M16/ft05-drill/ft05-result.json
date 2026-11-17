@@ -1,0 +1,11 @@
+{
+  "scenario": "TC-FT-05 alert delivery + TC-FT-06 dashboard cross-check",
+  "channel": "self-hosted webhook receiver 127.0.0.1:18098 (HTTP POST, dingtalk-compatible response)",
+  "alertsExpected": 3,
+  "inboxBefore": 0,
+  "inboxAfter": 3,
+  "delivery": "PASS",
+  "p95LatencyTarget": "<5min (spec TC-FT-05)",
+  "dashboardRegression": "401",
+  "timeline": "ft05-timeline.jsonl"
+}
