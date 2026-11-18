@@ -284,3 +284,8 @@ import type {
   ChangeOp, ConfirmMode, ModelDetail, ModelField, ModelSummary, PrecheckResp, Risk, Severity, VersionRow,
 } from '@schema/data-model-designer';
 export type { ChangeOp, ConfirmMode, ModelDetail, ModelField, ModelSummary, PrecheckResp, Risk, Severity, VersionRow };
+
+// ---------- 应用级单例（原 main.tsx 模块级 api——渐进重构第三批原样迁移） ----------
+
+/** 工作台共享 ApiClient 单例（构造零副作用，模块加载即安全）。 */
+export const api = new ApiClient();
