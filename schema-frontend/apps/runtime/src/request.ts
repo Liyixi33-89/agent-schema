@@ -108,6 +108,21 @@ export class RequestClient {
     return this.post(`/api/data/${modelId}/query`, body);
   }
 
+  /**
+   * 聚合查询（02BE §3.6 / spec 017）：请求体字段名对齐后端 AggregateBuilder.parseRequest
+   * （measures/groupField/groupTopN/bucketField/bucketInterval）；响应 {rows} 直返。
+   */
+  async aggregate(modelId: string | number, body: {
+    filter?: FilterNode | Record<string, unknown>;
+    measures: { fieldKey: string; func: string }[];
+    groupField?: string;
+    groupTopN?: number;
+    bucketField?: string;
+    bucketInterval?: string;
+  }): Promise<unknown> {
+    return this.post(`/api/data/${modelId}/aggregate`, body);
+  }
+
   /** 记录详情。 */
   async detail(modelId: string | number, recordId: string | number): Promise<unknown> {
     const resp = await this.request(`/api/data/${modelId}/${recordId}`, { headers: this.headers() });

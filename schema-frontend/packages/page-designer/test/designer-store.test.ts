@@ -279,9 +279,9 @@ describe('表达式设计态校验（A6 单测面）', () => {
 });
 
 describe('物料面板元数据（T3）', () => {
-  it('15 物料全量登记且 componentName 与清单一致', () => {
-    expect(PANEL_MATERIALS_COUNT()).toBe(15);
-    for (const m of ['TextInput', 'FormItem', 'SectionCard', 'PrimaryButton', 'DataTable']) {
+  it('18 物料全量登记且 componentName 与清单一致（15 基础 + 3 图表，spec 017）', () => {
+    expect(PANEL_MATERIALS_COUNT()).toBe(18);
+    for (const m of ['TextInput', 'FormItem', 'SectionCard', 'PrimaryButton', 'DataTable', 'MetricCard', 'BarChart', 'LineChart']) {
       expect(panelMaterial(m)).toBeDefined();
     }
   });
@@ -295,9 +295,9 @@ describe('物料面板元数据（T3）', () => {
     }
   });
 
-  it('面板分组齐全（输入/布局/动作/数据/展示）', () => {
+  it('面板分组齐全（输入/布局/动作/数据/展示/图表——spec 017 图表物料组）', () => {
     const groups = panelGroups().map((g) => g.title);
-    expect(groups).toEqual(['输入', '布局', '动作', '数据', '展示']);
+    expect(groups).toEqual(['输入', '布局', '动作', '数据', '展示', '图表']);
   });
 
   it('propsSchema 含联动规则组的物料可校验表达式', () => {

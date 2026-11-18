@@ -16,6 +16,7 @@
     "@schema/schema-form": "workspace:*",
     "@schema/schema-renderer": "workspace:*",
     "@schema/component-materials": "workspace:*",
+    "@schema/chart-kit": "workspace:*",
     "@schema/schema-protocol": "workspace:*",
     "@schema/usage-tracker": "workspace:*",
     "@schema/auth-sdk": "workspace:*",
