@@ -5,61 +5,36 @@
  * - 字段抽屉：类型/字段名创建后禁用（后端铁律前端呈现）；ADD/MODIFY/DELETE/PROMOTE
  * - 两段式保存：precheck → 风险面板（severity 排序）→ 三档确认 → saveSchema；409/422 分态处理
  * - 版本时间线：diff 摘要 + rollback_from 标记；回滚走独立 precheck（confirmValue=模型名）
+ *
+ * 渐进重构第二批：字段编辑抽屉拆至 FieldEditorDrawer、弹层组拆至 ModelDialogs、
+ * 共享类型拆至 modelTabShared——本文件收敛为状态与编排容器。
  */
 import React from 'react';
 import {
-  Button, Checkbox, Drawer, Empty, Form, Input, List, message, Modal, Popconfirm,
-  Select, Space, Spin, Tag, Timeline, Tooltip, Typography,
+  Button, Empty, Form, Input, message, Modal, Space, Spin, Tag, Typography,
 } from 'antd';
-import { ApiError, type ApiClient, type ModelDetail, type ModelField, type ModelSummary, type PrecheckResp, type VersionRow } from './api';
+import { ApiError, type ApiClient, type ModelDetail, type ModelSummary, type PrecheckResp, type VersionRow } from './api';
 import ErCanvas from './ErCanvas';
 import {
-  buildPatch, effectiveConfirmMode, gridLayout, layeredLayout, isRollbackNoop,
+  effectiveConfirmMode, layeredLayout,
   loadLayoutDraft, saveLayoutDraft, extractRelationEdges,
-  buildDraftChanges, buildConflictRows, adoptServerDraft, isDuplicateFieldKey,
-  RELATION_CARDINALITIES, RELATION_CASCADES, COMPUTED_PERSIST_MODES,
-  type ChangeOp, type ConflictRow, type SavePhase,
+  buildDraftChanges, buildConflictRows,
+  type ChangeOp, type ConflictRow,
 } from '@schema/data-model-designer';
-
-const TYPE_OPTIONS = [
-  'text', 'number', 'date', 'enum', 'boolean', 'file', 'richtext',
-  'relation', 'geo', 'user', 'dept', 'computed',
-].map((t) => ({ value: t, label: t }));
-
-const SEVERITY_COLOR: Record<string, string> = { HIGH: 'red', MEDIUM: 'orange', INFO: 'blue' };
-const RISK_LABEL: Record<string, string> = {
-  PAGE_REF: '页面引用', FLOW_REF: '流程引用', SCRIPT_REF: '脚本引用',
-  API_CONSUMER: '外部 API 调用', DATA_VOLUME: '存量数据',
-};
-
-/** 待保存变更的编辑态模型（本地草稿——保存成功才回写服务端版本）。 */
-interface DraftField extends ModelField {
-  /** 本地删除标记（生成 DELETE_FIELD 变更）。 */
-  _deleted?: boolean;
-}
-
-interface DraftModel {
-  detail: ModelDetail;
-  fields: DraftField[];
-  /** 编辑基线（加载时快照）——409 三方对比的合并起点；与服务端 detail 分离。 */
-  baseFields: ModelField[];
-}
-
-/** 详情加载状态：null=未加载；'loading' 进行中；失败标记便于重试。 */
-type DetailState = DraftModel | 'loading' | 'error';
+import {
+  DELETE_ACK_IDX, handleError,
+  type DraftField, type DraftModel, type DetailState,
+} from './modelTabShared';
+import FieldEditorDrawer from './FieldEditorDrawer';
+import { ConflictModal, SaveConfirmModal, VersionsDrawer, serverDraftOf } from './ModelDialogs';
 
 export default function ModelTab({ api, appId }: { api: ApiClient; appId: number }): React.ReactElement {
   const [models, setModels] = React.useState<ModelSummary[] | null>(null);
   const [details, setDetails] = React.useState<Record<string, DetailState>>({});
   const [selected, setSelected] = React.useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
-  const [editing, setEditing] = React.useState<DraftField | null>(null);
-  const [editingIndex, setEditingIndex] = React.useState(-1);
-  /** 新增场景受控类型（配置表单渲染驱动——fieldForm.getFieldValue 不触发重渲染）。 */
-  const [editingType, setEditingType] = React.useState<string | undefined>(undefined);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [createForm] = Form.useForm();
-  const [fieldForm] = Form.useForm();
   // 画布坐标草稿（视图态）
   const [positions, setPositions] = React.useState<Record<string, { x: number; y: number }>>({});
   /** 画布重挂载纪元（坐标批量重排后递增——React Flow 全量重建节点时 Handle 测量竞态
@@ -86,6 +61,10 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
   const [rollbackTarget, setRollbackTarget] = React.useState<number | null>(null);
   const [rollbackConfirm, setRollbackConfirm] = React.useState('');
   const [rollbackPre, setRollbackPre] = React.useState<PrecheckResp | null>(null);
+  // 回滚预检失败标记（弹层提供重试入口——不允许永久停在加载态）
+  const [rollbackPreFailed, setRollbackPreFailed] = React.useState(false);
+  // 连线预填（画布连线 → 字段抽屉 relation 预填；null=常规打开）
+  const [presetRelation, setPresetRelation] = React.useState<{ targetModelId: string } | null>(null);
 
   const tenantId = localStorage.getItem('schema_tenant') ?? '1';
   /** 画布坐标合理域上限——超出视为旧草稿退化（单行超宽），自动重排（视图态非业务数据）。 */
@@ -118,6 +97,10 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
     }
   }, [api, appId, tenantId]);
 
+  /** 选中对象追踪（refreshDetail 旧响应判定用——避免闭包读到旧 selected）。 */
+  const selectedRef = React.useRef<string | null>(null);
+  React.useEffect(() => { selectedRef.current = selected; }, [selected]);
+
   /**
    * 强制重拉单个模型详情（保存/回滚/放弃后调用——懒加载缓存必须失效，否则版本号与字段集停留旧态）。
    * opts.background=true：批量后台加载路径——不参与请求序号竞争（否则批量请求互相判旧全部丢弃）；
@@ -136,7 +119,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
         // 误判为复活（ADD_FIELD 误发，后端 400 FIELD_STATUS 冲突）
         [id]: {
           detail: d,
-          fields: d.fields.map((f: ModelField) => ({ ...f, ...(f.fieldStatus === 'DELETED' ? { _deleted: true } : {}) })),
+          fields: d.fields.map((f) => ({ ...f, ...(f.fieldStatus === 'DELETED' ? { _deleted: true } : {}) })),
           baseFields: d.fields,
         },
       }));
@@ -147,10 +130,6 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
       return null;
     }
   }, [api, appId]);
-
-  /** 选中对象追踪（refreshDetail 旧响应判定用——避免闭包读到旧 selected）。 */
-  const selectedRef = React.useRef<string | null>(null);
-  React.useEffect(() => { selectedRef.current = selected; }, [selected]);
 
   /** 选中即拉取该模型详情（单请求——画布字段数与版本号渐进呈现）。 */
   const ensureDetail = React.useCallback(async (id: string) => {
@@ -215,6 +194,7 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
   /** 打开抽屉入口：选中 + 拉详情。 */
   const openDrawer = React.useCallback((id: string) => {
     setSelected(id);
+    setPresetRelation(null);
     setDrawerOpen(true);
     void ensureDetail(id);
   }, [ensureDetail]);
@@ -301,9 +281,6 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
     return true;
   };
 
-  /** 删除确认专用勾选位（不占 risks 下标——负数防冲突）。 */
-  const DELETE_ACK_IDX = -1;
-
   const submitConfirm = async (): Promise<void> => {
     if (!selectedDetail || !precheck) return;
     setSaving(true);
@@ -367,9 +344,6 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
     }
   };
 
-  // 回滚预检失败标记（弹层提供重试入口——不允许永久停在加载态）
-  const [rollbackPreFailed, setRollbackPreFailed] = React.useState(false);
-
   const runRollback = React.useCallback(async (target: number): Promise<void> => {
     setSaving(true);
     setRollbackPreFailed(false);
@@ -416,11 +390,14 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
 
   // ---------- 渲染 ----------（关系边几何已全部移入 ErCanvas）
 
-  const severitySorted = React.useMemo(() => {
-    if (!precheck) return [];
-    const rank = { HIGH: 3, MEDIUM: 2, INFO: 1 } as const;
-    return precheck.risks.map((r, i) => ({ ...r, i })).sort((a, b) => rank[b.severity] - rank[a.severity]);
-  }, [precheck]);
+  /** 字段集变更（FieldEditorDrawer 回写——本地草稿态）。 */
+  const onFieldsChange = (fields: DraftField[]): void => {
+    setDetails((d) => {
+      const cur = d[selected!];
+      if (!cur || cur === 'loading' || cur === 'error') return d;
+      return { ...d, [selected!]: { ...cur, fields } };
+    });
+  };
 
   return (
     <>
@@ -465,14 +442,9 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
           onConnectModels={(sourceId, targetId) => {
             // 连线创建：打开 source 模型字段抽屉并预填 relation 目标（表单提交才真正落草稿）
             setSelected(sourceId);
+            setPresetRelation({ targetModelId: targetId });
             setDrawerOpen(true);
-            void ensureDetail(sourceId).then(() => {
-              setEditing({ placeholder: 'new' } as unknown as DraftField);
-              setEditingIndex(-1);
-              setEditingType('relation');   // 受控类型同步（连线预填场景）
-              fieldForm.resetFields();
-              fieldForm.setFieldsValue({ type: 'relation', relation: { targetModelId: targetId, cardinality: '1:n', cascade: 'FORBID' } });
-            });
+            void ensureDetail(sourceId);
           }}
           onDeleteEdge={(sourceModelId, sourceFieldKey) => {
             // 删除边 = 删除对应 relation 字段（走字段变更协议——两段式保存确认）
@@ -511,497 +483,77 @@ export default function ModelTab({ api, appId }: { api: ApiClient; appId: number
       </Modal>
 
       {/* 字段编辑抽屉（error 态也开——失败可见可重试，不允许静默「无反应」） */}
-      <Drawer title={`${selectedDetail?.detail.name ?? models?.find((m) => m.id === selected)?.name ?? ''} · 字段编辑`} width={480}
-        open={drawerOpen && (!!selectedDetail || selectedEntry === 'error')}
-        destroyOnClose
-        onClose={() => { setDrawerOpen(false); setEditing(null); }}>
-        {selectedEntry === 'error' && (
-          <div style={{ textAlign: 'center', padding: 48 }}>
-            <Typography.Text type="danger">详情加载失败——本地无数据缓存，请重试。</Typography.Text>
-            <div style={{ marginTop: 16 }}>
-              <Button type="primary" onClick={() => { if (selected) void ensureDetail(selected); }}>重试加载</Button>
-              <Button style={{ marginLeft: 8 }} onClick={() => { setDrawerOpen(false); }}>关闭</Button>
-            </div>
-          </div>
-        )}
-        {selectedDetail && (
-          <>
-            <Space style={{ marginBottom: 12 }}>
-              <Button size="small" onClick={() => {
-                setEditing(null);
-                setEditingIndex(-1);
-                setEditingType(undefined);
-                fieldForm.resetFields();
-                setEditing({ placeholder: 'new' } as unknown as DraftField);
-              }}>新增字段</Button>
-              <Typography.Text type="secondary">
-                字段标识/类型创建后不可改；删除走软删（保存时强制高规格确认）。
-              </Typography.Text>
-            </Space>
-            {editing && (
-              <div style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 12, marginBottom: 12, background: '#fafafa' }}>
-                <Typography.Text strong>{editingIndex >= 0 ? `修改字段：${selectedDetail.fields[editingIndex].fieldKey}` : '新增字段'}</Typography.Text>
-                <Form form={fieldForm} layout="vertical" style={{ marginTop: 8 }}
-                  initialValues={editingIndex >= 0 ? {
-                    label: selectedDetail.fields[editingIndex].label,
-                    type: selectedDetail.fields[editingIndex].type,
-                    required: selectedDetail.fields[editingIndex].required,
-                  } : undefined}>
-                  {editingIndex < 0 && (
-                    <>
-                      <Form.Item name="fieldKey" label="字段标识（field_key）"
-                        rules={[{ required: true, pattern: /^[a-z][a-z0-9_]{0,63}$/, message: '小写字母开头' }]}>
-                        <Input placeholder="如 amount" />
-                      </Form.Item>
-                      <Form.Item name="type" label="字段类型（12 种冻结枚举）" rules={[{ required: true }]}>
-                        <Select options={TYPE_OPTIONS} onChange={(newType) => {
-                          // 类型切换清理：不适用配置的旧表单值必须清除（防残留误发——后端 FIELD_CONFIG_INVALID 兜底）
-                          const prev = editingType;
-                          if (prev && prev !== newType) {
-                            fieldForm.setFieldsValue({ enumOptionsStr: undefined, relation: undefined, computed: undefined });
-                          }
-                          setEditingType(newType as string);   // 受控驱动配置表单渲染（getFieldValue 不触发重渲染——配置表单永不出现的缺陷）
-                        }} />
-                      </Form.Item>
-                    </>
-                  )}
-                  {editingIndex >= 0 && (
-                    <>
-                      <Form.Item label="字段标识">
-                        <Input disabled value={selectedDetail.fields[editingIndex].fieldKey} />
-                      </Form.Item>
-                      <Form.Item label="字段类型">
-                        <Select disabled value={selectedDetail.fields[editingIndex].type} options={TYPE_OPTIONS} />
-                      </Form.Item>
-                    </>
-                  )}
-                  <Form.Item name="label" label="显示名称" rules={[{ required: true, message: '请输入名称' }]}>
-                    <Input maxLength={128} />
-                  </Form.Item>
-                  <Form.Item name="required" valuePropName="checked" label="必填">
-                    <Checkbox />
-                  </Form.Item>
-                  {/* 类型相关配置（01BE §4.2 步骤 4：enum→enumOptions / relation→目标+基数+级联 / computed→表达式+依赖） */}
-                  {(() => {
-                    const curType = editingIndex >= 0 ? selectedDetail.fields[editingIndex].type : editingType;
-                    if (!curType) return null;
-                    if (curType === 'enum') {
-                      return (
-                        <Form.Item name="enumOptionsStr" label="枚举选项（每行 value|label，value 不可重复）"
-                          rules={[{
-                            validator: (_: unknown, value: string) => {
-                              if (!value?.trim()) return Promise.resolve();
-                              const seen = new Set<string>();
-                              for (const line of value.split('\n')) {
-                                const parts = line.trim().split('|');
-                                if (parts.length !== 2 || !parts[0] || !parts[1]) return Promise.reject(new Error('格式：value|label'));
-                                if (seen.has(parts[0])) return Promise.reject(new Error(`value 重复：${parts[0]}`));
-                                seen.add(parts[0]);
-                              }
-                              return Promise.resolve();
-                            },
-                          }]}>
-                          <Input.TextArea rows={3} placeholder={'draft|草稿\napproved|已审批'} />
-                        </Form.Item>
-                      );
-                    }
-                    if (curType === 'relation') {
-                      return (
-                        <>
-                          <Form.Item name={['relation', 'targetModelId']} label="关联目标模型"
-                            rules={[{ required: true, message: '请选择目标模型' }]}>
-                            <Select options={models?.filter((mm) => mm.status === 'ACTIVE').map((mm) => ({ value: mm.id, label: `${mm.name}（${mm.modelKey}）` })) ?? []} />
-                          </Form.Item>
-                          <Form.Item name={['relation', 'cardinality']} label="基数" initialValue="1:n"
-                            rules={[{ required: true }]}>
-                            <Select options={RELATION_CARDINALITIES.map((c) => ({
-                              value: c,
-                              label: c === '1:1' ? '1:1 一对一' : c === '1:n' ? '1:n 一对多' : 'n:n 多对多',
-                            }))} />
-                          </Form.Item>
-                          <Form.Item name={['relation', 'cascade']} label="级联策略" initialValue="FORBID"
-                            rules={[{ required: true }]}>
-                            <Select options={RELATION_CASCADES.map((c) => ({
-                              value: c,
-                              label: c === 'FORBID' ? 'FORBID 禁止删除' : c === 'SET_NULL' ? 'SET_NULL 置空' : 'CASCADE_SOFT_DELETE 级联软删',
-                            }))} />
-                          </Form.Item>
-                        </>
-                      );
-                    }
-                    if (curType === 'computed') {
-                      return (
-                        <>
-                          <Form.Item name={['computed', 'expr', 'source']} label="计算表达式（白名单表达式，如 amount * 2）"
-                            rules={[{ required: true, message: '请输入表达式' }]}>
-                            <Input.TextArea rows={2} />
-                          </Form.Item>
-                          <Form.Item name={['computed', 'dependsOn']} label="依赖字段（逗号分隔）"
-                            rules={[{ required: true, message: '请填写依赖字段' }]}>
-                            <Input placeholder="amount, rate" />
-                          </Form.Item>
-                          <Form.Item name={['computed', 'persistMode']} label="持久化模式" initialValue="READ_TIME" rules={[{ required: true }]}>
-                            <Select options={COMPUTED_PERSIST_MODES.map((m) => ({
-                              value: m,
-                              label: m === 'READ_TIME' ? 'READ_TIME 读时计算' : 'PERSISTED 写时物化',
-                            }))} />
-                          </Form.Item>
-                        </>
-                      );
-                    }
-                    return null;
-                  })()}
-                </Form>
-                <Space>
-                  <Button type="primary" size="small" onClick={async () => {
-                    const v = await fieldForm.validateFields();
-                    /** 表单值 → 字段配置（enum/relation/computed；enumOptionsStr 文本按行解析）。 */
-                    const parseConfigs = (): Pick<DraftField, 'enumOptions' | 'relation' | 'computed'> => {
-                      const out: Pick<DraftField, 'enumOptions' | 'relation' | 'computed'> = {};
-                      if (typeof v.type === 'string' ? v.type === 'enum' : editingIndex >= 0 && selectedDetail.fields[editingIndex].type === 'enum') {
-                        const lines = String(v.enumOptionsStr ?? '').split('\n').filter((l) => l.trim());
-                        if (lines.length) {
-                          out.enumOptions = lines.map((l) => {
-                            const [value, label] = l.trim().split('|');
-                            return { value, label, status: 'ACTIVE' };
-                          });
-                        }
-                      }
-                      if (typeof v.type === 'string' ? v.type === 'relation' : editingIndex >= 0 && selectedDetail.fields[editingIndex].type === 'relation') {
-                        if (v.relation?.targetModelId) {
-                          out.relation = {
-                            targetModelId: String(v.relation.targetModelId),
-                            cardinality: RELATION_CARDINALITIES.includes(v.relation.cardinality) ? v.relation.cardinality : '1:n',
-                            cascade: RELATION_CASCADES.includes(v.relation.cascade) ? v.relation.cascade : 'FORBID',
-                          };
-                        }
-                      }
-                      if (typeof v.type === 'string' ? v.type === 'computed' : editingIndex >= 0 && selectedDetail.fields[editingIndex].type === 'computed') {
-                        if (v.computed?.expr?.source) {
-                          out.computed = {
-                            expr: { kind: 'expr', source: String(v.computed.expr.source) },
-                            dependsOn: String(v.computed.dependsOn ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-                            persistMode: COMPUTED_PERSIST_MODES.includes(v.computed.persistMode) ? v.computed.persistMode : 'READ_TIME',
-                          };
-                        }
-                      }
-                      return out;
-                    };
-                    if (editingIndex >= 0) {
-                      const next = [...selectedDetail.fields];
-                      next[editingIndex] = { ...next[editingIndex], label: v.label, required: !!v.required, ...parseConfigs() };
-                      setDetails((d) => {
-                        const cur = d[selected!];
-                        if (!cur || cur === 'loading' || cur === 'error') return d;
-                        return { ...d, [selected!]: { ...cur, fields: next } };
-                      });
-                    } else {
-                      // 本地重名前置阻断（服务端 FIELD_KEY_DUPLICATED 兜底——提前给出可定位的错误）
-                      const key = String(v.fieldKey ?? '');
-                      if (isDuplicateFieldKey(selectedDetail.fields, key)) {
-                        message.error(`字段标识 ${key} 已存在（含本地新增与软删历史）`);
-                        return;
-                      }
-                      const newField: DraftField = {
-                        fieldKey: v.fieldKey, label: v.label, type: v.type, fieldStatus: 'ACTIVE',
-                        required: !!v.required, uniqueFlag: false, indexed: false, promoteStatus: null, sortOrder: selectedDetail.fields.length + 1,
-                        ...parseConfigs(),
-                      };
-                      setDetails((d) => {
-                        const cur = d[selected!];
-                        if (!cur || cur === 'loading' || cur === 'error') return d;
-                        return { ...d, [selected!]: { ...cur, fields: [...cur.fields, newField] } };
-                      });
-                    }
-                    setEditing(null);
-                    setEditingIndex(-1);
-                  }}>应用</Button>
-                  <Button size="small" onClick={() => { setEditing(null); setEditingIndex(-1); setEditingType(undefined); }}>取消</Button>
-                </Space>
-              </div>
-            )}
-            <List
-              size="small"
-              dataSource={selectedDetail.fields.map((f, i) => ({ f, i }))}
-              renderItem={({ f, i }) => (
-                <List.Item
-                  style={{ opacity: f._deleted ? 0.45 : 1 }}
-                  actions={f.fieldStatus !== 'ACTIVE' ? [] : ([
-                    <Button key="edit" size="small" type="link" disabled={!!f._deleted}
-                      onClick={() => {
-                        setEditingIndex(i);
-                        setEditing(f);
-                        setEditingType(f.type);   // 受控类型同步（修改场景——配置表单按字段类型渲染）
-                        fieldForm.setFieldsValue({
-                          label: f.label, required: f.required,
-                          ...(f.type === 'enum' && f.enumOptions ? {
-                            enumOptionsStr: f.enumOptions.map((o) => `${o.value}|${o.label}`).join('\n'),
-                          } : {}),
-                          ...(f.type === 'relation' && f.relation ? {
-                            relation: { targetModelId: f.relation.targetModelId, cardinality: f.relation.cardinality, cascade: f.relation.cascade },
-                          } : {}),
-                          ...(f.type === 'computed' && f.computed ? {
-                            computed: {
-                              expr: { source: f.computed.expr.source },
-                              dependsOn: f.computed.dependsOn.join(','),
-                              persistMode: f.computed.persistMode,
-                            },
-                          } : {}),
-                        });
-                      }}>修改</Button>,
-                    f._deleted ? (
-                      <Button key="undo" size="small" type="link" onClick={() => {
-                        setDetails((d) => {
-                          const cur = d[selected!];
-                          if (!cur || cur === 'loading' || cur === 'error') return d;
-                          const next = [...cur.fields];
-                          next[i] = { ...next[i], _deleted: false };
-                          return { ...d, [selected!]: { ...cur, fields: next } };
-                        });
-                      }}>撤销</Button>
-                    ) : (
-                      <Popconfirm key="del" title="删除该字段？（保存时强制勾选确认）" onConfirm={() => {
-                        setDetails((d) => {
-                          const cur = d[selected!];
-                          if (!cur || cur === 'loading' || cur === 'error') return d;
-                          const next = [...cur.fields];
-                          next[i] = { ...next[i], _deleted: true };
-                          return { ...d, [selected!]: { ...cur, fields: next } };
-                        });
-                      }}>
-                        <Button size="small" type="link" danger>删除</Button>
-                      </Popconfirm>
-                    ),
-                  ])}
-                >
-                  <Space>
-                    <Typography.Text delete={!!f._deleted}>{f.label}</Typography.Text>
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>{f.fieldKey}</Typography.Text>
-                    <Tag style={{ fontSize: 11 }}>{f.type}</Tag>
-                    {f.required && <Tag color="red" style={{ fontSize: 11 }}>必填</Tag>}
-                    {f.fieldStatus === 'DELETED' && <Tag color="default">已删除（历史）</Tag>}
-                  </Space>
-                </List.Item>
-              )}
-            />
-          </>
-        )}
-      </Drawer>
+      <FieldEditorDrawer
+        open={drawerOpen}
+        onClose={() => { setDrawerOpen(false); setPresetRelation(null); }}
+        draft={selectedDetail}
+        loadError={selectedEntry === 'error'}
+        onRetry={() => { if (selected) void ensureDetail(selected); }}
+        models={models}
+        onFieldsChange={onFieldsChange}
+        presetRelation={presetRelation}
+      />
 
       {/* 409 三方对比弹层（10FE §1.3 ⑥ / 04FE §7 同款）：本地草稿保留，显式裁决 */}
-      <Modal title={`版本冲突 · ${selectedDetail?.detail.name ?? ''}（他人已保存 v${conflictServer?.currentVersion ?? '?'}）`}
-        open={conflictOpen} width={760} footer={null} onCancel={() => setConflictOpen(false)}>
-        <Typography.Paragraph type="warning">
-          你与服务端基于不同版本做了修改。下方为逐字段对比（我的草稿 / 服务端最新）；
-          选择「放弃我的修改」将以服务端最新覆盖本地草稿；关闭弹层可继续保留草稿查看。
-        </Typography.Paragraph>
-        <List size="small" style={{ maxHeight: 320, overflow: 'auto' }}
-          locale={{ emptyText: '无字段级差异' }}
-          dataSource={conflictRows}
-          renderItem={(row) => (
-            <List.Item style={{ padding: '4px 0', background: row.bothChanged ? 'rgba(255,77,79,.06)' : undefined }}>
-              <Space>
-                <Tag color={row.bothChanged ? 'red' : 'blue'}>{row.bothChanged ? '双方修改' : '单方修改'}</Tag>
-                <span>{row.fieldKey}</span>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {'我的：'}{row.mine ? `${row.mine.op}` : '未改'}
-                  {' / '}
-                  {'服务端：'}{row.theirs ? `${row.theirs.op}` : '未改'}
-                </Typography.Text>
-              </Space>
-            </List.Item>
-          )} />
-        <Space style={{ marginTop: 16 }}>
-          <Button danger onClick={() => {
-            // 显式放弃：以服务端态重建草稿（DELETED 字段带 _deleted——同 refreshDetail 形态，防复活误判）
-            if (!conflictServer || !selected) return;
-            setDetails((prev) => ({
-              ...prev,
-              [selected]: {
-                detail: conflictServer,
-                fields: adoptServerDraft(conflictServer.fields).map((f) => ({
-                  ...f, ...(f.fieldStatus === 'DELETED' ? { _deleted: true } : {}),
-                })) as DraftField[],
-                baseFields: conflictServer.fields,
-              },
-            }));
-            setConflictOpen(false);
-            setConflictServer(null);
-            setConflictRows([]);
-            setPrecheck(null);
-            message.info('已放弃本地修改，草稿与服务端 v' + conflictServer.currentVersion + ' 对齐');
-          }}>{'放弃我的修改（采用服务端）'}</Button>
-          <Button onClick={() => setConflictOpen(false)}>{'保留草稿，稍后处理'}</Button>
-        </Space>
-      </Modal>
+      <ConflictModal
+        open={conflictOpen}
+        onClose={() => setConflictOpen(false)}
+        server={conflictServer}
+        rows={conflictRows}
+        modelName={selectedDetail?.detail.name ?? ''}
+        onDiscard={(server) => {
+          if (!selected) return;
+          setDetails((prev) => ({ ...prev, [selected]: serverDraftOf(server) }));
+          setConflictOpen(false);
+          setConflictServer(null);
+          setConflictRows([]);
+          setPrecheck(null);
+          message.info('已放弃本地修改，草稿与服务端 v' + server.currentVersion + ' 对齐');
+        }}
+      />
 
       {/* 两段式确认弹层：左变更清单 + 右影响面（severity 排序） */}
-      <Modal title={`保存确认 · ${selectedDetail?.detail.name ?? ''}`} open={confirmOpen} width={720}
+      <SaveConfirmModal
+        open={confirmOpen}
         onCancel={() => setConfirmOpen(false)}
-        okText={effMode === 'TYPE_MODEL_NAME' ? '输入模型名后确认' : '确认保存'}
-        okButtonProps={{ danger: hasDelete, disabled: !canSubmitConfirm(), loading: saving }}
-        onOk={() => { void submitConfirm(); }}>
-        {precheck && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div>
-              <Typography.Text strong>变更清单（{pendingChanges.length} 项）</Typography.Text>
-              <List size="small" style={{ marginTop: 8, maxHeight: 240, overflow: 'auto' }}
-                dataSource={pendingChanges}
-                renderItem={(c) => (
-                  <List.Item style={{ padding: '4px 0' }}>
-                    <Space>
-                      <Tag color={c.op === 'DELETE_FIELD' ? 'red' : c.op === 'ADD_FIELD' ? 'green' : 'blue'}>
-                        {c.op === 'ADD_FIELD' ? '新增' : c.op === 'MODIFY_FIELD' ? '修改' : c.op === 'DELETE_FIELD' ? '删除' : '提升列'}
-                      </Tag>
-                      <span>{c.fieldKey}</span>
-                      {c.op === 'MODIFY_FIELD' && (
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                          {Object.keys(c.patch).join(', ')}
-                        </Typography.Text>
-                      )}
-                    </Space>
-                  </List.Item>
-                )} />
-            </div>
-            <div>
-              <Typography.Text strong>影响面（{severitySorted.length} 项，按严重度排序）</Typography.Text>
-              <List size="small" style={{ marginTop: 8, maxHeight: 240, overflow: 'auto' }}
-                locale={{ emptyText: '无风险项' }}
-                dataSource={severitySorted}
-                renderItem={(r) => (
-                  <List.Item style={{ padding: '4px 0' }}
-                    actions={effMode === 'CHECKBOX' && r.severity === 'HIGH' ? ([
-                      <Checkbox key="ack" checked={checkedRisks.has(r.i)} onChange={(e) => {
-                        setCheckedRisks((s) => {
-                          const next = new Set(s);
-                          if (e.target.checked) next.add(r.i); else next.delete(r.i);
-                          return next;
-                        });
-                      }}>我已了解</Checkbox>,
-                    ]) : []}>
-                    <Space>
-                      <Tag color={SEVERITY_COLOR[r.severity]}>{r.severity}</Tag>
-                      <span>{RISK_LABEL[r.type] ?? r.type}</span>
-                      {r.refName && <Typography.Text type="secondary">{r.refName}</Typography.Text>}
-                      {r.type === 'DATA_VOLUME' && <Typography.Text type="secondary">{r.count} 行</Typography.Text>}
-                      {r.type === 'API_CONSUMER' && <Typography.Text type="secondary">{r.keyName} · 近30天 {r.calls30d} 次</Typography.Text>}
-                    </Space>
-                  </List.Item>
-                )} />
-            </div>
-          </div>
-        )}
-        {effMode === 'TYPE_MODEL_NAME' && (
-          <div style={{ marginTop: 16 }}>
-            <Typography.Paragraph type="danger">
-              高风险操作：请输入完整模型名 <Typography.Text code>{selectedDetail?.detail.name}</Typography.Text> 确认保存。
-            </Typography.Paragraph>
-            <Input value={modelNameInput} onChange={(e) => setModelNameInput(e.target.value)}
-              placeholder={selectedDetail?.detail.name} />
-          </div>
-        )}
-        {effMode === 'CHECKBOX' && (
-          <>
-            <Typography.Paragraph type="warning" style={{ marginTop: 12 }}>
-              含删除操作：须逐条确认全部 HIGH 风险后方可保存（删除字段为软删，可通过版本回滚恢复）。
-            </Typography.Paragraph>
-            {hasDelete && !severitySorted.some((r) => r.severity === 'HIGH') && (
-              <Space style={{ marginTop: 4 }}>
-                <Checkbox checked={checkedRisks.has(DELETE_ACK_IDX)} onChange={(e) => {
-                  setCheckedRisks((s) => {
-                    const next = new Set(s);
-                    if (e.target.checked) next.add(DELETE_ACK_IDX); else next.delete(DELETE_ACK_IDX);
-                    return next;
-                  });
-                }}>
-                  我确认删除上述字段（当前无 HIGH 级影响面，删除仍不可撤销——仅可回滚）
-                </Checkbox>
-              </Space>
-            )}
-          </>
-        )}
-      </Modal>
+        onOk={() => { void submitConfirm(); }}
+        precheck={precheck}
+        changes={pendingChanges}
+        hasDelete={hasDelete}
+        effMode={effMode}
+        checkedRisks={checkedRisks}
+        onCheckRisk={(idx, checked) => {
+          setCheckedRisks((s) => {
+            const next = new Set(s);
+            if (checked) next.add(idx); else next.delete(idx);
+            return next;
+          });
+        }}
+        modelNameInput={modelNameInput}
+        onModelNameInput={setModelNameInput}
+        canSubmit={canSubmitConfirm()}
+        saving={saving}
+        modelName={selectedDetail?.detail.name ?? ''}
+      />
 
       {/* 版本时间线与回滚 */}
-      <Drawer title={`版本时间线 · ${selectedDetail?.detail.name ?? ''}`} width={440} open={versionsOpen}
-        destroyOnClose
-        onClose={() => { setVersionsOpen(false); setRollbackTarget(null); }}>
-        {versions === null ? (
-          <div style={{ textAlign: 'center', padding: 48 }}><Spin /></div>
-        ) : (
-          <>
-            <Timeline
-              items={versions.map((v) => ({
-                color: v.rollbackFrom != null ? 'orange' : 'green',
-                children: (
-                  <div>
-                    <Space>
-                      <Typography.Text strong>v{v.version}</Typography.Text>
-                      {v.rollbackFrom != null && <Tag color="orange">回滚自 v{v.rollbackFrom}</Tag>}
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        {v.createdAt ?? ''} · 操作者 {v.operator}
-                      </Typography.Text>
-                    </Space>
-                    <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
-                      {(v.diffSummary ?? []).map((d, i) => `${d.op === 'ADD_FIELD' ? '+' : d.op === 'DELETE_FIELD' ? '-' : d.op === 'RESURRECT_FIELD' ? '↺' : '~'}${d.fieldKey}`).join('  ') || '（初始版本）'}
-                    </div>
-                    {selectedDetail && v.version !== selectedDetail.detail.currentVersion && (
-                      <Button size="small" danger style={{ marginTop: 6 }}
-                        onClick={() => { setRollbackTarget(v.version); setRollbackConfirm(''); setRollbackPre(null); void runRollback(v.version); }}>
-                        回滚到此版本
-                      </Button>
-                    )}
-                  </div>
-                ),
-              }))}
-            />
-            <Modal title={`回滚确认 · 目标 v${rollbackTarget ?? ''}`} open={rollbackTarget != null}
-              onCancel={() => { setRollbackTarget(null); setRollbackPre(null); }}
-              okText="确认回滚" okButtonProps={{ danger: true, disabled: rollbackConfirm.trim() !== (selectedDetail?.detail.name ?? '\0') || !rollbackPre, loading: saving }}
-              onOk={() => { void submitRollback(); }}>
-              {/* 预检影响面先呈现（无风险也显式说明），用户知情后再输入模型名 */}
-              {rollbackPre ? (
-                <div style={{ marginBottom: 12 }}>
-                  <Typography.Text strong>回滚影响面（{rollbackPre.risks.length} 项）</Typography.Text>
-                  <List size="small" style={{ marginTop: 4, maxHeight: 160, overflow: 'auto' }}
-                    locale={{ emptyText: '无风险项（字段定义还原，数据零操作）' }}
-                    dataSource={rollbackPre.risks}
-                    renderItem={(r) => (
-                      <List.Item style={{ padding: '2px 0' }}>
-                        <Space>
-                          <Tag color={SEVERITY_COLOR[r.severity]}>{r.severity}</Tag>
-                          <span>{RISK_LABEL[r.type] ?? r.type}</span>
-                          {r.refName && <Typography.Text type="secondary">{r.refName}</Typography.Text>}
-                        </Space>
-                      </List.Item>
-                    )} />
-                </div>
-              ) : rollbackPreFailed ? (
-                <div style={{ marginBottom: 12 }}>
-                  <Typography.Text type="danger">回滚影响面获取失败——本地草稿未受影响，可重试。</Typography.Text>
-                  <Button size="small" style={{ marginTop: 8 }} loading={saving}
-                    onClick={() => { if (rollbackTarget != null) void runRollback(rollbackTarget); }}>
-                    重试获取影响面
-                  </Button>
-                </div>
-              ) : (
-                <Typography.Text type="secondary">正在获取回滚影响面…</Typography.Text>
-              )}
-              <Typography.Paragraph type="danger">
-                回滚将以新版本形式还原 v{rollbackTarget} 的字段定义（数据零操作）；
-                此后版本的字段变更将被覆盖。请输入完整模型名 <Typography.Text code>{selectedDetail?.detail.name}</Typography.Text> 确认。
-              </Typography.Paragraph>
-              <Input value={rollbackConfirm} onChange={(e) => setRollbackConfirm(e.target.value)}
-                placeholder={selectedDetail?.detail.name} />
-            </Modal>
-          </>
-        )}
-      </Drawer>
+      <VersionsDrawer
+        open={versionsOpen}
+        onClose={() => setVersionsOpen(false)}
+        versions={versions}
+        currentVersion={selectedDetail?.detail.currentVersion ?? null}
+        modelName={selectedDetail?.detail.name ?? ''}
+        rollbackTarget={rollbackTarget}
+        rollbackPre={rollbackPre}
+        rollbackPreFailed={rollbackPreFailed}
+        rollbackConfirm={rollbackConfirm}
+        saving={saving}
+        onRollbackTarget={(v) => { setRollbackTarget(v); setRollbackConfirm(''); setRollbackPre(null); void runRollback(v); }}
+        onRollbackConfirm={setRollbackConfirm}
+        onRollbackSubmit={() => { void submitRollback(); }}
+        onRollbackRetry={() => { if (rollbackTarget != null) void runRollback(rollbackTarget); }}
+        onRollbackCancel={() => { setRollbackTarget(null); setRollbackPre(null); }}
+      />
     </>
   );
-}
-
-function handleError(e: unknown): void {
-  const msg = e instanceof Error ? e.message : String(e);
-  message.error(msg);
 }
