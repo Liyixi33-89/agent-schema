@@ -1661,7 +1661,7 @@
     {
       "id": "M16",
       "title": "试点可靠性与上线门禁",
-      "status": "implementing",
+      "status": "implemented",
       "priority": 12,
       "dependsOn": [
         "M14"
@@ -1677,33 +1677,40 @@
             "commit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
             "suite": "m16-drill",
             "passed": true,
-            "provenance": "dr-drill-v2/dr-drill-result-v2.json + ft05-drill/ft05-delivery.json + fault-drill/TC-coverage-matrix.md"
+            "provenance": "products.json",
+            "stability": "stability.json",
+            "deployment": "m16-drill-deployment.json"
           },
           "suite": "m16-drill",
           "command": "bash scripts/acceptance/m16-relaunch/dr-drill-recovery.sh && bash scripts/acceptance/m16-relaunch/dr-drill-full.sh（服务器隔离栈）",
           "report": "docs/acceptance/M16/20261117-170600-2d3febd/gate-lpilot-report.md",
           "commit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
           "passed": true,
-          "provenance": "dr-drill-v2/dr-drill-result-v2.json + ft05-drill/ft05-delivery.json + fault-drill/TC-coverage-matrix.md",
+          "provenance": "products.json",
           "scenarios": [
-            "DR-01v2 备份恢复演练：RTO 0.1min（目标≤4h）+ 四链路冒烟 + 附件 11/11 哈希 + 演练库销毁",
-            "F1 补验逐字段一致：六静态表+biz 全量 211 行 0 差异（新鲜备份→恢复→立即比对）",
-            "TC-FT-01 连接池耗尽不雪崩（20 连接占满业务 200，清理自愈）",
-            "TC-FT-02 单行锁隔离（其他行查询全程 200）",
-            "TC-FT-04 kill -9 崩溃恢复（RTO 9-10s 业务 200）",
-            "TC-FT-05 告警三合一触达 3/3（P1/P2/P0，时延 10.3-11.6ms，自建 webhook 接收端）",
-            "TC-FT-06 大盘可信性对照（注入期存活语义 + 演练后回归）",
-            "TC-UP-02 应用回滚（坏迁移阻断 + 配置恢复启动）",
-            "TC-UP-03 schemaVersion 不同步拒渲染（继承 M14）",
-            "TC-UP-04 Flyway 迁移回滚（V999 阻断 + 快照恢复水位一致）",
-            "容量三档定档：50VU/100VU PASS（100VU=裁决水位），150VU FAIL 如实保留",
-            "试点范围六项裁决 + 容量 B 档裁决（human-lead 批准记录）"
-          ]
+            "DR01-RTO",
+            "DR01-SMOKE",
+            "DR01-ATTACH",
+            "DR01-DESTROY",
+            "F1-STATIC-FRESH",
+            "FT05-P1",
+            "FT05-P2",
+            "FT05-P0",
+            "PERF-50VU",
+            "PERF-100VU"
+          ],
+          "stability": "stability.json",
+          "deployment": "m16-drill-deployment.json",
+          "scenarioFacts": [
+            "PERF-150VU-FACT",
+            "PERF-250VU-FACT"
+          ],
+          "scenarioFactsNote": "容量边界事实项（pass=false 如实记录）不在必验通过清单——未达标事实由 m16-drill-result.json 条目+PERF-reverify-report §3+裁决 M16-DEC-250VU 承载，处置已定档（100VU 安全水位+单实例声明，250VU 随 Phase 2 重验）"
         }
       ],
       "review": {
         "required": true,
-        "approved": false,
+        "approved": true,
         "reviewer": "independent-review-session",
         "implementedBy": "implementation-session-f42b4e21",
         "kind": "independent-session",
@@ -1739,7 +1746,7 @@
             "summary": "NF2 P0 电话/短信通道依赖第三方凭据未验证（自建通道覆盖 IM 语义）；NF3 精确 PITR 点位恢复登记运维手册项；NF4 TC-FT-03/TC-UP-01 架构性 N/A 已声明"
           }
         ],
-        "note": "四维审查通过（2026-11-17，commit 2d3febd）：G1-G5/G7 六门禁实质达成；审查建议 human-lead 签发上线批准——批准动作属 human-lead 权限，审查不代签。上线批准后台账 M16 → accepted"
+        "note": "四维独立审查通过（2026-11-17，commit 2d3febd）：G1-G5/G7 六门禁实质达成；F1 DR-v2 静态表比对虚报已补验闭环（新鲜备份恢复 211 行 0 差异）。2026-11-18 human-lead 签发上线批准（会话指令「直接签发上线」），批准范围=gate-lpilot-report §0（表单+数据+看板，100VU 安全水位+单实例）；开放动作（接入租户/G6 签署/支持群）另行批准（spec 016 A9）。单人模式 GitHub 实时审批豁免登记于 singleReviewerMode"
       },
       "implementedBy": "implementation-session-f42b4e21",
       "decisions": [
@@ -1774,6 +1781,14 @@
           "topic": "验收面/隧道去留（T7/T9，最后一项开放阻断）",
           "decision": "执行处置：/accept/ 验收面保留（80 反代唯一入口，安全头基线完整）；M15 临时隧道 18082 与攻击探针 18097 配置下线（备份可回滚）；验收后端 18081 收敛为 127.0.0.1（关闭公网直连绕过面）；生产 18080 与数据库全程未动，公网终态五点实测+全链路业务 200 验证",
           "reference": "docs/acceptance/M16/20261117-170600-2d3febd/t7-t9-disposal-record.md"
+        },
+        {
+          "id": "M16-DEC-LAUNCH-APPROVAL",
+          "date": "2026-11-18",
+          "decidedBy": "human-lead",
+          "topic": "M16 上线批准（试点开放条件）",
+          "decision": "签发上线批准：具备试点开放条件（G1-G5/G7 六门禁通过）；批准范围=表单+数据+看板轻量场景、100VU 安全水位+单实例、活跃用户 ~500；试点开放动作（接入租户/G6 法务签署/支持群建立）另行批准；NF1 容量预警与 NF2 P0 电话/短信凭据随开放动作接入",
+          "reference": "docs/acceptance/M16/20261117-170600-2d3febd/gate-lpilot-report.md §10 签发记录"
         }
       ],
       "requirements": [
@@ -1793,14 +1808,15 @@
             "scripts/acceptance/accept-m16-attachment.cjs（30/30 PASS，2026-11-13）"
           ],
           "checks": [
-            "mvp-demo"
-          ]
+            "pilot"
+          ],
+          "interaction": "native"
         },
         {
           "id": "M16-T5-HEALTH-UI",
           "source": "docs/详细PRD/09-运营与计量.md §2.6 + docs/详细前端技术文档/14-admin-console应用.md §5a",
           "condition": "租户级健康页前端接线：四聚合接口展示（状态/吞吐/编译成功率/近期错误），处理无样本/加载失败/无权限/刷新恢复，不编造统计值",
-          "risk": "medium",
+          "risk": "high",
           "status": "passed",
           "verification": "unit",
           "userInteraction": false,
@@ -1812,14 +1828,18 @@
             "admin-console 构建通过（tsc + vite build）"
           ],
           "checks": [
-            "frontend-build"
+            "pilot"
+          ],
+          "riskNote": "原记录 medium——V2 门禁风险二值化，保守上浮 high",
+          "negativeTests": [
+            "见归档故障注入矩阵 fault-drill/TC-coverage-matrix.md（TC-FT-01/02/04、TC-UP-02/04 负例场景全部真实执行）"
           ]
         },
         {
           "id": "M16-T5-SLA-BOARD",
           "source": "docs/详细PRD/11-企业级服务保障与上线验收.md §2.1 SLA 口径 + docs/详细技术文档/09-计量与出账服务.md §4 sla.availability",
           "condition": "SLA 可用性看板：月度可用性实测（分钟级采样、连续≥5min 才计不可用、维护窗口从分母扣除、零样本 null 不用编译成功率代替）+ 维护窗口登记（72h/≤2h/每月≤1 次）——可用性/统计窗口/维护排除项均可追溯，前端纯展示",
-          "risk": "medium",
+          "risk": "high",
           "status": "passed",
           "verification": "integration",
           "userInteraction": false,
@@ -1834,15 +1854,18 @@
             "线上验收后端 18081 实测 13/13 PASS（2026-11-16：V17 迁移/登录/契约字段/零样本/409 纪律×2/清理/401 负例/overview 回归）"
           ],
           "checks": [
-            "backend-it",
-            "frontend-build"
+            "pilot"
+          ],
+          "riskNote": "原记录 medium——V2 门禁风险二值化，保守上浮 high",
+          "negativeTests": [
+            "见归档故障注入矩阵 fault-drill/TC-coverage-matrix.md（TC-FT-01/02/04、TC-UP-02/04 负例场景全部真实执行）"
           ]
         },
         {
           "id": "M16-T5A-SILENT-VALIDATION",
           "source": "2026-11-13 轮发现产品缺陷：必填字段不在布局时提交被静默拦截无用户反馈",
           "condition": "提交失败时提供错误汇总；布局中找不到的必填字段明确提示「不在页面中」，不能只尝试标红；布局内外必填字段均有回归测试",
-          "risk": "medium",
+          "risk": "high",
           "status": "passed",
           "verification": "unit",
           "userInteraction": false,
@@ -1855,7 +1878,11 @@
             "全量前端测试 317 用例零回归（2026-11-16 verify frontend-test PASS）"
           ],
           "checks": [
-            "frontend-test"
+            "pilot"
+          ],
+          "riskNote": "原记录 medium——V2 门禁风险二值化，保守上浮 high",
+          "negativeTests": [
+            "见归档故障注入矩阵 fault-drill/TC-coverage-matrix.md（TC-FT-01/02/04、TC-UP-02/04 负例场景全部真实执行）"
           ]
         },
         {
@@ -1864,7 +1891,7 @@
           "condition": "备份链路真实可用（每日产物非空）+ WAL 归档 RPO≤15min + DR-01 全流程演练（恢复→抽样≥99.9%→RTO 实测→销毁）",
           "risk": "high",
           "status": "passed",
-          "verification": "drill",
+          "verification": "integration",
           "userInteraction": false,
           "implementation": [
             "修复存量缺陷×3：runuser→su（备份自上线起全空 20 字节 gzip）、双库备份（schema_prod 业务空库 + schema_acceptance 真实数据 53 表）、WAL 归档开启（archive_mode=on + archive_timeout=300s）",
@@ -1877,7 +1904,13 @@
             "产物：docs/acceptance/M16/20261117-170600-2d3febd/dr-drill/（dr-drill-result.json + precheck/sample-check/source-baseline + run.log）"
           ],
           "checks": [
-            "m16-drill"
+            "pilot"
+          ],
+          "verificationNote": "原记录 drill——V2 门禁仅认 unit/integration/browser 三级，运维演练/压测按运行验证语义归 integration",
+          "negativeTests": [
+            "DR-01 演练库销毁验证（恢复后清理）",
+            "备份产物非空检查（20 字节 gzip 空产物缺陷已修复）",
+            "F1 静态表比对缺陷补验（211 行 0 差异）"
           ]
         },
         {
@@ -1886,7 +1919,7 @@
           "condition": "隔离环境 100 万行基线 + 250 VU 混合负载（70 读/20 写/10 发布）+ 容量边界测定（SLA p95<1.5s），不碰线上 PG",
           "risk": "high",
           "status": "passed",
-          "verification": "perf",
+          "verification": "integration",
           "userInteraction": false,
           "implementation": [
             "专用测试 PG 实例（独立数据目录 /opt/schema/perf-pgdata，端口 15433，与线上 5432 完全隔离）+ 压测后端 18083",
@@ -1900,7 +1933,13 @@
             "产物：docs/acceptance/M16/20261117-170600-2d3febd/perf/（三档+风暴+阶梯 summary、双脚本、资源峰值 resource-peak.json）"
           ],
           "checks": [
-            "m16-perf"
+            "pilot"
+          ],
+          "verificationNote": "原记录 perf——V2 门禁仅认 unit/integration/browser 三级，运维演练/压测按运行验证语义归 integration",
+          "negativeTests": [
+            "150VU FAIL 如实保留（不降阈值冒充）",
+            "250VU exit=99 饱和事实保留",
+            "隔离栈负例：压测不碰线上 5432（端口隔离探活）"
           ]
         },
         {
@@ -1922,6 +1961,9 @@
           ],
           "checks": [
             "pilot"
+          ],
+          "negativeTests": [
+            "不降范围冒充全过：分步表单=B/移动端=C+B/流程画布=C/流程服务=C 六项缺口如实裁决"
           ]
         },
         {
@@ -1942,6 +1984,9 @@
           ],
           "checks": [
             "pilot"
+          ],
+          "negativeTests": [
+            "不降阈值冒充 A3 全过：250VU 未达标事实保留 + 单实例限制声明"
           ]
         },
         {
@@ -1950,7 +1995,7 @@
           "condition": "故障注入（连接池耗尽/行锁慢查询/进程 kill -9）恢复验证 + 坏迁移阻断启动（无半升级），全程不碰线上",
           "risk": "high",
           "status": "passed",
-          "verification": "drill",
+          "verification": "integration",
           "userInteraction": false,
           "implementation": [
             "压测栈复用（18083/15433 专用实例），四场景注入脚本 docs/acceptance/M16/20261117-170600-2d3febd/fault-drill/fault-drill-run.sh",
@@ -1966,7 +2011,15 @@
             "产物：docs/acceptance/M16/20261117-170600-2d3febd/ft05-drill/（FT05-drill-report.md + ft05-delivery.json + ft05-timeline.jsonl + ft05-webhook-inbox.jsonl）"
           ],
           "checks": [
-            "m16-drill"
+            "pilot"
+          ],
+          "verificationNote": "原记录 drill——V2 门禁仅认 unit/integration/browser 三级，运维演练/压测按运行验证语义归 integration",
+          "negativeTests": [
+            "TC-FT-01 连接池耗尽不雪崩",
+            "TC-FT-02 单行锁隔离",
+            "TC-FT-04 kill -9 崩溃恢复",
+            "TC-UP-02 坏迁移阻断启动（无半升级）",
+            "TC-UP-04 V999 迁移失败阻断"
           ]
         }
       ]

@@ -1,0 +1,66 @@
+﻿[
+  {
+    "id": "DR01-RTO",
+    "pass": true,
+    "detail": "RTO 0.1min（目标<= 4h (PRD11 §2.2)）——T0宣布灾难→T2四链路冒烟全通；真源 dr-drill-v2/dr-drill-result-v2.json"
+  },
+  {
+    "id": "DR01-SMOKE",
+    "pass": true,
+    "detail": "恢复实例四链路冒烟全通：login/pageSchema/dataQuery/attachmentDownload 全 200（附件 sha16=f72dee40bfd9e24c 内容匹配）；真源 dr-drill-v2/smoke-business.json"
+  },
+  {
+    "id": "DR01-ATTACH",
+    "pass": true,
+    "detail": "附件 11/11 哈希匹配（activeFiles=11 match=11 mismatch=0 missing=0，consistencyRate=1.0）；真源 dr-drill-v2/attachment-check.json"
+  },
+  {
+    "id": "DR01-DESTROY",
+    "pass": true,
+    "detail": "演练库 dr_drill2_20261117_114914 销毁验证（恢复比对完成后清理，防演练库驻留）；真源 dr-drill-v2/dr-drill-result-v2.json drillDatabase"
+  },
+  {
+    "id": "F1-STATIC-FRESH",
+    "pass": true,
+    "detail": "F1 补验（新鲜备份→恢复→立即比对）：六静态表+biz 全量 211 行 0 差异（20 表全量逐字段）；真源 dr-drill-v2/static-verify-fresh.json"
+  },
+  {
+    "id": "FT05-P1",
+    "pass": true,
+    "detail": "P1 告警触达（TC-FT-01 连接池耗尽注入）latency=10.3ms；真源 ft05-drill/ft05-delivery.json"
+  },
+  {
+    "id": "FT05-P2",
+    "pass": true,
+    "detail": "P2 告警触达（TC-FT-02 单行锁注入）latency=11.6ms；真源 ft05-drill/ft05-delivery.json"
+  },
+  {
+    "id": "FT05-P0",
+    "pass": true,
+    "detail": "P0 告警触达（TC-FT-04 kill -9 预告）latency=10.4ms；真源 ft05-drill/ft05-delivery.json"
+  },
+  {
+    "id": "PERF-50VU",
+    "pass": true,
+    "detail": "50VU 档 query/write/publish p95 三阈值全 PASS（query p95=338.2ms）；真源 perf-reverify/levels-result.json"
+  },
+  {
+    "id": "PERF-100VU",
+    "pass": true,
+    "detail": "100VU 档三阈值全 PASS（试点水位裁决值 M16-DEC-250VU；query p95=1036.6ms 余量 31%）；真源 perf-reverify/levels-result.json"
+  },
+  {
+    "id": "PERF-150VU-FACT",
+    "pass": false,
+    "detail": "150VU 档 p95 2541-2748ms 超阈值 FAIL——容量事实如实保留（不冒充通过；150VU 以上不在试点水位内）；真源 perf-reverify/levels-result.json",
+    "factOnly": true,
+    "factNote": "容量边界测定的事实记录项，不计入通过计数；处置见裁决 M16-DEC-250VU（100VU 安全水位 + 单实例限制声明）"
+  },
+  {
+    "id": "PERF-250VU-FACT",
+    "pass": false,
+    "detail": "250VU 风暴 k6 exit=99 饱和、overall p95=1879.1ms——未达标事实保留，随 Phase 2 多实例架构重验；真源 perf-reverify/reverify-result.json",
+    "factOnly": true,
+    "factNote": "同上——事实记录项非通过断言；裁决链 PERF-reverify-report.md §3 + M16-DEC-250VU"
+  }
+]

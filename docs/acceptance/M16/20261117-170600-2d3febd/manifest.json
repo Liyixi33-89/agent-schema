@@ -33,7 +33,8 @@
         "dr-drill-v2/static-verify-fresh.json",
         "fault-drill/timeline-merged.jsonl",
         "fault-drill/TC-coverage-matrix.md",
-        "ft05-drill/ft05-delivery.json"
+        "ft05-drill/ft05-delivery.json",
+        "m16-drill-result.json"
       ]
     },
     "m16-perf": {
@@ -169,7 +170,7 @@
     },
     {
       "path": "gate-lpilot-report.md",
-      "sha256": "6453f387f203fe3749561f8c4a86311d2e559655f720cd03051cfe45687b5314"
+      "sha256": "9533d658cfd64e6b8908c4951319e6c3665d145af884ddd05ab3c029d4100e4b"
     },
     {
       "path": "independent-review-lpilot.md",
@@ -278,6 +279,22 @@
     {
       "path": "t7-t9-disposal-record.md",
       "sha256": "1dd87cd6de0630601a6b5c597d9344c01d8df4798d74d7ef361bb7075e2b3c41"
+    },
+    {
+      "path": "m16-drill-result.json",
+      "sha256": "175e690a8fa9088d398abee6d0db8bfe54d88e75b12c1b5a35ed06706305a3e7"
+    },
+    {
+      "path": "products.json",
+      "sha256": "96a62712f6791944f151e74a314e780a6b7655b17e443031cf7b463e37489935"
+    },
+    {
+      "path": "stability.json",
+      "sha256": "613fb2f457bf7a840d5394ca4af4101e2f06d02828adc6cec209ea340af604ff"
+    },
+    {
+      "path": "m16-drill-deployment.json",
+      "sha256": "73080d586c5f85d536c19f3a55fa3ee62325d98c1f431da9706c8c1e8b1b6bb8"
     }
   ]
 }
