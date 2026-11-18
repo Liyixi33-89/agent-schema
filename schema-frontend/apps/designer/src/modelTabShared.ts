@@ -1,7 +1,6 @@
 /**
  * ER 建模器共享类型与工具（渐进重构第二批——自 ModelTab.tsx 原样抽出，行为不变）。
  */
-import { message } from 'antd';
 import type { ModelDetail, ModelField } from './api';
 
 const TYPE_OPTIONS = [
@@ -38,10 +37,8 @@ export type DetailState = DraftModel | 'loading' | 'error';
 /** 删除确认专用勾选位（不占 risks 下标——负数防冲突）。 */
 export const DELETE_ACK_IDX = -1;
 
-export function handleError(e: unknown): void {
-  const msg = e instanceof Error ? e.message : String(e);
-  message.error(msg);
-}
+// 错误提示归集至 @schema/shared-ui（第三阶段）——保持原路径 re-export，调用面零改动
+export { showError as handleError } from '@schema/shared-ui';
 
 export type { ConflictRow } from '@schema/data-model-designer';
 

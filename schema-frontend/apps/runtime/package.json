@@ -20,6 +20,7 @@
     "@schema/schema-protocol": "workspace:*",
     "@schema/usage-tracker": "workspace:*",
     "@schema/auth-sdk": "workspace:*",
+    "@schema/shared-ui": "workspace:*",
     "@schema/script-host": "workspace:*"
   },
   "devDependencies": {
