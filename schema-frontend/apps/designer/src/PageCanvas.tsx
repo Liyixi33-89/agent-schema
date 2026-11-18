@@ -24,6 +24,7 @@ import ScriptPanel from './ScriptPanel';
 import { ensureMaterials, findParentId, normalizeFields, showError } from './designerSupport';
 import { PropsPanel, ConflictDiff } from './DesignerPanels';
 import { openPreview } from './PageListPanel';
+import { UnknownWidget } from '@schema/shared-ui';
 
 const SchemaRenderer = bindSchemaRenderer({ createElement: React.createElement, useState, useEffect });
 
@@ -456,8 +457,4 @@ function designerResolve(componentName: string): React.ComponentType<Record<stri
     );
   };
   return Wrapped;
-}
-
-function UnknownWidget(props: Record<string, unknown>): React.ReactElement {
-  return <Alert type="warning" showIcon message={`未知物料: ${String(props['name'] ?? '')}`} />;
 }

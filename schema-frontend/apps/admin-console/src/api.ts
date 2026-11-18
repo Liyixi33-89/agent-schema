@@ -35,10 +35,8 @@ export async function req(method: string, path: string, body?: unknown): Promise
   return text ? JSON.parse(text) : null;
 }
 
-/** 错误文案提取（message.error 統一入口）。 */
-export function errOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
+/** 错误文案提取归集至 @schema/shared-ui（第三阶段）——保持原路径 re-export，调用面零改动。 */
+export { errOf } from '@schema/shared-ui';
 
 /** 后端 403 判定（无权限提示与网络错误区分展示）。 */
 export function isForbidden(e: unknown): boolean {

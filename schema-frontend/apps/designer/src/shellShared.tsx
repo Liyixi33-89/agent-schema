@@ -8,7 +8,6 @@ import React from 'react';
 import { message, Tag } from 'antd';
 import { broadcastLogout, logout as sdkLogout, watchAuthChannel } from '@schema/auth-sdk';
 import { ApiClient } from './api';
-
 export interface Session {
   account: string;
 }
@@ -55,7 +54,5 @@ export function statusTag(status: string): React.ReactElement {
   return <Tag color="green">使用中</Tag>;
 }
 
-export function handleError(e: unknown): void {
-  const msg = e instanceof Error ? e.message : String(e);
-  message.error(msg);
-}
+// 错误提示归集至 @schema/shared-ui（第三阶段）——保持原路径 re-export，调用面零改动
+export { showError as handleError } from '@schema/shared-ui';
