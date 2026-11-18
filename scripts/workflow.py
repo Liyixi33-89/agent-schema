@@ -66,8 +66,10 @@ def implementation_changed_between(source_commit, head):
             and ln.strip() != 'scripts/acceptance/evidence.lib.cjs']
 
 
-def verify_commit(record, label, work_package=None):
-    """校验证据提交：允许 manifest.sourceCommit ≠ HEAD（证据提交独立），但实现路径不得变化。"""
+def verify_commit(record, label, work_package=None, head_bound=None):
+    """校验证据提交：允许 manifest.sourceCommit ≠ HEAD（证据提交独立），但实现路径不得变化。
+    head_bound：历史包巡检传验收时点 commit——漂移检查在该时点内执行（证据提交后、
+    后续演进前实现未变即成立），不要求仓库 HEAD 永远静止在历史包 sourceCommit。"""
     issues = []
     head = git_head()
     commit = record.get('commit')
@@ -114,7 +116,8 @@ def verify_commit(record, label, work_package=None):
     source = manifest.get('sourceCommit')
     if not source or source != commit:
         issues.append(f'{label}: ledger commit != manifest sourceCommit')
-    changed = implementation_changed_between(source, head) if source and source != head else []
+    drift_head = head if head_bound is None else head_bound
+    changed = implementation_changed_between(source, drift_head) if source and source != drift_head else []
     if changed:
         issues.append(f'{label}: implementation changed since sourceCommit — re-run acceptance ({len(changed)} files)')
     if commit == head and source != head:
@@ -398,8 +401,15 @@ def check_references():
             report = (ROOT / record['report']).resolve()
             if not report.is_relative_to(base.resolve()) or not report.is_file():
                 issues.append(f"{task['id']}: invalid report reference")
-            elif 'legacy' not in report.relative_to(base).parts:
-                issues += verify_commit(record, 'review' if 'reviewer' in record else 'reference', task['id'])
+                continue
+            if 'legacy' in report.relative_to(base).parts:
+                continue
+            # 历史 accepted 任务的证据效力绑定其 sourceCommit 时点（验收时实现路径未变即成立）；
+            # 当前 HEAD 相对历史包的演进（后续包的产品代码工作）不改写历史结论——
+            # 巡检只对非 accepted（implementing 及之后未决）任务执行 HEAD 漂移检查。
+            historical = task.get('status') == 'accepted'
+            issues += verify_commit(record, 'review' if 'reviewer' in record else 'reference',
+                                    task['id'], head_bound=record.get('commit') if historical else None)
     return issues
 
 
