@@ -1,19 +1,18 @@
 /**
  * ER 建模器字段编辑抽屉（10FE §1——自 ModelTab.tsx 原样抽出，行为不变）：
  * - 字段列表：ADD/MODIFY/DELETE/PROMOTE 操作；字段标识/类型创建后禁改（后端铁律前端呈现）
- * - 编辑表单：类型相关配置（enum/relation/computed）按选中类型受控渲染
- * - 表单值 → 字段配置解析（parseConfigs）与本地重名前置阻断
+ * - 编辑表单：类型相关配置（enum/relation/computed）按选中类型受控渲染（表单块与解析
+ *   已抽至 fieldConfigForms.tsx——本文件收敛为抽屉编排与字段列表）
+ * - 表单值 → 字段配置解析与本地重名前置阻断
  */
 import React from 'react';
 import {
   Button, Checkbox, Drawer, Form, Input, List, message, Popconfirm, Select, Space, Tag, Typography,
 } from 'antd';
 import type { ModelSummary } from './api';
-import {
-  isDuplicateFieldKey,
-  RELATION_CARDINALITIES, RELATION_CASCADES, COMPUTED_PERSIST_MODES,
-} from '@schema/data-model-designer';
+import { isDuplicateFieldKey } from '@schema/data-model-designer';
 import { TYPE_OPTIONS, type DraftField, type DraftModel } from './modelTabShared';
+import { TypeConfigForm, parseFieldConfigs } from './fieldConfigForms';
 
 export interface FieldEditorDrawerProps {
   open: boolean;
@@ -125,115 +124,19 @@ export default function FieldEditorDrawer({
                 <Form.Item name="required" valuePropName="checked" label="必填">
                   <Checkbox />
                 </Form.Item>
-                {/* 类型相关配置（01BE §4.2 步骤 4：enum→enumOptions / relation→目标+基数+级联 / computed→表达式+依赖） */}
-                {(() => {
-                  const curType = editingIndex >= 0 ? draft.fields[editingIndex].type : editingType;
-                  if (!curType) return null;
-                  if (curType === 'enum') {
-                    return (
-                      <Form.Item name="enumOptionsStr" label="枚举选项（每行 value|label，value 不可重复）"
-                        rules={[{
-                          validator: (_: unknown, value: string) => {
-                            if (!value?.trim()) return Promise.resolve();
-                            const seen = new Set<string>();
-                            for (const line of value.split('\n')) {
-                              const parts = line.trim().split('|');
-                              if (parts.length !== 2 || !parts[0] || !parts[1]) return Promise.reject(new Error('格式：value|label'));
-                              if (seen.has(parts[0])) return Promise.reject(new Error(`value 重复：${parts[0]}`));
-                              seen.add(parts[0]);
-                            }
-                            return Promise.resolve();
-                          },
-                        }]}>
-                        <Input.TextArea rows={3} placeholder={'draft|草稿\napproved|已审批'} />
-                      </Form.Item>
-                    );
-                  }
-                  if (curType === 'relation') {
-                    return (
-                      <>
-                        <Form.Item name={['relation', 'targetModelId']} label="关联目标模型"
-                          rules={[{ required: true, message: '请选择目标模型' }]}>
-                          <Select options={models?.filter((mm) => mm.status === 'ACTIVE').map((mm) => ({ value: mm.id, label: `${mm.name}（${mm.modelKey}）` })) ?? []} />
-                        </Form.Item>
-                        <Form.Item name={['relation', 'cardinality']} label="基数" initialValue="1:n"
-                          rules={[{ required: true }]}>
-                          <Select options={RELATION_CARDINALITIES.map((c) => ({
-                            value: c,
-                            label: c === '1:1' ? '1:1 一对一' : c === '1:n' ? '1:n 一对多' : 'n:n 多对多',
-                          }))} />
-                        </Form.Item>
-                        <Form.Item name={['relation', 'cascade']} label="级联策略" initialValue="FORBID"
-                          rules={[{ required: true }]}>
-                          <Select options={RELATION_CASCADES.map((c) => ({
-                            value: c,
-                            label: c === 'FORBID' ? 'FORBID 禁止删除' : c === 'SET_NULL' ? 'SET_NULL 置空' : 'CASCADE_SOFT_DELETE 级联软删',
-                          }))} />
-                        </Form.Item>
-                      </>
-                    );
-                  }
-                  if (curType === 'computed') {
-                    return (
-                      <>
-                        <Form.Item name={['computed', 'expr', 'source']} label="计算表达式（白名单表达式，如 amount * 2）"
-                          rules={[{ required: true, message: '请输入表达式' }]}>
-                          <Input.TextArea rows={2} />
-                        </Form.Item>
-                        <Form.Item name={['computed', 'dependsOn']} label="依赖字段（逗号分隔）"
-                          rules={[{ required: true, message: '请填写依赖字段' }]}>
-                          <Input placeholder="amount, rate" />
-                        </Form.Item>
-                        <Form.Item name={['computed', 'persistMode']} label="持久化模式" initialValue="READ_TIME" rules={[{ required: true }]}>
-                          <Select options={COMPUTED_PERSIST_MODES.map((m) => ({
-                            value: m,
-                            label: m === 'READ_TIME' ? 'READ_TIME 读时计算' : 'PERSISTED 写时物化',
-                          }))} />
-                        </Form.Item>
-                      </>
-                    );
-                  }
-                  return null;
-                })()}
+                <TypeConfigForm
+                  curType={(editingIndex >= 0 ? draft.fields[editingIndex].type : editingType) ?? ''}
+                  models={models}
+                />
               </Form>
               <Space>
                 <Button type="primary" size="small" onClick={async () => {
                   const v = await fieldForm.validateFields();
-                  /** 表单值 → 字段配置（enum/relation/computed；enumOptionsStr 文本按行解析）。 */
-                  const parseConfigs = (): Pick<DraftField, 'enumOptions' | 'relation' | 'computed'> => {
-                    const out: Pick<DraftField, 'enumOptions' | 'relation' | 'computed'> = {};
-                    if (typeof v.type === 'string' ? v.type === 'enum' : editingIndex >= 0 && draft.fields[editingIndex].type === 'enum') {
-                      const lines = String(v.enumOptionsStr ?? '').split('\n').filter((l) => l.trim());
-                      if (lines.length) {
-                        out.enumOptions = lines.map((l) => {
-                          const [value, label] = l.trim().split('|');
-                          return { value, label, status: 'ACTIVE' };
-                        });
-                      }
-                    }
-                    if (typeof v.type === 'string' ? v.type === 'relation' : editingIndex >= 0 && draft.fields[editingIndex].type === 'relation') {
-                      if (v.relation?.targetModelId) {
-                        out.relation = {
-                          targetModelId: String(v.relation.targetModelId),
-                          cardinality: RELATION_CARDINALITIES.includes(v.relation.cardinality) ? v.relation.cardinality : '1:n',
-                          cascade: RELATION_CASCADES.includes(v.relation.cascade) ? v.relation.cascade : 'FORBID',
-                        };
-                      }
-                    }
-                    if (typeof v.type === 'string' ? v.type === 'computed' : editingIndex >= 0 && draft.fields[editingIndex].type === 'computed') {
-                      if (v.computed?.expr?.source) {
-                        out.computed = {
-                          expr: { kind: 'expr', source: String(v.computed.expr.source) },
-                          dependsOn: String(v.computed.dependsOn ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-                          persistMode: COMPUTED_PERSIST_MODES.includes(v.computed.persistMode) ? v.computed.persistMode : 'READ_TIME',
-                        };
-                      }
-                    }
-                    return out;
-                  };
+                  const curType = editingIndex >= 0 ? draft.fields[editingIndex].type : editingType;
+                  const configs = parseFieldConfigs(v, curType);
                   if (editingIndex >= 0) {
                     const next = [...draft.fields];
-                    next[editingIndex] = { ...next[editingIndex], label: v.label, required: !!v.required, ...parseConfigs() };
+                    next[editingIndex] = { ...next[editingIndex], label: v.label, required: !!v.required, ...configs };
                     onFieldsChange(next);
                   } else {
                     // 本地重名前置阻断（服务端 FIELD_KEY_DUPLICATED 兜底——提前给出可定位的错误）
@@ -245,7 +148,7 @@ export default function FieldEditorDrawer({
                     const newField: DraftField = {
                       fieldKey: v.fieldKey, label: v.label, type: v.type, fieldStatus: 'ACTIVE',
                       required: !!v.required, uniqueFlag: false, indexed: false, promoteStatus: null, sortOrder: draft.fields.length + 1,
-                      ...parseConfigs(),
+                      ...configs,
                     };
                     onFieldsChange([...draft.fields, newField]);
                   }
