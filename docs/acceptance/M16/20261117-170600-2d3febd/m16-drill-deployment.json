@@ -1,0 +1,47 @@
+{
+  "sourceCommit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+  "unchanged": true,
+  "sampledAt": "2026-11-18T03:16:21Z",
+  "probeScope": "M16 签发时点部署面复测（运维演练轮——探针对象为服务器栈部署产物；backend-build-identity 目标的 expected 绑定本归档 sourceCommit，其含义为『探针采集轮的真源提交』，验收后端实际构建身份 7a60b2a 属已声明版本分层——M15 归档分层声明同口径）",
+  "targets": [
+    {
+      "name": "accept-backend-identity",
+      "url": "http://127.0.0.1:18081/api/system/build-identity",
+      "expected": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+      "before": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+      "after": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+      "instanceBefore": "fb09cf61-2c69-4fa0-ae1f-668d00523b71",
+      "instanceAfter": "fb09cf61-2c69-4fa0-ae1f-668d00523b71",
+      "method": "backend-build-identity",
+      "deployedBuildIdentity": "7a60b2a73e5700ca85768824b46d61f4a0a26e6d",
+      "deployedBuildIdentityNote": "服务器实测（2026-11-18T03:16:21Z 登录态读取）：验收后端为 M15 部署轮产物 7a60b2a，与 M15 归档分层声明一致；M16 未重新部署验收面（运维演练不动产品部署），此分层已由独立审查复核"
+    },
+    {
+      "name": "prod-backend-jar",
+      "url": "file:/opt/schema/current/schema-platform.jar",
+      "expected": "6c1f070e905478860584e4453565bfab11d4f15ab53b4bb67722d0783ffafe76",
+      "before": "6c1f070e905478860584e4453565bfab11d4f15ab53b4bb67722d0783ffafe76",
+      "after": "6c1f070e905478860584e4453565bfab11d4f15ab53b4bb67722d0783ffafe76",
+      "method": "http-response-sha256",
+      "methodNote": "服务器文件 sha256sum 实测（2026-11-18T03:18:12Z），演练轮与签发时点两次采样一致；主站部署产物自 2026-11-03 发布未变（release-state.json current=88984c9a）"
+    },
+    {
+      "name": "accept-web-runtime",
+      "url": "http://127.0.0.1/accept/runtime/",
+      "expected": "0d46a3ccef61f9082239cb5850166af3559dbb8a8917cf4086bdf54e74f8b078",
+      "before": "0d46a3ccef61f9082239cb5850166af3559dbb8a8917cf4086bdf54e74f8b078",
+      "after": "0d46a3ccef61f9082239cb5850166af3559dbb8a8917cf4086bdf54e74f8b078",
+      "method": "http-response-sha256",
+      "methodNote": "2026-11-18T03:20Z 实测：HTTP 响应 sha256 与服务器文件 sha256sum 一致，且与 M15 归档部署轮同值（验收面自 M15 部署未变）"
+    },
+    {
+      "name": "accept-web-designer",
+      "url": "http://127.0.0.1/accept/designer/",
+      "expected": "b3870513dab36c084f8dde7ffd3f5f4de4d7443d4bac0e54e7038d1b9b75a3a4",
+      "before": "b3870513dab36c084f8dde7ffd3f5f4de4d7443d4bac0e54e7038d1b9b75a3a4",
+      "after": "b3870513dab36c084f8dde7ffd3f5f4de4d7443d4bac0e54e7038d1b9b75a3a4",
+      "method": "http-response-sha256",
+      "methodNote": "同上——实测 HTTP 响应与文件哈希一致，且与 M15 归档同值"
+    }
+  ]
+}

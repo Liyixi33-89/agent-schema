@@ -1,0 +1,32 @@
+﻿{
+  "sourceCommit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+  "unchanged": true,
+  "checkedAt": "2026-11-18T03:18:12Z",
+  "method": "server-sha256-recheck（2026-11-18 签发时点复测：六产物哈希与归档时点一致；验收后端 instanceId=fb09cf61-2c69-4fa0-ae1f-668d00523b71 与 2026-11-17 演练轮相同——演练与签发期间部署面未变化）",
+  "products": [
+    {
+      "name": "prod-backend-jar",
+      "sha256": "6c1f070e905478860584e4453565bfab11d4f15ab53b4bb67722d0783ffafe76"
+    },
+    {
+      "name": "accept-backend-jar",
+      "sha256": "931628357441b6895e3356481c01b4280936a477bdbb68eed73e1c20c0bcd777"
+    },
+    {
+      "name": "perf-backend-jar",
+      "sha256": "d7c0ca0f70bea04a631742c795c7594003420322017cfba581b98575b1aa9e0e"
+    },
+    {
+      "name": "prod-web-index",
+      "sha256": "64be5459a82688c8859fb92536d7cf171cb46ca09b3b0e5b6a5c81753835eea0"
+    },
+    {
+      "name": "prod-web-designer",
+      "sha256": "5e053ae2fbc4c2c867c106ed31ecf653bae83f04e977b159a27d0b4838598cc3"
+    },
+    {
+      "name": "prod-web-admin",
+      "sha256": "cbed70a289a6718bb200692e7f51bf7e8319273638d7f7126e85722d169a5d0a"
+    }
+  ]
+}

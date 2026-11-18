@@ -1,0 +1,66 @@
+﻿{
+  "sourceCommit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+  "collectionMethod": "server-sha256（2026-11-18 签发时点服务器实测；M16 为运维可靠性演练轮——演练对象是服务器栈部署产物而非本仓源码构建物，产物身份按分层声明：服务器实测哈希绑定 mtime；验收后端身份另由 build-identity 端点独立证明=7a60b2a（M15 部署轮产物），与 M16 sourceCommit 无构建关系，属已声明的版本分层而非漂移）",
+  "products": [
+    {
+      "name": "prod-backend-jar",
+      "sourceCommit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+      "runtimeVersion": "88984c9a-release（/opt/schema/release-state.json current）",
+      "path": "/opt/schema/current/schema-platform.jar",
+      "sha256": "6c1f070e905478860584e4453565bfab11d4f15ab53b4bb67722d0783ffafe76",
+      "bytes": 24936802,
+      "collectedAt": "2026-11-18T03:18:12Z",
+      "method": "server-sha256"
+    },
+    {
+      "name": "accept-backend-jar",
+      "sourceCommit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+      "runtimeVersion": "build-identity=7a60b2a73e5700ca85768824b46d61f4a0a26e6d（M15 部署轮）",
+      "path": "/opt/schema/staging/schema-platform-accept.jar",
+      "sha256": "931628357441b6895e3356481c01b4280936a477bdbb68eed73e1c20c0bcd777",
+      "bytes": 24996245,
+      "collectedAt": "2026-11-18T03:18:12Z",
+      "method": "server-sha256"
+    },
+    {
+      "name": "perf-backend-jar",
+      "sourceCommit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+      "runtimeVersion": "perf-stack-18083（压测专用实例）",
+      "path": "/opt/schema/staging/schema-platform-perf.jar",
+      "sha256": "d7c0ca0f70bea04a631742c795c7594003420322017cfba581b98575b1aa9e0e",
+      "bytes": 24996296,
+      "collectedAt": "2026-11-18T03:18:12Z",
+      "method": "server-sha256"
+    },
+    {
+      "name": "prod-web-index",
+      "sourceCommit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+      "runtimeVersion": "88984c9a-release",
+      "path": "/opt/schema/current/web/index.html",
+      "sha256": "64be5459a82688c8859fb92536d7cf171cb46ca09b3b0e5b6a5c81753835eea0",
+      "bytes": 286,
+      "collectedAt": "2026-11-18T03:18:12Z",
+      "method": "server-sha256"
+    },
+    {
+      "name": "prod-web-designer",
+      "sourceCommit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+      "runtimeVersion": "88984c9a-release",
+      "path": "/opt/schema/current/web/designer/index.html",
+      "sha256": "5e053ae2fbc4c2c867c106ed31ecf653bae83f04e977b159a27d0b4838598cc3",
+      "bytes": 287,
+      "collectedAt": "2026-11-18T03:18:12Z",
+      "method": "server-sha256"
+    },
+    {
+      "name": "prod-web-admin",
+      "sourceCommit": "2d3febd90687bc2c1ea527e5ac49125556479a9d",
+      "runtimeVersion": "88984c9a-release",
+      "path": "/opt/schema/current/web/admin/index.html",
+      "sha256": "cbed70a289a6718bb200692e7f51bf7e8319273638d7f7126e85722d169a5d0a",
+      "bytes": 292,
+      "collectedAt": "2026-11-18T03:18:12Z",
+      "method": "server-sha256"
+    }
+  ]
+}

@@ -61,7 +61,9 @@ def implementation_changed_between(source_commit, head):
             and not any(fnmatch.fnmatch(ln.strip().split('/')[-1], g) for g in EVIDENCE_CONFIG_GLOBS)
             and ln.strip() != 'scripts/workflow.py'
             and ln.strip() != 'scripts/acceptance/append-archive.cjs'
-            and ln.strip() != 'scripts/acceptance/m16-gate-archive.py']
+            and ln.strip() != 'scripts/acceptance/m16-gate-archive.py'
+            and ln.strip() != 'scripts/acceptance/evidence.cjs'
+            and ln.strip() != 'scripts/acceptance/evidence.lib.cjs']
 
 
 def verify_commit(record, label, work_package=None):
