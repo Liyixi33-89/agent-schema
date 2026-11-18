@@ -1,10 +1,10 @@
 /**
- * M11 运行时容器入口：
+ * M11 运行时容器入口（渐进重构第四批收敛为路由编排壳——行为不变）：
  * - #/app/:appId                → 应用导航壳（过滤菜单 + 页面路由）
  * - #/app/:appId/page/:pageId   → 壳内页面（导航壳选中态）
  * - #/page/:pageId[/:recordId]  → 裸页面（预览凭证通道，保持隔离）
- * - #/preview?grant=xxx         → 预览凭证兑换（M13：grant → exchange → 内存 Bearer 只读渲染）
- * 装载：发布 PageSchema + 字段元数据 → FormPageHost 装配；Schema ETag 缓存（localStorage，按租户失效）。
+ * - #/preview?grant=xxx         → 预览凭证兑换（拆至 PreviewPage）
+ * 装载：发布 PageSchema + 字段元数据 → FormPageHost 装配；Schema ETag 缓存（拆至 pageCache）。
  */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -14,6 +14,8 @@ import { UsageTracker } from '@schema/usage-tracker';
 import FormPageHost from './FormPageHost';
 import { AppShell, watchTenantChange } from './AppShell';
 import SessionExpired from './SessionExpired';
+import PreviewPage from './PreviewPage';
+import { cachedEntry, cacheEntry } from './pageCache';
 import { parseRuntimeHash, type RouteInfo } from './route';
 
 // v0.4 Cookie 通道：正式访问不带 getToken（schema_at 自动携带）；预览页场景由宿主另行注入 Bearer
@@ -37,26 +39,6 @@ document.addEventListener('visibilitychange', () => {
 
 function parseHash(): RouteInfo | null {
   return parseRuntimeHash(location.hash);
-}
-
-/** Schema ETag 缓存读取（页面加载 304 命中——localStorage 按租户键隔离）。 */
-function cachedEntry(pageId: string): { etag: string | null; schema: unknown } {
-  const tenant = localStorage.getItem('schema_tenant') ?? 'default';
-  const raw = localStorage.getItem(`schema_page_cache_${tenant}_${pageId}`);
-  if (!raw) return { etag: null, schema: null };
-  try {
-    const parsed = JSON.parse(raw) as { etag: string; schema: unknown };
-    return { etag: parsed.etag, schema: parsed.schema };
-  } catch {
-    return { etag: null, schema: null };
-  }
-}
-
-function cacheEntry(pageId: string, etag: string | null, schema: unknown): void {
-  const tenant = localStorage.getItem('schema_tenant') ?? 'default';
-  const key = `schema_page_cache_${tenant}_${pageId}`;
-  if (etag && schema != null) localStorage.setItem(key, JSON.stringify({ etag, schema }));
-  else localStorage.removeItem(key);
 }
 
 function App(): React.ReactElement {
@@ -139,66 +121,6 @@ function App(): React.ReactElement {
     return <PreviewPage grantId={route.grantId} />;
   }
   return pageHost(route.pageId!, route.recordId);
-}
-
-// ---------- 预览凭证兑换（M13：designer 签发 grant → 此处 exchange 换 15min 会话渲染） ----------
-
-function PreviewPage({ grantId }: { grantId: string }): React.ReactElement {
-  const [state, setState] = React.useState<{ phase: 'loading' } | { phase: 'error'; message: string } | {
-    phase: 'ready'; token: string; pageId: string;
-  }>({ phase: 'loading' });
-
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        // credentials:'omit' 强制匿名——预览端点拒正式会话 Cookie（03BE §4.1 通道隔离；
-        // 浏览器登录态下自动附带 Cookie 会被 PREVIEW_CREDENTIAL_REJECTED，故显式剥离）
-        const resp = await fetch('/api/preview/exchange', {
-          method: 'POST',
-          credentials: 'omit',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ grantId }),
-        });
-        if (!resp.ok) {
-          const body = (await resp.json().catch(() => ({}))) as { message?: string; code?: string };
-          throw new Error(`[${resp.status}${body.code ? ' ' + body.code : ''}] ${body.message ?? '兑换失败'}`);
-        }
-        const body = (await resp.json()) as { accessToken?: string; pageId?: string };
-        if (!cancelled) {
-          if (!body.accessToken || !body.pageId) {
-            throw new Error('兑换响应缺少 accessToken/pageId');
-          }
-          setState({
-            phase: 'ready',
-            token: body.accessToken,
-            pageId: String(body.pageId),
-          });
-        }
-      } catch (e) {
-        if (!cancelled) setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [grantId]);
-
-  if (state.phase === 'loading') return <Typography.Paragraph style={{ padding: 24 }}>预览凭证兑换中…</Typography.Paragraph>;
-  if (state.phase === 'error') {
-    return <Typography.Paragraph type="danger" style={{ padding: 24 }}>预览失败：{state.message}</Typography.Paragraph>;
-  }
-  // 预览专用客户端：内存 Bearer（preview JWT 内嵌 tenant claim——服务端侧解析，前端无需注入）
-  const previewClient = new RequestClient({
-    baseUrl: import.meta.env.VITE_API_BASE ?? '',
-    getToken: () => state.token,
-  });
-  return (
-    <div>
-      <Typography.Paragraph type="secondary" style={{ padding: '12px 24px 0' }}>
-        预览模式（短时会话只读渲染；凭证 15 分钟有效）
-      </Typography.Paragraph>
-      <FormPageHost client={previewClient} pageId={state.pageId} />
-    </div>
-  );
 }
 
 createRoot(document.getElementById('root')!).render(
