@@ -235,3 +235,5 @@ export function defaultWidgetFor(fieldType: string): string {
 export function registerBasicMaterials(target: import('@schema/schema-renderer').MaterialRegistry): void {
   for (const m of BASIC_MATERIALS) target.register(m);
 }
+
+export { CHART_MATERIALS, registerChartMaterials, isChartDs } from './chart-materials';

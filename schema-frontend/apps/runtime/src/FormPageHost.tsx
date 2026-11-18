@@ -21,17 +21,19 @@ import {
 } from '@schema/schema-form';
 import { bindSchemaRenderer } from '@schema/schema-renderer';
 import { migrate, validatePageSchema, type FieldSchema, type PageSchema } from '@schema/schema-protocol';
-import { registerBasicMaterials, defaultWidgetFor } from '@schema/component-materials';
+import { registerBasicMaterials, registerChartMaterials, defaultWidgetFor, isChartDs } from '@schema/component-materials';
 import { materialRegistry, RenderScope } from '@schema/schema-renderer';
 import { RequestClient } from './request';
 import { useScriptHooks } from './useScriptHooks';
 import ListPageHost from './ListPageHost';
+import DashboardPageHost from './DashboardPageHost';
 
-// 物料注册（一次性——宿主启动即装载全部基础物料）
+// 物料注册（一次性——宿主启动即装载全部基础物料 + 图表物料）
 let materialsReady = false;
 function ensureMaterials(): void {
   if (materialsReady) return;
   registerBasicMaterials(materialRegistry);
+  registerChartMaterials(materialRegistry);
   materialsReady = true;
 }
 
@@ -82,13 +84,20 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cach
         if (effective == null) throw new ServerError('LOAD_FAILED', '缓存缺失，请刷新页面');
         const migrated = migrate(effective as unknown as PageSchema);
         const page = validatePageSchema(migrated);
-        if (!page?.modelId) throw new ServerError('PAGE_INVALID', '页面未绑定数据模型');
-        const fieldsRaw = await client.loadFields(page.modelId);
+        // DASHBOARD 页模型可空（PRD 02 §2.6「仪表盘可不选模型」——图表数据源存于
+        // 节点 props.dataSource，页面级 modelId 仅作设计器字段下拉默认源）。
+        if (!page?.modelId && page?.type !== 'DASHBOARD') {
+          throw new ServerError('PAGE_INVALID', '页面未绑定数据模型');
+        }
+        // 字段元数据：绑定模型时装载（图表数据源配置字段下拉与展示格式消费）；
+        // DASHBOARD 无模型时字段集为空数组（图表物料不依赖字段元数据渲染）。
+        const fieldsRaw = page?.modelId ? await client.loadFields(page.modelId) : [];
         const fields = normalizeFields(fieldsRaw);
-        validateLoadedFieldRefs(page, fields);
+        if (page?.modelId) validateLoadedFieldRefs(page, fields);
         // 编辑态：详情记录一并装载（FORM 编辑 / DETAIL 查看；404 转终态缺失）
+        // DASHBOARD 只读无记录态——recordId 场景不触发（裸页面路由带 ID 也走详情装载失败终态）。
         let detailRow: Record<string, unknown> | null = null;
-        if (recordId != null) {
+        if (recordId != null && page?.modelId) {
           try {
             detailRow = (await client.detail(page.modelId, recordId)) as Record<string, unknown>;
           } catch (e) {
@@ -120,16 +129,8 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cach
     return <ListPageHost key={pageId} client={client} page={state.page} fields={state.fields} />;
   }
   if (state.page.type === 'DASHBOARD') {
-    // 协议允许 DASHBOARD（chart-kit P2 未交付）——显式未支持提示，不静默落入表单宿主
-    // 冒充已实现（2026-11-13 文档-实现对齐收口）。
-    return (
-      <Alert
-        type="warning"
-        showIcon
-        message="仪表盘页面暂未支持"
-        description="该页面类型需要图表物料运行时（后续版本交付）。当前版本仅支持表单/列表/详情页。"
-      />
-    );
+    // 仪表盘宿主（spec 017）：图表物料渲染 + 节点级聚合装载（三态不白屏）。
+    return <DashboardPageHost key={pageId} client={client} page={state.page} fields={state.fields} />;
   }
   if (state.page.type === 'DETAIL' && recordId == null) {
     return <Alert type="error" showIcon message="详情页面缺少记录 ID" />;

@@ -1,5 +1,5 @@
 /**
- * 设计器物料面板清单 + 15 物料 propsSchema/defaultProps/acceptChildren 真源。
+ * 设计器物料面板清单 + 18 物料 propsSchema/defaultProps/acceptChildren 真源。
  * componentName 与 component-materials 注册表一一对应（协议物料名，不另起 AntD 名）。
  */
 import type { PanelMaterial, PropSchemaGroup } from './panel-schema';
@@ -100,6 +100,27 @@ export const PANEL_MATERIALS: PanelMaterial[] = [
     propsSchema: [{ title: '基础属性', fields: [
       { key: 'label', label: '提示内容', widget: 'text' },
       { key: 'tooltip', label: '悬浮提示', widget: 'text' },
+    ] }],
+  }) },
+  // 图表物料（12FE §3 / spec 017）：dataSource 为嵌套结构——通用 widget 不覆盖，
+  // 属性面板按 chartDataSource 专用渲染（设计器 PropsPanel 内实现）。
+  { componentName: 'MetricCard', group: '图表', icon: 'dashboard', ...basic({
+    defaultProps: { title: '指标卡' },
+    propsSchema: [{ title: '基础属性', fields: [
+      { key: 'title', label: '标题', widget: 'text' },
+      { key: 'unit', label: '单位', widget: 'text' },
+    ] }],
+  }) },
+  { componentName: 'BarChart', group: '图表', icon: 'bar-chart', ...basic({
+    defaultProps: { title: '柱状图' },
+    propsSchema: [{ title: '基础属性', fields: [
+      { key: 'title', label: '标题', widget: 'text' },
+    ] }],
+  }) },
+  { componentName: 'LineChart', group: '图表', icon: 'line-chart', ...basic({
+    defaultProps: { title: '折线图' },
+    propsSchema: [{ title: '基础属性', fields: [
+      { key: 'title', label: '标题', widget: 'text' },
     ] }],
   }) },
 ];
