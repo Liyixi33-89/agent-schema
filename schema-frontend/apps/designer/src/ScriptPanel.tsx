@@ -7,6 +7,7 @@
  *
  * 基线登记：Monaco 未接入（项目无该依赖）——编辑期实时标红以 scanSource 结果列表呈现；
  * Monaco（TS 提示+d.ts）为编辑体验增强，随 P2 完整版评估。
+ * Support utils (SAMPLE/wrapWorker/artifactUrlOf/sha256Of/formatLog) moved to scriptSupport.ts.
  */
 import React from 'react';
 import { Alert, Button, Descriptions, Input, message, Select, Space, Tag, Typography } from 'antd';
@@ -15,16 +16,7 @@ import {
   ScriptHost, type HookName, type HookResult, type MessageBridge, type ScanViolation, type ScriptBinding,
 } from '@schema/script-host';
 import { ApiClient, ApiError } from './api';
-
-const SAMPLE = `export async function beforeSubmit(payload, ctx) {
-  const amount = Number(payload?.record?.amount ?? await ctx.form.get('amount'));
-  if (amount > 10000) {
-    ctx.logger.warn('金额超阈，触发复核标记');
-    await ctx.ui.toast('大额提交将进入复核', 'warning');
-  }
-  return true;
-}
-`;
+import { SAMPLE, wrapWorker, artifactUrlOf, sha256Of, formatLog } from './scriptSupport';
 
 export default function ScriptPanel({ api, pageId, initialScripts, onScriptsBound }:
   { api: ApiClient; pageId: string; initialScripts?: ScriptBinding[]; onScriptsBound?: (scripts: ScriptBinding[]) => void }): React.ReactElement {
@@ -232,36 +224,3 @@ export default function ScriptPanel({ api, pageId, initialScripts, onScriptsBoun
   );
 }
 
-/** WorkerLike 适配：DOM Worker → ScriptHost 的 WorkerLike 协议。 */
-function wrapWorker(worker: Worker): {
-  postMessage(m: unknown): void;
-  terminate(): void;
-  addEventListener(t: 'message', l: (e: { data: unknown }) => void): void;
-  removeEventListener(t: 'message', l: (e: { data: unknown }) => void): void;
-} {
-  return {
-    postMessage: (m) => worker.postMessage(m),
-    terminate: () => worker.terminate(),
-    addEventListener: (t, l) => worker.addEventListener(t, l as unknown as EventListener),
-    removeEventListener: (t, l) => worker.removeEventListener(t, l as unknown as EventListener),
-  };
-}
-
-/** 产物端点（04BE §A.5 artifactUrl 回显优先；此处兜底拼同源绝对路径——服务端按会话租户绑定）。
- *  ⚠️ 必须绝对 URL：Worker 从 blob: URL 启动，import() 相对路径以 blob URL 为基解析直接失败。
- *  API 前缀与请求层同源真源 VITE_API_BASE（验收面 /accept 构建注入——产物路由与数据请求同域）。 */
-function artifactUrlOf(contentHash: string): string {
-  return `${location.origin}${import.meta.env.VITE_API_BASE ?? ''}/api/build/artifacts/current/${contentHash}.js`;
-}
-
-/** 源码 SHA-256（审计「哪版源码」——08FE §2 sourceHash；浏览器原生 SubtleCrypto）。 */
-async function sha256Of(text: string): Promise<string> {
-  const data = new TextEncoder().encode(text);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-function formatLog(args: unknown[]): string {
-  const [level, msg, extra] = args as [string, string, unknown?];
-  return `[${level}] ${msg}${extra !== undefined ? ' ' + JSON.stringify(extra) : ''}`;
-}
