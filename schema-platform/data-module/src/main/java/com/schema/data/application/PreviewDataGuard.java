@@ -91,8 +91,72 @@ public class PreviewDataGuard {
         if (publishedText != null && !publishedText.isBlank()) {
             collectPublishedModelId(publishedText, models);
             collectModelRefs(publishedText, models);
+            // 图表节点数据源（spec 017 ChartDs）：props.dataSource.modelId——
+            // 仪表盘页常无页面级绑定，发布快照 modelRefs 之外的节点级引用必须计入放行集
+            collectChartDsModelIds(publishedText, models);
         }
         return models;
+    }
+
+    /** 从页面 schema 的 layout 节点深度扫描 dataSource.modelId（图表聚合数据源真源）。 */
+    private void collectChartDsModelIds(String schemaJson, Set<Long> sink) {
+        try {
+            var obj = com.schema.platform.common.json.Json.parseObject(schemaJson);
+            if (obj == null || obj.isJsonNull()) {
+                return;
+            }
+            var layout = obj.get("layout");
+            if (layout != null) {
+                scanNodesForDsModel(layout, sink);
+            }
+        } catch (Exception ignored) {
+            // 结构异常：保守不放行（走既有绑定列）
+        }
+    }
+
+    /** 递归扫描节点（对象/数组）：命中 props.dataSource.modelId 或 dataSource.modelId 即收集。 */
+    private void scanNodesForDsModel(com.google.gson.JsonElement node, Set<Long> sink) {
+        if (node == null || node.isJsonNull()) {
+            return;
+        }
+        if (node.isJsonArray()) {
+            for (var el : node.getAsJsonArray()) {
+                scanNodesForDsModel(el, sink);
+            }
+            return;
+        }
+        if (!node.isJsonObject()) {
+            return;
+        }
+        var obj = node.getAsJsonObject();
+        addNumericModelId(obj, "dataSource", sink);
+        // 兼容 props 包裹形态（发布 schema 节点属性可嵌在 props 下）
+        var props = obj.get("props");
+        if (props != null && props.isJsonObject()) {
+            addNumericModelId(props.getAsJsonObject(), "dataSource", sink);
+        }
+        for (var child : obj.entrySet()) {
+            if (child.getKey().equals("children") || child.getKey().equals("layout")) {
+                scanNodesForDsModel(child.getValue(), sink);
+            }
+        }
+    }
+
+    /** 从容器对象取 dataSource.modelId 数值加入放行集。 */
+    private void addNumericModelId(com.google.gson.JsonObject container, String dsKey, Set<Long> sink) {
+        var ds = container.get(dsKey);
+        if (ds == null || !ds.isJsonObject()) {
+            return;
+        }
+        var mid = ds.getAsJsonObject().get("modelId");
+        if (mid == null || mid.isJsonNull()) {
+            return;
+        }
+        try {
+            sink.add(mid.getAsLong());
+        } catch (ClassCastException | IllegalStateException | NumberFormatException ignored) {
+            // 非数值 modelId 跳过
+        }
     }
 
     /** 从 published 页面 schema 提取顶层 modelId（页面绑定模型——设计器保存链路写入）。 */

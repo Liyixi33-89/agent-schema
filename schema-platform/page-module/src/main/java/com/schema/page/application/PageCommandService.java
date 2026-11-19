@@ -197,13 +197,14 @@ public class PageCommandService {
             // 发布时全量重扫登记（04BE §1.4：保存/发布时执行）
             syncFieldReferences(tenant, page, schema);
 
-            String snapshotModelId = snapshotModelRef(page, schema);
+            java.util.Set<String> pageModels = snapshotModelRefs(page, schema);
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("pageId", Long.toString(pageId));
             entry.put("pageVersionRef", targetVersion);
             entry.put("schemaVersion", schema.get("schemaVersion"));
             entry.put("contentHash", page.artifactHash());
-            entry.put("modelId", snapshotModelId);
+            entry.put("modelId", pageModels.isEmpty() ? null : pageModels.iterator().next());
+            entry.put("modelRefs", List.copyOf(pageModels));
             pageEntries.add(entry);
         }
 
@@ -211,8 +212,19 @@ public class PageCommandService {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("pages", pageEntries);
         // modelRefs 聚合（04BE §1.3 快照结构）：发布集内去重模型引用——影响面/运行时消费
-        snapshot.put("modelRefs", pageEntries.stream()
-                .map(e -> e.get("modelId"))
+        // 含页面绑定/schema 顶层/图表节点数据源三类真源（2026-11-19 图表收口扩展）
+        List<Object> allModelRefs = new ArrayList<>();
+        for (Map<String, Object> e : pageEntries) {
+            Object single = e.get("modelId");
+            if (single != null) {
+                allModelRefs.add(single);
+            }
+            Object nested = e.get("modelRefs");
+            if (nested instanceof List<?> l) {
+                allModelRefs.addAll(l);
+            }
+        }
+        snapshot.put("modelRefs", allModelRefs.stream()
                 .filter(java.util.Objects::nonNull)
                 .distinct()
                 .toList());
@@ -314,7 +326,9 @@ public class PageCommandService {
                 rebuilt.put("pageVersionRef", targetVersion);
                 rebuilt.put("schemaVersion", schemaMap.get("schemaVersion"));
                 rebuilt.put("contentHash", artifactHash instanceof String ah ? ah : null);
-                rebuilt.put("modelId", snapshotModelRef(page, schemaMap));
+                java.util.Set<String> rebuiltModels = snapshotModelRefs(page, schemaMap);
+                rebuilt.put("modelId", rebuiltModels.isEmpty() ? null : rebuiltModels.iterator().next());
+                rebuilt.put("modelRefs", List.copyOf(rebuiltModels));
                 rebuiltEntries.add(rebuilt);
             }
         }
@@ -322,8 +336,19 @@ public class PageCommandService {
         pages.markReleaseRolledBack(tenant.tenantId(), appId, targetReleaseVersion);
         Map<String, Object> newSnapshot = new LinkedHashMap<>();
         newSnapshot.put("pages", rebuiltEntries);
-        newSnapshot.put("modelRefs", rebuiltEntries.stream()
-                .map(e -> e.get("modelId"))
+        // 回滚快照 modelRefs 同发布口径（页面绑定 ∪ schema 顶层 ∪ 图表节点数据源）
+        List<Object> rebuiltAllRefs = new ArrayList<>();
+        for (Map<String, Object> e : rebuiltEntries) {
+            Object single = e.get("modelId");
+            if (single != null) {
+                rebuiltAllRefs.add(single);
+            }
+            Object nested = e.get("modelRefs");
+            if (nested instanceof List<?> l) {
+                rebuiltAllRefs.addAll(l);
+            }
+        }
+        newSnapshot.put("modelRefs", rebuiltAllRefs.stream()
                 .filter(java.util.Objects::nonNull)
                 .distinct()
                 .toList());
@@ -345,15 +370,49 @@ public class PageCommandService {
      * 须进入快照 modelRefs——否则限页预览守卫（PreviewDataGuard.pageBoundModels）
      * 会拒绝该页的字段元数据/数据面读取（PREVIEW_SCOPE_DENIED 403）。
      */
-    private static String snapshotModelRef(PageAggregate page, Map<String, Object> schema) {
+    private static java.util.Set<String> snapshotModelRefs(PageAggregate page, Map<String, Object> schema) {
+        java.util.Set<String> models = new java.util.LinkedHashSet<>();
         if (page.modelId() != null) {
-            return Long.toString(page.modelId());
+            models.add(Long.toString(page.modelId()));
         }
         Object schemaModelId = schema.get("modelId");
-        if (schemaModelId instanceof Number n) {
+        String top = asNumericModelId(schemaModelId);
+        if (top != null) {
+            models.add(top);
+        }
+        collectChartDsModels(schema.get("layout"), models);
+        return models;
+    }
+
+    /** 深度优先扫描布局节点 props.dataSource.modelId（聚合数据源真源），全部收集。 */
+    private static void collectChartDsModels(Object node, java.util.Set<String> sink) {
+        if (node instanceof List<?> list) {
+            for (Object item : list) {
+                collectChartDsModels(item, sink);
+            }
+            return;
+        }
+        if (node instanceof Map<?, ?> m) {
+            Object ds = m.get("dataSource");
+            if (ds instanceof Map<?, ?> dsMap) {
+                String mid = asNumericModelId(dsMap.get("modelId"));
+                if (mid != null) {
+                    sink.add(mid);
+                }
+            }
+            Object children = m.get("children");
+            if (children != null) {
+                collectChartDsModels(children, sink);
+            }
+        }
+    }
+
+    /** 数值形态归一（Number 或纯数字串）；其他形态返回 null。 */
+    private static String asNumericModelId(Object mid) {
+        if (mid instanceof Number n) {
             return Long.toString(n.longValue());
         }
-        if (schemaModelId instanceof String s && s.matches("\\d+")) {
+        if (mid instanceof String s && s.matches("\\d+")) {
             return s;
         }
         return null;

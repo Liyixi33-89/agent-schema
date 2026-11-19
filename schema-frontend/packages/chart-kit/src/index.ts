@@ -9,8 +9,12 @@
 import * as echarts from 'echarts/core';
 import { BarChart, LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent } from 'echarts/components';
+// Renderer 必须显式注册：echarts/core 模式下注册表为空——缺省时 init() 内部
+// `rendererCtors[mode]` 查找失败即 "l0[o] is not a constructor" 崩溃（spec 018 验收实测）
+import { CanvasRenderer } from 'echarts/renderers';
+import { AGGREGATE_FUNCS, TIME_BUCKET_INTERVALS, type AggregateRequest } from '@schema/schema-protocol';
 
-echarts.use([LineChart, BarChart, GridComponent, TooltipComponent]);
+echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
 export { echarts };
 
@@ -21,25 +25,26 @@ export interface AggRow {
   values: { func: string; fieldKey: string; value: number | null }[];
 }
 
-/** 图表数据源（节点 props 内静态 JSON——协议合法面，字段与冻结 AggregateRequest 一一对应）。 */
+/** 图表数据源（节点 props 内静态 JSON——协议合法面，aggregate 直接复用冻结 AggregateRequest）。 */
 export interface ChartDs {
   modelId: string;
-  aggregate: {
-    measures: { fieldKey: string; func: string }[];
-    group?: { fieldKey: string; topN?: number };
-    timeBucket?: { fieldKey: string; interval: string };
-  };
+  aggregate: AggregateRequest;
   filter?: unknown;
 }
 
-/** ChartDs 结构判定（无 dataSource 时图表渲染设计态占位而非报错）。 */
+/** ChartDs 结构判定（无 dataSource 或协议外形态时图表渲染设计态占位而非报错）。 */
 export function isChartDs(v: unknown): v is ChartDs {
   if (typeof v !== 'object' || v === null) return false;
   const ds = v as Partial<ChartDs>;
-  return typeof ds.modelId === 'string' && !!ds.modelId
-    && typeof ds.aggregate === 'object' && ds.aggregate !== null
-    && Array.isArray(ds.aggregate.measures) && ds.aggregate.measures.length > 0
-    && ds.aggregate.measures.every((m) => typeof m?.fieldKey === 'string' && typeof m?.func === 'string');
+  if (typeof ds.modelId !== 'string' || !ds.modelId) return false;
+  const agg = ds.aggregate;
+  if (typeof agg !== 'object' || agg === null) return false;
+  if (!Array.isArray(agg.measures) || agg.measures.length === 0) return false;
+  const funcs = AGGREGATE_FUNCS as readonly string[];
+  if (!agg.measures.every((m) => typeof m?.fieldKey === 'string'
+    && typeof m?.func === 'string' && funcs.includes(m.func))) return false;
+  if (agg.timeBucket && !(TIME_BUCKET_INTERVALS as readonly string[]).includes(agg.timeBucket.interval)) return false;
+  return true;
 }
 
 /** 首度量值提取（指标卡：无分组单度量聚合 → rows[0].values[0].value）。 */

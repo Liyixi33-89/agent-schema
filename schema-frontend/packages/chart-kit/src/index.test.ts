@@ -15,6 +15,18 @@ describe('isChartDs 结构判定', () => {
     expect(isChartDs({ modelId: 'm1', aggregate: { measures: [] } })).toBe(false);
     expect(isChartDs({ modelId: 'm1', aggregate: { measures: [{ func: 'COUNT' }] } })).toBe(false);
   });
+  it('协议外枚举拒绝（func 不在 AGGREGATE_FUNCS / interval 不在 TIME_BUCKET_INTERVALS）——设计态占位而非带毒装载', () => {
+    expect(isChartDs({ modelId: 'm1', aggregate: { measures: [{ fieldKey: 'a', func: 'MEDIAN' }] } })).toBe(false);
+    expect(isChartDs({
+      modelId: 'm1',
+      aggregate: { measures: [{ fieldKey: 'a', func: 'SUM' }], timeBucket: { fieldKey: 'd', interval: 'QUARTER' } },
+    })).toBe(false);
+  });
+  it('度量 func 枚举边界全覆盖（AGGREGATE_FUNCS 六值全部放行）', () => {
+    for (const func of ['SUM', 'AVG', 'COUNT', 'COUNT_DISTINCT', 'MAX', 'MIN']) {
+      expect(isChartDs({ modelId: 'm1', aggregate: { measures: [{ fieldKey: 'a', func }] } })).toBe(true);
+    }
+  });
 });
 
 describe('metricValue 指标卡取值', () => {
@@ -74,5 +86,27 @@ describe('axisOption 轴图映射', () => {
     const series = opt.series as { name: string; data: (number | null)[] }[];
     expect(series).toHaveLength(2);
     expect(series[1].data).toEqual([2, null]);
+  });
+
+  it('空数据 → series 为空数组（渲染侧走 Empty 占位，不出空 series）', () => {
+    const opt = axisOption('bar', []);
+    expect(opt.series).toEqual([]);
+    expect((opt.xAxis as { data: string[] }).data).toEqual([]);
+  });
+
+  it('时间桶边界日期（月末/跨年）直用后端 bucket 字符串', () => {
+    const bucketed: AggRow[] = [
+      { bucket: '2026-12-31', values: [{ func: 'COUNT', fieldKey: '__count', value: 1 }] },
+      { bucket: '2027-01-01', values: [{ func: 'COUNT', fieldKey: '__count', value: 3 }] },
+    ];
+    const opt = axisOption('line', bucketed);
+    expect((opt.xAxis as { data: string[] }).data).toEqual(['2026-12-31', '2027-01-01']);
+  });
+
+  it('跨模型引用形态：ChartDs.modelId 指向非页面模型（聚合按节点各自 modelId 发请求）', () => {
+    // 节点级数据源允许引用与页面 modelId 不同的模型——映射层不依赖页面模型
+    const rows: AggRow[] = [{ dimension: 'X', values: [{ func: 'AVG', fieldKey: 'score', value: 88 }] }];
+    const opt = axisOption('bar', rows);
+    expect((opt.series as { name: string }[])[0].name).toBe('AVG(score)');
   });
 });

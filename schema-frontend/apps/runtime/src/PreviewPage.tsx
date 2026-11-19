@@ -18,7 +18,9 @@ export default function PreviewPage({ grantId }: { grantId: string }): React.Rea
       try {
         // credentials:'omit' 强制匿名——预览端点拒正式会话 Cookie（03BE §4.1 通道隔离；
         // 浏览器登录态下自动附带 Cookie 会被 PREVIEW_CREDENTIAL_REJECTED，故显式剥离）
-        const resp = await fetch('/api/preview/exchange', {
+        // API 前缀与请求层同源真源 VITE_API_BASE（验收面 /accept 构建注入）——
+        // 此前裸 /api/preview/exchange 在非根部署面（/accept）下 404，预览兑换不可用
+        const resp = await fetch(`${import.meta.env.VITE_API_BASE ?? ''}/api/preview/exchange`, {
           method: 'POST',
           credentials: 'omit',
           headers: { 'Content-Type': 'application/json' },

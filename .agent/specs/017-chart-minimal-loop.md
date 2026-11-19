@@ -132,3 +132,7 @@ client.aggregate(modelId, body): Promise<{ rows: AggRow[] }>
 ## 7. 沉淀记录（结项时回填）
 
 - （待回填）
+
+## 8. 实现基线接续
+
+本规格 §1 的空壳状态是立项时历史基线，不代表当前代码。图表初版已存在；018 为唯一验收收口入口，禁止二次实现。实现存在不直接勾验收，需引用被测版本与实际结果。ChartDs.aggregate 类型直接复用冻结 AggregateRequest；跨模型字段引用与发布快照须真实测试，不由 props 可存 JSON 推断。旧页面行为须补关键浏览器回归，命令以实际 package scripts 为准。

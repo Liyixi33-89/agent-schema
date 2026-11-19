@@ -119,8 +119,8 @@ export class RequestClient {
     groupTopN?: number;
     bucketField?: string;
     bucketInterval?: string;
-  }): Promise<unknown> {
-    return this.post(`/api/data/${modelId}/aggregate`, body);
+  }, options?: { signal?: AbortSignal }): Promise<unknown> {
+    return this.post(`/api/data/${modelId}/aggregate`, body, options?.signal);
   }
 
   /** 记录详情。 */
@@ -203,9 +203,9 @@ export class RequestClient {
     return payload.downloadUrl;
   }
 
-  private async post(path: string, body: unknown): Promise<unknown> {
+  private async post(path: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
     const resp = await this.request(path, {
-      method: 'POST', headers: this.headers(), body: JSON.stringify(body),
+      method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal,
     });
     return this.unwrap(resp);
   }

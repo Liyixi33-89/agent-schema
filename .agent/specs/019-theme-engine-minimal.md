@@ -133,3 +133,11 @@ export function validateAppTheme(v: unknown): { ok: true; value: AppTheme } | { 
 ## 7. 沉淀记录（结项时回填）
 
 - （待回填）
+
+## 8. 开工契约校准
+
+- 本期主题为应用级即时配置，非 PageSchema 发布快照；已发布页面在下次应用装载时读取当前主题。验收不得声称旧发布版本主题不可变。
+- 保存 JSON 编码须核对 AppController 当前 `str(theme)` 与存储类型，禁止对象隐式 toString；后端严格白名单、前端同判，非法存量按默认值回退并保留可观察错误。
+- 装载使用实际应用详情／导航装载链，不假设 `/api/runtime/apps/current` 已存在。
+- 纯核心负责校验与 token 转换；AntD 算法分派在消费方适配，不依赖未经核实的 `theme.generate`。统一 resolve(theme?) 签名。
+- 应用切换、卸载恢复 CSS 变量；designer 预览局部作用域，不污染平台壳。错误／禁用态可读性须实际验证。

@@ -6,7 +6,7 @@
  * 薄封装纪律与基础物料一致：props → AntD/ECharts option 翻译，无内部业务状态。
  */
 import React, { useRef, useEffect } from 'react';
-import { Card, Alert, Statistic, Empty, Spin } from 'antd';
+import { Card, Alert, Statistic, Empty, Spin, Button } from 'antd';
 import type { MaterialMeta } from '@schema/schema-renderer';
 import { echarts, axisOption, metricValue, isChartDs, type AggRow } from '@schema/chart-kit';
 
@@ -24,6 +24,7 @@ export interface ChartWidgetProps {
   chartLoading?: boolean;
   /** 宿主注入的装载错误（运行时失败态——Card 内回显不白屏）。 */
   chartError?: string;
+  onChartRetry?: () => void;
   [key: string]: unknown;
 }
 
@@ -32,6 +33,9 @@ function ChartCanvas({ option }: { option: Record<string, unknown> }): React.Rea
   const holder = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
   const frame = useRef<number>(0);
+  // 上次 setOption 的 series 数（配置变化残留防护：series 数量减少时增量合并会保留
+  // 旧 series——按数量差切换 notMerge 全量替换，数量不变仍走增量合并保留交互态）
+  const seriesCount = useRef<number>(-1);
 
   useEffect(() => {
     if (!holder.current) return;
@@ -55,19 +59,24 @@ function ChartCanvas({ option }: { option: Record<string, unknown> }): React.Rea
   }, []);
 
   useEffect(() => {
-    chart.current?.setOption(option, { notMerge: false });
+    const inst = chart.current;
+    if (!inst) return;
+    const next = Array.isArray(option.series) ? (option.series as unknown[]).length : 0;
+    const notMerge = next !== seriesCount.current;
+    seriesCount.current = next;
+    inst.setOption(option, { notMerge });
   }, [option]);
 
   return <div ref={holder} style={{ width: '100%', height: 260 }} />;
 }
 
 /** 三态统一壳：loading → Spin；error → Alert；empty → Empty 占位。 */
-function ChartShell({ title, loading, error, empty, children }: {
-  title?: string; loading?: boolean; error?: string; empty?: boolean; children?: React.ReactNode;
+function ChartShell({ title, loading, error, empty, children, onRetry }: {
+  title?: string; loading?: boolean; error?: string; empty?: boolean; children?: React.ReactNode; onRetry?: () => void;
 }): React.ReactElement {
   return (
     <Card title={title} size="small" style={{ marginBottom: 12 }}>
-      {error ? <Alert type="error" showIcon message="数据加载失败" description={error} /> : null}
+      {error ? <Alert type="error" showIcon message="数据加载失败" description={error} action={onRetry ? <Button onClick={onRetry}>重试</Button> : undefined} /> : null}
       {!error && loading ? <div style={{ padding: '32px 0', textAlign: 'center' }}><Spin /></div> : null}
       {!error && !loading && empty ? <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} /> : null}
       {!error && !loading && !empty ? children : null}
@@ -88,6 +97,7 @@ function makeAxisWidget(kind: 'bar' | 'line'): React.ComponentType<ChartWidgetPr
         title={typeof p.title === 'string' ? p.title : undefined}
         loading={!!p.chartLoading}
         error={p.chartError}
+        onRetry={p.onChartRetry}
         empty={!rows?.length}
       >
         <ChartCanvas option={option} />
@@ -105,6 +115,7 @@ const MetricCardWidget = (p: ChartWidgetProps): React.ReactElement => {
       title={typeof p.title === 'string' ? p.title : undefined}
       loading={!!p.chartLoading}
       error={p.chartError}
+        onRetry={p.onChartRetry}
       empty={!rows?.length}
     >
       <Statistic value={value ?? 0} suffix={typeof p.unit === 'string' ? p.unit : undefined} />
