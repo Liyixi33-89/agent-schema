@@ -306,11 +306,13 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         try {
             # -am 连带构建依赖模块；-Dsurefire.failIfNoSpecifiedTests=false：依赖模块（platform-common 等）
             # 无匹配 IT 属预期，真漏跑由下方 Surefire 报告核对兜底（bootstrap 模块每个 IT 必须有非零用例报告）
+            # stderr 重定向：Mockito/byte-buddy/JVM WARNING 写 stderr 会命中 $ErrorActionPreference='Stop'
+            # 包装成 NativeCommandError 中断步骤——真实结论以退出码 + Surefire 报告核对为准
             mvn -q -pl bootstrap -am test "-Dtest=$itList" '-Dsurefire.failIfNoSpecifiedTests=false' `
                 "-Dit.db.host=$pgHost" "-Dit.db.port=$pgPort" "-Dit.db.name=$pgDb" `
                 "-Dit.db.user=$pgUser" "-Dit.db.pass=$pgPass" `
                 "-DIT_DB_HOST=$pgHost" "-DIT_DB_PORT=$pgPort" "-DIT_DB_NAME=$pgDb" `
-                "-DIT_DB_USER=$pgUser" "-DIT_DB_PASS=$pgPass"
+                "-DIT_DB_USER=$pgUser" "-DIT_DB_PASS=$pgPass" 2> $null
             if ($LASTEXITCODE -ne 0) { throw "集成测试退出码 $LASTEXITCODE（PowerShell 下 mvn/git 把进度写 stderr 是误报来源；真实结论看 BUILD SUCCESS/测试计数）" }
         } finally { Pop-Location }
 

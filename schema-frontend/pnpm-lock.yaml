@@ -156,6 +156,10 @@ importers:
   packages/auth-sdk: {}
 
   packages/chart-kit:
+    dependencies:
+      '@schema/schema-protocol':
+        specifier: workspace:*
+        version: link:../schema-protocol
     devDependencies:
       echarts:
         specifier: '5'
