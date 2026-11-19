@@ -17,6 +17,7 @@
     "@schema/schema-renderer": "workspace:*",
     "@schema/shared-ui": "workspace:*",
     "@schema/script-host": "workspace:*",
+    "@schema/theme-engine": "workspace:*",
     "@xyflow/react": "^12.12.1",
     "antd": "5.25.4",
     "nanoid": "^5.0.9",

@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -416,5 +417,82 @@ class AppServiceIT {
                 code, name);
         return jdbc.queryForObject(
                 "SELECT id FROM sys_role WHERE tenant_id=1 AND code=? AND app_id IS NULL", Long.class, code);
+    }
+
+    // ---------- theme 白名单校验（spec 019 · A4 后端二次校验） ----------
+
+    @Test
+    void themeWhitelistAcceptsLegalConfig() {
+        String legal = "{\"primaryColor\":\"#52c41a\",\"darkMode\":true,"
+                + "\"tokens\":{\"fontFamily\":\"serif\",\"borderRadius\":8,\"spacing\":\"loose\"}}";
+        with(t(), () -> apps.update(appId, null, null, null, legal));
+        Map<String, Object> detail = TenantContext.with(t(), () -> apps.detail(appId));
+        String stored = (String) detail.get("theme");
+        assertTrue(stored != null && stored.contains("#52c41a"), "合法配置应原样落库: " + stored);
+        // 运行时装载通道（spec 019）：filtered nav 响应附带 theme（普通用户主题注入来源）
+        Map<String, Object> nav = TenantContext.with(t(), () -> apps.getNav(appId, true));
+        String navTheme = (String) nav.get("theme");
+        assertTrue(navTheme != null && navTheme.contains("#52c41a"), "nav 响应应携带 theme: " + navTheme);
+        // 设计器全量 nav（filtered=false）不带 theme——设计通道走应用详情接口
+        Map<String, Object> navFull = TenantContext.with(t(), () -> apps.getNav(appId, false));
+        assertFalse(navFull.containsKey("theme"), "设计器 nav 不应携带 theme（走详情接口）");
+    }
+
+    @Test
+    void themeWhitelistRejectsUnknownKeyAndBadHex() {
+        // 未知键（含被裁掉的 logoFileId——spec 019 §2 白名单封闭集合）
+        IllegalArgumentException e1 = assertThrows(IllegalArgumentException.class,
+                () -> withThrowing(t(), () -> apps.update(appId, null, null, null,
+                        "{\"logoFileId\":\"x\"}")));
+        assertTrue(e1.getMessage().contains("未知键"), "未知键应被拒: " + e1.getMessage());
+        // 非法 hex
+        IllegalArgumentException e2 = assertThrows(IllegalArgumentException.class,
+                () -> withThrowing(t(), () -> apps.update(appId, null, null, null,
+                        "{\"primaryColor\":\"javascript:alert(1)\"}")));
+        assertTrue(e2.getMessage().contains("primaryColor"), "非法 hex 应被拒: " + e2.getMessage());
+        // tokens 枚举外
+        IllegalArgumentException e3 = assertThrows(IllegalArgumentException.class,
+                () -> withThrowing(t(), () -> apps.update(appId, null, null, null,
+                        "{\"tokens\":{\"borderRadius\":12}}")));
+        assertTrue(e3.getMessage().contains("borderRadius"), "枚举外 borderRadius 应被拒: " + e3.getMessage());
+    }
+
+    @Test
+    void themeRejectsWrongTypesAndFieldNulls() {
+        for (String input : List.of(
+                "{\"darkMode\":\"false\"}", "{\"darkMode\":1}", "{\"darkMode\":{}}",
+                "{\"darkMode\":null}", "{\"tokens\":null}",
+                "{\"tokens\":{\"borderRadius\":\"6\"}}",
+                "{\"tokens\":{\"fontFamily\":\"constructor\"}}",
+                "{\"tokens\":{\"spacing\":null}}")) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> withThrowing(t(), () -> apps.update(appId, null, null, null, input)), input);
+        }
+    }
+
+    @Test
+    void themeLegacyNullCompatible() {
+        // 旧应用无 theme（null=不动 / 空串与"null"字面量=清空恢复平台默认）——A5 兼容红线
+        with(t(), () -> apps.update(appId, null, null, null, null));
+        Map<String, Object> before = TenantContext.with(t(), () -> apps.detail(appId));
+        with(t(), () -> apps.update(appId, null, null, null, "{\"primaryColor\":\"#52c41a\"}"));
+        // null 不动：theme 保持已写入值
+        with(t(), () -> apps.update(appId, null, null, null, null));
+        Map<String, Object> afterNull = TenantContext.with(t(), () -> apps.detail(appId));
+        assertTrue(String.valueOf(afterNull.get("theme")).contains("#52c41a"),
+                "null 应保持 theme 不变: " + afterNull.get("theme"));
+        // "null" 字面量 = 显式清空（运行时恢复平台默认）
+        with(t(), () -> apps.update(appId, null, null, null, "null"));
+        Map<String, Object> afterClear = TenantContext.with(t(), () -> apps.detail(appId));
+        assertNull(afterClear.get("theme"), "清空后 theme 应为 null: " + afterClear.get("theme"));
+        // 空串同清空
+        with(t(), () -> apps.update(appId, null, null, null, "{\"primaryColor\":\"#fa8c16\"}"));
+        with(t(), () -> apps.update(appId, null, null, null, ""));
+        Map<String, Object> afterBlank = TenantContext.with(t(), () -> apps.detail(appId));
+        assertNull(afterBlank.get("theme"), "空串清空后 theme 应为 null: " + afterBlank.get("theme"));
+        // nav 装载通道同步：清空后 filtered nav theme=null（前端平台默认降级）
+        Map<String, Object> nav = TenantContext.with(t(), () -> apps.getNav(appId, true));
+        assertNull(nav.get("theme"), "清空后 nav theme 应为 null");
+        assertNotNull(before, "详情响应可读");
     }
 }
