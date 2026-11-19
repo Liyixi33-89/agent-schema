@@ -1,9 +1,9 @@
 ---
 spec_id: 019-theme-engine-minimal
-status: draft
+status: done
 milestone: M17             # 依赖图 §5 Phase 2；spec 016 §12 A 表「主题引擎」裁决（独立小任务）
 created: 2026-11-18
-last_verified_at: null
+last_verified_at: 2026-11-19
 owner: human-lead
 ---
 
@@ -101,38 +101,65 @@ export function validateAppTheme(v: unknown): { ok: true; value: AppTheme } | { 
 
 ## 4. Tasks（任务清单，执行时逐项勾选）
 
-- [ ] T1 `theme-engine` 包：类型/resolve/cssVarsOf/antdTokenOf/validateAppTheme + 单测
-      （白名单拒未知键、非法 hex 拒、色阶推导 LRU、dark 算法分派）
-- [ ] T2 runtime：应用清单 theme 字段消费 → 双通道注入（ThemeProvider 最小组件：CSS 变量 + ConfigProvider）
-- [ ] T3 designer：应用设置「主题」页（primaryColor 色板 + darkMode 开关 + 圆角/间距/字体下拉）
-      + 保存链路（PUT apps）+ 即时预览
-- [ ] T4 后端核对：应用保存链路 theme 字段白名单校验（复用既有 AppUpdate 链路 + 校验器）；
-      应用清单响应带 theme
-- [ ] T5 测试：resolve 纯函数快照、非法配置拒绝、清单无 theme 降级、刷新一致性
-- [ ] T6 验证：全量 test + verify.ps1；三应用构建（admin 不接入零改动验证）
+- [x] T1 `theme-engine` 包：类型/resolve/cssVarsOf/antdTokenOf/validateAppTheme + 单测 41 例
+      （白名单拒未知键、非法 hex 拒、原型链键拒、dark 算法标识分派；antdTokenOf 为映射唯一定义点）
+- [x] T2 runtime：导航装载链（GET /api/apps/{id}/nav?filtered=true）附带 theme → 双通道注入
+      （AppThemeProvider：CSS 变量 + ConfigProvider；应用切换/卸载恢复原值；装载结果按 appId 绑定防串显）
+- [x] T3 designer：应用设置「主题」页（primaryColor 色板 + darkMode 开关 + 圆角/间距/字体下拉）
+      + 保存链路（PUT apps）+ 即时预览（消费同一 antdTokenOf——所见即所得）
+- [x] T4 后端核对：应用保存链路 theme 白名单校验（AppService.themeErrors 二次校验，422 透出明细）；
+      nav 响应带 theme 原串透传
+- [x] T5 测试：theme-engine 41 例 + 双端共享校验样本同判（theme-fixtures.json 19 条正负例，
+      前端 Vitest 与后端 ThemeVectorTest 消费同一份真源）+ AppServiceIT 22 例（含 4 theme 用例，
+      走服务器 15433 专用 schema_it 库）
+- [x] T6 验证：全量 test 401/401 + verify -Level commit 11 步全绿（backend-it 572s）；
+      三应用构建（admin 零 theme 改动验证）
 
 ## 5. Acceptance（验收标准，可测试）
 
-- [ ] A1 `verify -Level commit` 通过
-- [ ] A2 切换主题（主色/明暗）不影响表单数据与组件状态（人工链路：主题切换后表单填写态保留）
-- [ ] A3 designer 预览与 runtime 已发布页面一致（同一 resolve 输出断言 + 人工对比）
-- [ ] A4 非法配置被拒：未知 token 键/非法 hex 保存被阻断（zod 预校验 + 后端二次校验双测）
-- [ ] A5 旧应用（无 theme 配置）加载即平台默认主题，行为与升级前一致
-- [ ] A6 对比度红线：darkMode 下错误提示/禁用态可读（AntD dark 算法自带对比度——人工抽检）
-- [ ] A7 admin-console 构建零改动（不接入验证——diff 无 theme 相关行）
+- [x] A1 `verify -Level commit` 通过（11 步：doc-anti-corruption/frontend-tsc/backend-compile/
+      contract-diff/tools-selftest/frontend-test/backend-test/backend-it/frontend-build/runtime-build/designer-build）
+- [x] A2 切换主题不影响表单数据（B1 浏览器实测：主题色变更保存后描述文本保留）
+- [x] A3 designer 预览与 runtime 一致（B2 实测：预览主按钮 rgb(82,196,26) = runtime CSS 变量 #52c41a
+      + AntD 样式表注入同色——同一 antdTokenOf 输出，非「AntD 算法自带对比度」的口头断言）
+- [x] A4 非法配置被拒（共享样本 19 条双端同判 + 后端保存链路 422 + 前端预校验按钮态联动）
+- [x] A5 旧应用无 theme 加载即平台默认（B4/B5 实测：nav theme=null → 平台蓝 #1677ff；
+      切换应用不串主题、切回恢复）
+- [x] A6 对比度红线（B6 实测：暗色错误文本对比度 18.42 ≥ 4.5；禁用态 2.43 可辨认——WCAG 豁免
+      inactive UI，antd 暗色默认禁用色实测记录在案；暗色壳层由 --schema-bg/--schema-fg 变量驱动）
+- [x] A7 admin-console 构建零改动（diff 无 theme 相关行）
+- [x] A8 非法存量主题可观察反馈（B7 实测：DB 直写未知键 → runtime 黄条「主题配置非法」+
+      错误明细透出 + 降级平台蓝渲染——不静默）
 
 ## 6. 验证步骤（人可复跑）
 
 ```text
-1. pnpm --filter @schema/theme-engine run build && pnpm --filter @schema/theme-engine test
-2. powershell -File scripts\verify.ps1
-3. 人工链路：designer 改主题保存 → runtime 打开该应用页面对比 → 刷新后一致
-   → 旧应用无配置显示默认 → 构造非法配置（未知键/坏 hex）保存被拒
+1. pnpm --filter @schema/theme-engine test                    # 41 例（含共享样本 19 条）
+2. mvn -pl bootstrap -am test -Dtest=ThemeVectorTest          # 后端消费同一份 theme-fixtures.json
+3. powershell -File scripts\verify.ps1 -Level commit          # 11 步（IT 走 15433 隧道 schema_it 库）
+   #   环境变量：VERIFY_IT_DB_HOST=127.0.0.1 VERIFY_IT_DB_PORT=15434 VERIFY_IT_DB_NAME=schema_it
+   #            VERIFY_IT_DB_USER=schema_it VERIFY_IT_DB_PASS=schema_it_local_only
+4. 浏览器验收（SSH 隧道 18095 loopback 面）：accept-theme-019-browser.cjs 六项场景 27 断言
 ```
 
-## 7. 沉淀记录（结项时回填）
+## 7. 沉淀记录（结项回填）
 
-- （待回填）
+- **装载通道修正**：运行时主题不走 `/api/runtime/apps/current`（该接口不存在），改由导航装载链
+  nav 响应附带 theme——普通用户可用；应用详情接口仅应用管理员可读不可用于运行时注入。
+- **antdTokenOf 形态修正**：13FE 原文「返回 ConfigProviderProps['theme']」会引入 antd 类型依赖——
+  实际形态 `AntdThemeSpec{dark, token}`（纯数据），算法分派在消费方接线。预览与 runtime 共用唯一映射点。
+- **暗色壳层缺口**：AppShell 是原生 div（非 antd Layout），darkAlgorithm 只影响 antd 组件——
+  cssVarsOf 补 --schema-bg/--schema-bg-layout/--schema-fg/--schema-border，壳层消费后暗色全屏生效。
+- **非法 JSON 双路径**：parseTheme 对坏 JSON 串 → null（等价无配置，合法静默）；解析成功的对象走
+  resolveWithReport 白名单（未知键 → 黄条 + 明细 + 降级默认）。两种路径行为不同属预期。
+- **SPA 同源 hash 切换不重载 JS**：验收跨应用断言前须 `about:blank` 中转真导航。
+- **antd 两字按钮带空格**：「保存」渲染「保 存」——UI 自动化按钮匹配必须去空白。
+- **ant Form 合成事件提交**：`b.click()` 不触发 onFinish（rc-field-form 拦截）；须 `form.requestSubmit(btn)`。
+- **专用 IT 库**：15433 新建 schema_it + 受限账号（CONNECTION LIMIT 100）；本地隧道 15434→15433。
+  ⚠️ 隧道端口复用陷阱：15434 曾被旧隧道占用转发 5432 主库（密码失败且「Role 不存在」指向主库日志）——
+  建隧道前必查 `Get-NetTCPConnection -LocalPort` 的 OwningProcess 及其 CommandLine。
+- **B6 对比度实测**：暗色错误文本 18.42（≥4.5 过）；disabled input 2.43（antd 暗色默认禁用色，
+  WCAG 豁免 inactive UI；口径改「>2 可辨认」并记录实测值——替代原「AntD 算法自带对比度」口头验收）。
 
 ## 8. 开工契约校准
 
@@ -141,3 +168,18 @@ export function validateAppTheme(v: unknown): { ok: true; value: AppTheme } | { 
 - 装载使用实际应用详情／导航装载链，不假设 `/api/runtime/apps/current` 已存在。
 - 纯核心负责校验与 token 转换；AntD 算法分派在消费方适配，不依赖未经核实的 `theme.generate`。统一 resolve(theme?) 签名。
 - 应用切换、卸载恢复 CSS 变量；designer 预览局部作用域，不污染平台壳。错误／禁用态可读性须实际验证。
+
+## 9. 验收证据（2026-11-19 收口）
+
+| 项 | 结果 | 关键证据 |
+|---|---|---|
+| 单元测试 | 401/401 前端全绿 | theme-engine 41 例（含共享样本 19 条同判）；架构巡航 156 modules 0 违规 |
+| 后端测试 | ThemeVectorTest 2/2 + AppServiceIT 22/22 | 共享样本真源 theme-fixtures.json 双端消费；IT 走 15433 schema_it 专用库 |
+| verify -Level commit | 11 步全绿 | doc-anti-corruption/契约 diff/双端编译测试/三应用构建全过；backend-it 572s |
+| 浏览器验收 | 27/27 PASS（两次稳定复现） | B1 表单保留/B2 预览=runtime（rgb(82,196,26)）/B3 刷新一致/B4 切换不串色/B5 旧应用默认蓝/B6 暗色对比度 18.42/B7 非法黄条+明细 |
+| API 验收 | 9/9 PASS | accept-theme-019.sh：合法保存/nav 携带 theme/非法 422/清空语义 |
+| 验收脚本 | `scripts/acceptance/accept-theme-019-browser.cjs` | 可复跑（SSH 隧道 18095 loopback 面 + CDP 真实浏览器） |
+
+验收环境：线上 18081 验收后端（裸进程）+ /accept/ 面产物（ACCEPT_BASE=1 + VITE_API_BASE=/accept 构建）。
+已知边界（非阻塞）：disabled input 暗色对比度 2.43（antd 默认禁用色，WCAG 豁免 inactive UI，
+实测值记录在案）；坏 JSON 串静默等价「无配置」（与未知键对象的黄条反馈路径不同，属设计预期）。

@@ -8,6 +8,7 @@ import React from 'react';
 import { Menu, Typography } from 'antd';
 import { RequestClient } from './request';
 import type { MenuProps } from 'antd';
+import { AppThemeProvider } from './AppThemeProvider';
 
 export interface NavNode {
   id: string;
@@ -48,10 +49,19 @@ export function AppShell({ client, appId, children, onPageSelect }: {
   onPageSelect: (pageId: string) => void;
 }): React.ReactElement {
   const [nav, setNav] = React.useState<NavNode[] | null>(null);
+  /** nav 装载响应附带的应用主题（spec 019：运行时主题装载通道）。 */
+  const [navTheme, setNavTheme] = React.useState<unknown>(null);
   const [error, setError] = React.useState<string | null>(null);
+  /** 应用切换装载隔离（spec 019 §8）：装载结果按 appId 绑定，防旧应用导航/主题串显。 */
+  const [loadedFor, setLoadedFor] = React.useState<string | null>(null);
+  const [reload, setReload] = React.useState(0);
 
   React.useEffect(() => {
     let cancelled = false;
+    setNav(null);
+    setNavTheme(null);
+    setError(null);
+    setLoadedFor(null);
     (async () => {
       try {
         // 导航壳与数据面同走统一通道（authFetch：401 静默刷新 + 403 csrf 重试——不裸 fetch）
@@ -59,39 +69,55 @@ export function AppShell({ client, appId, children, onPageSelect }: {
         if (resp.status === 401) throw new Error('登录已过期，请重新登录');
         if (resp.status === 404) throw new Error('应用不存在或未发布');
         if (!resp.ok) throw new Error(`导航加载失败 (${resp.status})`);
-        const body = (await resp.json()) as { tree: NavNode[] };
-        if (!cancelled) setNav(body.tree ?? []);
+        const body = (await resp.json()) as { tree: NavNode[]; theme?: unknown };
+        if (!cancelled) {
+          setNav(body.tree ?? []);
+          setNavTheme(body.theme ?? null);
+          setLoadedFor(appId);   // 装载结果仅对当前 appId 生效（竞态丢弃旧应用响应）
+        }
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
       }
     })();
     return () => { cancelled = true; };
-  }, [client, appId]);
+  }, [client, appId, reload]);
 
   if (error) {
-    return <Typography.Paragraph type="danger" style={{ padding: 24 }}>{error}</Typography.Paragraph>;
+    return (
+      <div style={{ padding: 24 }}>
+        <Typography.Paragraph type="danger">{error}</Typography.Paragraph>
+        <Typography.Paragraph>
+          <a onClick={() => setReload((v) => v + 1)}>重试加载</a>
+        </Typography.Paragraph>
+      </div>
+    );
   }
-  if (nav === null) {
+  if (loadedFor !== appId || nav === null) {
     return <Typography.Paragraph style={{ padding: 24 }}>加载导航…</Typography.Paragraph>;
   }
   const items = toMenuItems(nav, appId, onPageSelect);
   if (!items?.length) {
     return (
-      <div style={{ display: 'flex', minHeight: '100vh' }}>
-        <aside style={{ width: 220, borderRight: '1px solid #eee', padding: 16 }}>
-          <Typography.Text type="secondary">无可访问菜单</Typography.Text>
-        </aside>
-        <main style={{ flex: 1, padding: 24 }}>{children}</main>
-      </div>
+      <AppThemeProvider navTheme={navTheme}>
+        <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--schema-bg)', color: 'var(--schema-fg)' }}>
+          <aside style={{ width: 220, borderRight: '1px solid var(--schema-border)', padding: 16 }}>
+            <Typography.Text type="secondary">无可访问菜单</Typography.Text>
+          </aside>
+          <main style={{ flex: 1, padding: 24 }}>{children}</main>
+        </div>
+      </AppThemeProvider>
     );
   }
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <aside style={{ width: 220, borderRight: '1px solid #eee' }}>
-        <Menu mode="inline" style={{ borderInlineEnd: 'none' }} items={items} />
-      </aside>
-      <main style={{ flex: 1, padding: 24, minWidth: 0 }}>{children}</main>
-    </div>
+    <AppThemeProvider navTheme={navTheme}>
+      {/* 壳层背景跟随主题（原生 div 不走 antd Layout——CSS 变量驱动暗色） */}
+      <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--schema-bg)', color: 'var(--schema-fg)', fontFamily: 'var(--schema-font)', transition: 'background 0.2s' }}>
+        <aside style={{ width: 220, borderRight: '1px solid var(--schema-border)', background: 'var(--schema-bg-layout)' }}>
+          <Menu mode="inline" style={{ borderInlineEnd: 'none', background: 'transparent' }} items={items} />
+        </aside>
+        <main style={{ flex: 1, padding: 24, minWidth: 0 }}>{children}</main>
+      </div>
+    </AppThemeProvider>
   );
 }
 

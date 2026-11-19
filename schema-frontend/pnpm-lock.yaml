@@ -75,6 +75,9 @@ importers:
       '@schema/shared-ui':
         specifier: workspace:*
         version: link:../../packages/shared-ui
+      '@schema/theme-engine':
+        specifier: workspace:*
+        version: link:../../packages/theme-engine
       '@xyflow/react':
         specifier: ^12.12.1
         version: 12.12.1(@types/react-dom@18.3.7(@types/react@18.3.23))(@types/react@18.3.23)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -127,6 +130,9 @@ importers:
       '@schema/shared-ui':
         specifier: workspace:*
         version: link:../../packages/shared-ui
+      '@schema/theme-engine':
+        specifier: workspace:*
+        version: link:../../packages/theme-engine
       '@schema/usage-tracker':
         specifier: workspace:*
         version: link:../../packages/usage-tracker

@@ -70,8 +70,8 @@ public class AppService {
         if (apps.countByTenant(ctx.tenantId()) >= APP_QUOTA) {
             throw new BizException("APP_LIMIT_EXCEEDED", "应用数已达配额上限");
         }
-        if (themeJson != null && !themeJson.isBlank() && !isValidJson(themeJson)) {
-            throw new IllegalArgumentException("theme 必须为 JSON 对象");
+        if (themeJson != null && !themeJson.isBlank() && !isValidThemeJson(themeJson)) {
+            throw new IllegalArgumentException("theme 白名单校验失败: " + themeErrors(themeJson));
         }
         App app = App.create(ctx.tenantId(), name.trim(), iconFileId, description, themeJson, ctx.operatorId());
         long appId = apps.insert(app);
@@ -141,14 +141,19 @@ public class AppService {
                 throw new BizException("APP_NAME_DUPLICATED", "应用名称已存在: " + name);
             }
         }
-        if (themeJson != null && !themeJson.isBlank() && !isValidJson(themeJson)) {
-            throw new IllegalArgumentException("theme 必须为 JSON 对象");
+        if (themeJson != null && !themeJson.isBlank() && !isValidThemeJson(themeJson)) {
+            throw new IllegalArgumentException("theme 白名单校验失败: " + themeErrors(themeJson));
         }
+        // theme 语义（spec 019）：null=不动（未传字段）；"null"/空串=显式清空（恢复平台默认）；其余=白名单内覆写。
+        // 空串先归一化（JSONB 列不接受空串——非法输入语法）。
+        String normalized = (themeJson != null && themeJson.isBlank()) ? "null" : themeJson;
+        String themeToStore = normalized == null ? a.themeJson()
+                : "null".equals(normalized) ? null : normalized;
         apps.updateProfile(appId, ctx.tenantId(),
                 name != null ? name.trim() : a.name(),
                 iconFileId != null ? iconFileId : a.iconFileId(),
                 description != null ? description : a.description(),
-                themeJson != null ? themeJson : a.themeJson());
+                themeToStore);
     }
 
     /** 归档（13BE §A.1：全部资源只读，运行时访问保留）；须为应用管理员。 */
@@ -214,6 +219,8 @@ public class AppService {
     /**
      * 导航树读取（13BE §3.3）：运行时消费 = 服务端按权限过滤（filtered=true，登录态即可——
      * 过滤本身即鉴权，未授权节点整枝剪除）；设计器消费 = 全量（须为应用管理员）。
+     * filtered=true 响应附带应用主题（spec 019：运行时装载通道——应用详情接口仅应用管理员可读，
+     * 普通用户主题注入由此下发；theme 为 JSONB 原始串，前端 theme-engine 同判白名单后消费）。
      */
     public Map<String, Object> getNav(long appId, boolean filtered) {
         TenantInfo ctx = TenantContext.get();
@@ -228,7 +235,13 @@ public class AppService {
         if (filtered) {
             tree = pageRef.filterNavTree(tree, ctx.tenantId(), appId, ctx.operatorId());
         }
-        return Map.of("tree", tree, "version", a.navVersion());
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("tree", tree);
+        resp.put("version", a.navVersion());
+        if (filtered) {
+            resp.put("theme", a.themeJson());
+        }
+        return resp;
     }
 
     /** 导航树保存（13BE §3.3）：结构校验 + PAGE 归属校验 + 乐观并发（409 NAV_VERSION_CONFLICT）；须为应用管理员。 */
@@ -265,13 +278,83 @@ public class AppService {
                 .orElseThrow(() -> new BizException("APP_NOT_FOUND", "应用不存在"));
     }
 
-    private static boolean isValidJson(String s) {
-        try {
-            Json.parse(s);
-            return true;
-        } catch (Exception e) {
-            return false;
+    /**
+     * theme 白名单校验（spec 019 · 13FE 封闭集合——与前端 theme-engine validateAppTheme 同判）：
+     * - 顶层仅 primaryColor(hex)/darkMode(bool)/tokens{fontFamily,borderRadius,spacing}，未知键拒绝；
+     * - 非法配置保存被拒（A4 双层校验——后端二次校验）；非法存量读取时消费方按平台默认回退。
+     */
+    private static final java.util.Set<String> THEME_TOP_KEYS =
+            java.util.Set.of("primaryColor", "darkMode", "tokens");
+    private static final java.util.Set<String> THEME_TOKEN_KEYS =
+            java.util.Set.of("fontFamily", "borderRadius", "spacing");
+    private static final java.util.Set<String> THEME_FONTS =
+            java.util.Set.of("system", "serif", "mono");
+    private static final java.util.Set<Double> THEME_RADII = java.util.Set.of(4.0, 6.0, 8.0);
+    private static final java.util.Set<String> THEME_SPACINGS =
+            java.util.Set.of("compact", "default", "loose");
+    private static final java.util.regex.Pattern THEME_HEX =
+            java.util.regex.Pattern.compile("^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$");
+
+    static boolean isValidThemeJson(String s) {
+        return themeErrors(s).isEmpty();
+    }
+
+    /** 白名单校验错误清单（保存被拒时透出给调用方可观察错误；包私有→public：双端共享样本测试跨模块消费）。 */
+    public static String themeErrors(String s) {
+        if (s == null || s.isBlank() || "null".equals(s)) {
+            return "";
         }
+        java.util.List<String> errs = new java.util.ArrayList<>();
+        try {
+            com.google.gson.JsonObject o = Json.parseObject(s);
+            for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : o.entrySet()) {
+                if (e.getValue().isJsonNull()) errs.add("theme 字段不允许 null: " + e.getKey());
+                if (!THEME_TOP_KEYS.contains(e.getKey())) {
+                    errs.add("未知键: " + e.getKey());
+                }
+            }
+            com.google.gson.JsonElement pc = o.get("primaryColor");
+            if (pc != null && !pc.isJsonNull()
+                    && (!pc.isJsonPrimitive() || !pc.getAsJsonPrimitive().isString() || !THEME_HEX.matcher(pc.getAsString()).matches())) {
+                errs.add("primaryColor 非法（须 #rgb/#rrggbb）");
+            }
+            com.google.gson.JsonElement dm = o.get("darkMode");
+            if (dm != null && !dm.isJsonNull() && (!dm.isJsonPrimitive() || !dm.getAsJsonPrimitive().isBoolean())) {
+                errs.add("darkMode 须为 boolean");
+            }
+            com.google.gson.JsonElement tk = o.get("tokens");
+            if (tk != null && !tk.isJsonNull()) {
+                if (!tk.isJsonObject()) {
+                    errs.add("tokens 须为对象");
+                } else {
+                    com.google.gson.JsonObject t = tk.getAsJsonObject();
+                    for (java.util.Map.Entry<String, com.google.gson.JsonElement> e : t.entrySet()) {
+                        if (e.getValue().isJsonNull()) errs.add("theme token 不允许 null: " + e.getKey());
+                        if (!THEME_TOKEN_KEYS.contains(e.getKey())) {
+                            errs.add("tokens 未知键: " + e.getKey());
+                        }
+                    }
+                    com.google.gson.JsonElement ff = t.get("fontFamily");
+                    if (ff != null && !ff.isJsonNull()
+                            && (!ff.isJsonPrimitive() || !ff.getAsJsonPrimitive().isString() || !THEME_FONTS.contains(ff.getAsString()))) {
+                        errs.add("fontFamily 不在白名单");
+                    }
+                    com.google.gson.JsonElement br = t.get("borderRadius");
+                    if (br != null && !br.isJsonNull()
+                            && (!br.isJsonPrimitive() || !br.getAsJsonPrimitive().isNumber() || !THEME_RADII.contains(br.getAsDouble()))) {
+                        errs.add("borderRadius 须为 4|6|8");
+                    }
+                    com.google.gson.JsonElement sp = t.get("spacing");
+                    if (sp != null && !sp.isJsonNull()
+                            && (!sp.isJsonPrimitive() || !sp.getAsJsonPrimitive().isString() || !THEME_SPACINGS.contains(sp.getAsString()))) {
+                        errs.add("spacing 须为 compact|default|loose");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            errs.add("theme 必须为 JSON 对象");
+        }
+        return String.join("; ", errs);
     }
 
     /**

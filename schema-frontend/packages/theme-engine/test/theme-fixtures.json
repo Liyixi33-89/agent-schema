@@ -1,0 +1,23 @@
+{
+  "_comment": "spec 019 双端共享校验样本真源：前端 theme-engine 测试与后端 ThemeVectorTest 消费同一份文件，逐条断言 ok 与错误锚点，证明白名单同判而非各写各的。Java 侧由 src/test/resources 拷贝（见 bootstrap pom testResources）。",
+  "cases": [
+    { "id": "empty-null",            "input": null,                                     "ok": true },
+    { "id": "empty-obj",             "input": {},                                      "ok": true },
+    { "id": "legal-full",            "input": { "primaryColor": "#52c41a", "darkMode": true, "tokens": { "fontFamily": "serif", "borderRadius": 8, "spacing": "loose" } }, "ok": true },
+    { "id": "legal-3digit-hex",      "input": { "primaryColor": "#0a0" },              "ok": true },
+    { "id": "legal-normalized-hex",  "input": { "primaryColor": "#1AB394" },           "ok": true },
+    { "id": "unknown-top-key",       "input": { "customCss": "body{}" },               "ok": false, "errContains": ["未知键", "customCss"] },
+    { "id": "unknown-token-key",     "input": { "tokens": { "logoFileId": "x" } },     "ok": false, "errContains": ["未知键", "logoFileId"] },
+    { "id": "bad-hex-short",         "input": { "primaryColor": "#1677" },             "ok": false, "errContains": ["primaryColor"] },
+    { "id": "bad-hex-no-hash",       "input": { "primaryColor": "1677ff" },            "ok": false, "errContains": ["primaryColor"] },
+    { "id": "bad-hex-injection",     "input": { "primaryColor": "javascript:alert(1)" }, "ok": false, "errContains": ["primaryColor"] },
+    { "id": "bad-hex-rgb-fn",        "input": { "primaryColor": "rgb(1,2,3)" },        "ok": false, "errContains": ["primaryColor"] },
+    { "id": "darkmode-string",       "input": { "darkMode": "false" },                 "ok": false, "errContains": ["darkMode"] },
+    { "id": "darkmode-number",       "input": { "darkMode": 1 },                       "ok": false, "errContains": ["darkMode"] },
+    { "id": "radius-string",         "input": { "tokens": { "borderRadius": "6" } },   "ok": false, "errContains": ["borderRadius"] },
+    { "id": "radius-out-of-range",   "input": { "tokens": { "borderRadius": 12 } },    "ok": false, "errContains": ["borderRadius"] },
+    { "id": "font-prototype-chain",  "input": { "tokens": { "fontFamily": "constructor" } }, "ok": false, "errContains": ["fontFamily"] },
+    { "id": "font-url",              "input": { "tokens": { "fontFamily": "http://evil/font.woff" } }, "ok": false, "errContains": ["fontFamily"] },
+    { "id": "spacing-out",           "input": { "tokens": { "spacing": "huge" } },     "ok": false, "errContains": ["spacing"] }
+  ]
+}
