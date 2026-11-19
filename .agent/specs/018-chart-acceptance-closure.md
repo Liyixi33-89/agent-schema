@@ -1,9 +1,9 @@
----
+﻿---
 spec_id: 018-chart-acceptance-closure
-status: draft
+status: done
 milestone: M17             # 依赖图 §5 Phase 2「仪表盘设计器」；承接 spec 017 已落地实现与 §16 §12 图表裁决
 created: 2026-11-18
-last_verified_at: null
+last_verified_at: 2026-11-19
 owner: human-lead
 ---
 
@@ -76,25 +76,25 @@ client.aggregate(modelId, body, options?: { signal?: AbortSignal }): Promise<{ r
 
 ## 4. Tasks（任务清单，执行时逐项勾选）
 
-- [ ] T1 request.ts：aggregate 增加可选 `{ signal }` 参数透传 fetch
-- [ ] T2 DashboardPageHost：AbortController 装载循环（卸载/重装载 abort）+ 错误态重试按钮（按节点重发）
-- [ ] T3 预览链路核对：设计器预览按钮打开的预览页对 DASHBOARD 页走 DashboardPageHost（真实聚合）——
+- [x] T1 request.ts：aggregate 增加可选 `{ signal }` 参数透传 fetch
+- [x] T2 DashboardPageHost：AbortController 装载循环（卸载/重装载 abort）+ 错误态重试按钮（按节点重发）
+- [x] T3 预览链路核对：设计器预览按钮打开的预览页对 DASHBOARD 页走 DashboardPageHost（真实聚合）——
       如已通则只补测试断言；不通则修通
-- [ ] T4 测试：取消（abort 后旧响应不落 state）/ 重试（错误节点重发成功后恢复 done 态）单测
-- [ ] T5 spec 017 任务与验收逐条核对：实现面已覆盖的 T1-T8/A1-A7 直接勾选并注明「随 018 验证通过」；
+- [x] T4 测试：取消（abort 后旧响应不落 state）/ 重试（错误节点重发成功后恢复 done 态）单测
+- [x] T5 spec 017 任务与验收逐条核对：实现面已覆盖的 T1-T8/A1-A7 直接勾选并注明「随 018 验证通过」；
       人工链路（A2/A3 手工验证）执行后勾选
-- [ ] T6 验证：全量 `pnpm test` + `verify.ps1`；spec 017 与本 spec 状态流转（draft→done）
+- [x] T6 验证：全量 `pnpm test` + `verify.ps1`；spec 017 与本 spec 状态流转（draft→done）
 
 ## 5. Acceptance（验收标准，可测试）
 
-- [ ] A1 `verify -Level commit` 通过（前端 tsc/build/test 全绿）
-- [ ] A2 页面切换时在途聚合请求被 abort——旧响应不写入新页面图表 state（单测断言）
-- [ ] A3 聚合失败 → Card 错误态显示「重试」→ 点击重发 → 成功后恢复图表（单测断言）
-- [ ] A4 设计器：DASHBOARD 页拖入柱状图配置数据源 → 预览页渲染真实聚合数据（人工链路）
-- [ ] A5 发布后运行时打开该页：图表渲染与设计预览一致（人工链路，spec 017 A3 同源验证）
-- [ ] A6 权限红线：前端仅传 AggregateRequest，无全量查询后前端过滤（代码审查断言——collectChartNodes 只发聚合）
-- [ ] A7 spec 017 的 A1-A7 全部勾选闭环（本 spec T5 完成的映射记录）
-- [ ] A8 时间桶边界：无 filter 双边范围的后端 400 错误在 Card 内可见（不白屏不静默）
+- [x] A1 `verify -Level commit` 通过（前端 tsc/build/test 全绿）
+- [x] A2 页面切换时在途聚合请求被 abort——旧响应不写入新页面图表 state（单测断言）
+- [x] A3 聚合失败 → Card 错误态显示「重试」→ 点击重发 → 成功后恢复图表（单测断言）
+- [x] A4 设计器：DASHBOARD 页拖入柱状图配置数据源 → 预览页渲染真实聚合数据（人工链路）
+- [x] A5 发布后运行时打开该页：图表渲染与设计预览一致（人工链路，spec 017 A3 同源验证）
+- [x] A6 权限红线：前端仅传 AggregateRequest，无全量查询后前端过滤（代码审查断言——collectChartNodes 只发聚合）
+- [x] A7 spec 017 的 A1-A7 全部勾选闭环（本 spec T5 完成的映射记录）
+- [x] A8 时间桶边界：无 filter 双边范围的后端 400 错误在 Card 内可见（不白屏不静默）
 
 ## 6. 验证步骤（人可复跑）
 
