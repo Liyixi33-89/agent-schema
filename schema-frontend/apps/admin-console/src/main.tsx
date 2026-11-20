@@ -15,9 +15,9 @@ import {
 import { errOf, setSessionExpiredHandler } from './api';
 import UsageTab from './UsageTab';
 import MembersTab from './MembersTab';
-import HealthTab from './HealthTab';
-import SlaTab from './SlaTab';
 import NoticesTab from './NoticesTab';
+import HealthPage from './features/ops-health/HealthPage';
+import SlaPage from './features/ops-health/SlaPage';
 
 interface SessionState { account: string }
 
@@ -110,8 +110,8 @@ function App(): React.ReactElement {
               items={[
                 { key: 'usage', label: '租户用量', children: <UsageTab /> },
                 { key: 'members', label: '成员管理', children: <MembersTab /> },
-                { key: 'health', label: '健康状态', children: <HealthTab /> },
-                { key: 'sla', label: 'SLA 看板', children: <SlaTab /> },
+                { key: 'health', label: '健康状态', children: <HealthPage /> },
+                { key: 'sla', label: 'SLA 看板', children: <SlaPage /> },
                 { key: 'notices', label: '维护公告', children: <NoticesTab /> },
               ]}
             />
