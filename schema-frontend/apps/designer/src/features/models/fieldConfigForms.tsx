@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import { Form, Input, Select } from 'antd';
-import type { ModelSummary } from './api';
+import type { ModelSummary } from '../../shared/api';
 import {
   RELATION_CARDINALITIES, RELATION_CASCADES, COMPUTED_PERSIST_MODES,
 } from '@schema/data-model-designer';

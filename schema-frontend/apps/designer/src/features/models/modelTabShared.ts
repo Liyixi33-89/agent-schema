@@ -1,7 +1,7 @@
 /**
  * ER 建模器共享类型与工具（渐进重构第二批——自 ModelTab.tsx 原样抽出，行为不变）。
  */
-import type { ModelDetail, ModelField } from './api';
+import type { ModelDetail, ModelField } from '../../shared/api';
 
 const TYPE_OPTIONS = [
   'text', 'number', 'date', 'enum', 'boolean', 'file', 'richtext',

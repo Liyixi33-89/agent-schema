@@ -15,7 +15,7 @@ import {
   createMockBridge, createScriptWorker, HOOK_NAMES, scanSource,
   ScriptHost, type HookName, type HookResult, type MessageBridge, type ScanViolation, type ScriptBinding,
 } from '@schema/script-host';
-import { ApiClient, ApiError } from './api';
+import { ApiClient, ApiError } from '../../shared/api';
 import { SAMPLE, wrapWorker, artifactUrlOf, sha256Of, formatLog } from './scriptSupport';
 
 export default function ScriptPanel({ api, pageId, initialScripts, onScriptsBound }:

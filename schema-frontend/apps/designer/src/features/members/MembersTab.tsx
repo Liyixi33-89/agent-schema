@@ -6,8 +6,8 @@ import React from 'react';
 import {
   Button, Form, Input, List, message, Modal, Popconfirm, Select, Space, Typography,
 } from 'antd';
-import { api, type MemberRow } from './api';
-import { handleError } from './shellShared';
+import { api, type MemberRow } from '../../shared/api';
+import { handleError } from '../../app/shellShared';
 
 const ALL_ROLES = [
   { value: 'app_admin', label: '应用管理员' },

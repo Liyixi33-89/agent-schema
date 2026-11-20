@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M11 设计器工作台入口（13BE §A.1/§A.2）：
  * - 登录态：v0.4 HttpOnly Cookie 三件套（前端零凭证存储——本地仅存展示用账号名）
  * - 编排：卡片墙（Workspace）↔ 应用设置六页签（AppSettings）
@@ -10,10 +10,10 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Button, ConfigProvider, Layout, Space, Typography } from 'antd';
-import type { AppCard } from './api';
+import type { AppCard } from '../shared/api';
 import { useSession } from './shellShared';
 import LoginPanel from './LoginPanel';
-import Workspace from './Workspace';
+import { Workspace } from '../features/workspace';
 import AppSettings from './AppSettings';
 
 function App(): React.ReactElement {

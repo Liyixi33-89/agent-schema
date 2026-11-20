@@ -4,8 +4,8 @@
  */
 import React from 'react';
 import { Button, List, message, Space, Tag, Typography } from 'antd';
-import { api, type AppCard, type ReleaseRow } from './api';
-import { handleError } from './shellShared';
+import { api, type AppCard, type ReleaseRow } from '../../shared/api';
+import { handleError } from '../../app/shellShared';
 
 export default function PublishTab({ app }: { app: AppCard }): React.ReactElement {
   const [releases, setReleases] = React.useState<ReleaseRow[] | null>(null);

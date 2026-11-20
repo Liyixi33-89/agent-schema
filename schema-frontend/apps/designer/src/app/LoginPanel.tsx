@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { Button, Card, Form, Input, message } from 'antd';
-import { api } from './api';
+import { api } from '../shared/api';
 
 export default function LoginPanel({ onLogin }: { onLogin: (account: string) => void }): React.ReactElement {
   const [form] = Form.useForm();

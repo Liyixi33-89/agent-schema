@@ -6,8 +6,8 @@ import React from 'react';
 import {
   Button, Form, Input, List, message, Modal, Popconfirm, Select, Space, Tag, Typography,
 } from 'antd';
-import { api, ApiError, type NavNode } from './api';
-import { handleError } from './shellShared';
+import { api, ApiError, type NavNode } from '../../shared/api';
+import { handleError } from '../../app/shellShared';
 
 interface FlatNavRow {
   key: string;

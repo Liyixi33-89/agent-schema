@@ -8,7 +8,7 @@ import React from 'react';
 import {
   Button, Checkbox, Drawer, Input, List, message, Modal, Space, Spin, Tag, Timeline, Typography,
 } from 'antd';
-import type { ModelDetail, PrecheckResp, VersionRow } from './api';
+import type { ModelDetail, PrecheckResp, VersionRow } from '../../shared/api';
 import type { ChangeOp } from '@schema/data-model-designer';
 import { adoptServerDraft } from '@schema/data-model-designer';
 import { DELETE_ACK_IDX, RISK_LABEL, SEVERITY_COLOR, type ConflictRow, type DraftField, type DraftModel } from './modelTabShared';

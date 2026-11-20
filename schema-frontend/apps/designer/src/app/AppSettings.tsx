@@ -1,18 +1,18 @@
-/**
+﻿/**
  * 应用设置页签编排（渐进重构第三批——自 main.tsx 原样抽出，行为不变）：
  * 模型 / 页面 / 成员 / 导航 / 主题 / 发布 六页签容器。
  */
 import React from 'react';
 import { Button, Card, Layout, Space, Tabs, Typography } from 'antd';
-import { api, type AppCard } from './api';
+import { api, type AppCard } from '../shared/api';
 import { statusTag } from './shellShared';
-import ModelTab from './ModelTab';
-import PageDesignerTab from './PageDesignerTab';
-import FlowTab from './FlowTab';
-import MembersTab from './MembersTab';
-import NavTab from './NavTab';
-import ThemeTab from './ThemeTab';
-import PublishTab from './PublishTab';
+import { ModelTab } from '../features/models';
+import { PageDesignerTab } from '../features/pages';
+import { FlowTab } from '../features/flows';
+import { MembersTab } from '../features/members';
+import { NavTab } from '../features/nav';
+import { ThemeTab } from '../features/theme';
+import { PublishTab } from '../features/publish';
 
 export default function AppSettings({ app, onBack }: { app: AppCard; onBack: () => void }): React.ReactElement {
   return (

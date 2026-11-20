@@ -14,7 +14,7 @@ import {
 } from '@schema/schema-protocol';
 import { defaultWidgetFor } from '@schema/component-materials';
 import { generateDefaultLayout } from '@schema/page-designer';
-import { ApiClient, type AppCard, type PageRow } from './api';
+import { ApiClient, type AppCard, type PageRow } from '../../shared/api';
 import { ensureMaterials, normalizeFields, showError } from './designerSupport';
 
 export default function PageListPanel({ api, app, onDesign, reloadKey }: {

@@ -13,7 +13,7 @@ import React from 'react';
 import {
   Button, Empty, Form, Input, message, Modal, Space, Spin, Tag, Typography,
 } from 'antd';
-import { ApiError, type ApiClient, type ModelDetail, type ModelSummary, type PrecheckResp, type VersionRow } from './api';
+import { ApiError, type ApiClient, type ModelDetail, type ModelSummary, type PrecheckResp, type VersionRow } from '../../shared/api';
 import ErCanvas from './ErCanvas';
 import {
   effectiveConfirmMode, layeredLayout,

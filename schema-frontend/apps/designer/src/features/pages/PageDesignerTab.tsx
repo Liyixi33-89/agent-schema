@@ -11,7 +11,7 @@
  * DesignerPanels、共享工具拆至 designerSupport——本文件收敛为编辑态切换编排壳。
  */
 import React from 'react';
-import { ApiClient, type AppCard } from './api';
+import { ApiClient, type AppCard } from '../../shared/api';
 import PageListPanel from './PageListPanel';
 import PageCanvas from './PageCanvas';
 

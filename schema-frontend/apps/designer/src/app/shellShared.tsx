@@ -7,7 +7,7 @@
 import React from 'react';
 import { message, Tag } from 'antd';
 import { broadcastLogout, logout as sdkLogout, watchAuthChannel } from '@schema/auth-sdk';
-import { ApiClient } from './api';
+import { ApiClient } from '../shared/api';
 export interface Session {
   account: string;
 }

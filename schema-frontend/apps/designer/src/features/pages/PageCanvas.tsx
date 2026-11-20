@@ -19,7 +19,7 @@ import {
   acceptsChildren, checkPanelExpr, DesignerStore, findNode, outlineOf, panelGroups, panelMaterial, validateDropTarget,
   type DesignerCommand,
 } from '@schema/page-designer';
-import { ApiClient, ApiError, type AppCard } from './api';
+import { ApiClient, ApiError, type AppCard } from '../../shared/api';
 import ScriptPanel from './ScriptPanel';
 import { ensureMaterials, findParentId, normalizeFields, showError } from './designerSupport';
 import { PropsPanel, ConflictDiff } from './DesignerPanels';

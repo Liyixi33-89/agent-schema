@@ -6,8 +6,8 @@
  */
 import React from 'react';
 import { Button, ConfigProvider, Form, Input, message, Modal, Popconfirm, Radio, Select, Space, Switch, Typography, theme as antdTheme } from 'antd';
-import { api, type AppCard } from './api';
-import { handleError } from './shellShared';
+import { api, type AppCard } from '../../shared/api';
+import { handleError } from '../../app/shellShared';
 import { resolve, validateAppTheme, antdTokenOf, type AppTheme } from '@schema/theme-engine';
 
 const PRIMARY_SWATCHES = [

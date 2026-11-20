@@ -6,8 +6,8 @@ import React from 'react';
 import {
   Button, Card, Col, Empty, Form, Input, Layout, message, Modal, Row, Space, Spin, Tag, Typography,
 } from 'antd';
-import { api, type AppCard } from './api';
-import { ROLE_LABELS, statusTag, handleError } from './shellShared';
+import { api, type AppCard } from '../../shared/api';
+import { ROLE_LABELS, statusTag, handleError } from '../../app/shellShared';
 
 export default function Workspace({ onOpenSettings }: { onOpenSettings: (app: AppCard) => void }): React.ReactElement {
   const [list, setList] = React.useState<AppCard[] | null>(null);

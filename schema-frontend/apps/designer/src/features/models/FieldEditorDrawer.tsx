@@ -9,7 +9,7 @@ import React from 'react';
 import {
   Button, Checkbox, Drawer, Form, Input, List, message, Popconfirm, Select, Space, Tag, Typography,
 } from 'antd';
-import type { ModelSummary } from './api';
+import type { ModelSummary } from '../../shared/api';
 import { isDuplicateFieldKey } from '@schema/data-model-designer';
 import { TYPE_OPTIONS, type DraftField, type DraftModel } from './modelTabShared';
 import { TypeConfigForm, parseFieldConfigs } from './fieldConfigForms';

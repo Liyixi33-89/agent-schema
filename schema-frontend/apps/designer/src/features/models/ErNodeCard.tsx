@@ -9,7 +9,7 @@ import {
   type Edge, type Node, type NodeProps,
 } from '@xyflow/react';
 import { Button, Space, Tag, Typography } from 'antd';
-import type { ModelSummary } from './api';
+import type { ModelSummary } from '../../shared/api';
 import type { ModelField } from '@schema/data-model-designer';
 
 /** 节点数据（宿主注入——summary/fields/onOpenEditor）。 */

@@ -15,7 +15,7 @@ import {
   type Connection, type Edge, type Node, type NodeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import type { ModelSummary } from './api';
+import type { ModelSummary } from '../../shared/api';
 import { extractRelationEdges, type ModelField } from '@schema/data-model-designer';
 import { edgeStyle, nodeTypes, type ModelNodeData } from './ErNodeCard';
 
