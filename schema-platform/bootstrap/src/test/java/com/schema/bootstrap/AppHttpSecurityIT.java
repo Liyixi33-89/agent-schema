@@ -17,6 +17,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import java.util.List;
 
+import static org.hamcrest.Matchers.hasItem;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -192,9 +193,12 @@ class AppHttpSecurityIT {
         mvc.perform(get("/api/apps/" + appId).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value(appName));
+        // 成员列表断言「包含 app_admin」而非「roles[0] 等于 app_admin」：
+        // admin 同时持 it_org_admin（org:manage 闸所需），角色数组顺序由 DB 返回顺序决定，
+        // 断言首元素会随执行顺序/索引状态漂移（CI 稳定失败根因）。
         mvc.perform(get("/api/apps/" + appId + "/members").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.list[0].roles[0]").value("app_admin"));
+                .andExpect(jsonPath("$.list[0].roles", hasItem("app_admin")));
     }
 
     // ---------- 应用创建权限闸（PRD07 §4：租户管理员） ----------

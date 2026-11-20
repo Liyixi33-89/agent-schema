@@ -60,6 +60,9 @@ class DataEngineSecurityIT {
 
     private long modelId;
 
+    /** 部门范围测试插入的业务行 id（测试后清理——total 断言依赖精确行数）。 */
+    private final java.util.List<Long> deptRowIds = new java.util.ArrayList<>();
+
     @BeforeAll
     void warmup() {
         // 只清测试自造角色（it_ 前缀）——种子角色 seed_data_admin 是 userId=1 的 ALL 范围来源，
@@ -279,6 +282,7 @@ class DataEngineSecurityIT {
                 cleanupRole(roleIdNoDept);
             }
         } finally {
+            cleanupDeptRows();   // 业务行必须清理：total 断言依赖精确行数，跨轮累积会漂移
             jdbc.update("DELETE FROM sys_dept WHERE id IN (?, ?)", deptId, otherDeptId);
         }
     }
@@ -314,6 +318,7 @@ class DataEngineSecurityIT {
                 cleanupRole(roleId);
             }
         } finally {
+            cleanupDeptRows();   // 业务行必须清理：total 断言依赖精确行数，跨轮累积会漂移
             jdbc.update("DELETE FROM sys_dept WHERE id IN (?, ?, ?)", parentDept, childDept, outsideDept);
         }
     }
@@ -887,5 +892,14 @@ class DataEngineSecurityIT {
             return Long.parseLong((String) resp.get("id"));
         });
         jdbc.update("UPDATE biz_model_" + modelId + " SET created_by=? WHERE id=?", createdBy, id);
+        deptRowIds.add(id);   // 登记待清理（见 deptScopeFiltersByRealDeptContext 的 finally）
+    }
+
+    /** 删除本测试插入的业务行（防跨轮累积——total 断言依赖精确行数）。 */
+    private void cleanupDeptRows() {
+        for (Long id : deptRowIds) {
+            jdbc.update("DELETE FROM biz_model_" + modelId + " WHERE id=?", id);
+        }
+        deptRowIds.clear();
     }
 }

@@ -61,16 +61,18 @@ function App(): React.ReactElement {
     };
   }, []);
 
-  // 会话失效：占位组件接管整页（业务组件卸载——停止加载、不重载、不残留旧数据）
-  if (sessionExpired) {
-    return <SessionExpired />;
-  }
-
   // ETag 缓存条目引用稳定化（M16 修复）：hash 导航触发 App 重渲染时
   // cachedEntry 每次返回新对象 → FormPageHost 外层装载 effect 依赖 cachedSchema
   // 引用变化多余重跑 → SchemaFormPage 卸载重挂 → 编辑态详情回填竞态丢失。
   // 按 pageId 记忆化：同 pageId 渲染间保持同一引用，effect 不再重跑。
+  // ⚠️ 必须在任何 early return 之前调用——否则首次渲染跳过该 hook、
+  //    后续渲染才调用，触发 React #300（Rendered more hooks than during the previous render）。
   const cacheRef = React.useRef(new Map<string, { etag: string | null; schema: unknown }>());
+
+  // 会话失效：占位组件接管整页（业务组件卸载——停止加载、不重载、不残留旧数据）
+  if (sessionExpired) {
+    return <SessionExpired />;
+  }
 
   const pageHost = (pageId: string, recordId?: string): React.ReactElement => {
     let cached = cacheRef.current.get(pageId);
