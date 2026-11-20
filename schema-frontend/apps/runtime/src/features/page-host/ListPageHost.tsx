@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 列表页装配（M15 2026-11-11 重写——消费设计布局而非模型全字段直出；2026-11-17 审查收口；
  * 渐进重构第四批收敛为宿主组件——纯逻辑拆至 listSupport）：
  * - 布局真源 page.layout：找 DataTable 节点消费其 props.columns（设计态列配置）；
@@ -18,7 +18,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Space, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { FieldSchema, PageSchema } from '@schema/schema-protocol';
-import { RequestClient } from './request';
+import { RequestClient } from '../../shared/request';
 import {
   parseListResult, resolveOpenTarget, findDataTable, renderCell, type DesignedColumn,
 } from './listSupport';

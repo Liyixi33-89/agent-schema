@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 表单页装配（M11 最小宿主核心；渐进重构第四批收敛为装载编排壳）：
  * 发布 PageSchema + 字段元数据 + 编辑态详情 一体化装载（M16 竞态修复——零回填竞态）
  * → migrate + validatePageSchema 协议校验 → 按页面类型分发：
@@ -11,7 +11,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Spin } from 'antd';
 import { ServerError } from '@schema/schema-form';
 import { migrate, validatePageSchema, type FieldSchema, type PageSchema } from '@schema/schema-protocol';
-import { RequestClient } from './request';
+import { RequestClient } from '../../shared/request';
 import { ensureMaterials, normalizeFields, validateLoadedFieldRefs } from './hostShared';
 import ListPageHost from './ListPageHost';
 import DashboardPageHost from './DashboardPageHost';

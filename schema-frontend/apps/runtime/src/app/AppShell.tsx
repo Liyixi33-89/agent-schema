@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { Menu, Typography } from 'antd';
-import { RequestClient } from './request';
+import { RequestClient } from '../shared/request';
 import type { MenuProps } from 'antd';
 import { AppThemeProvider } from './AppThemeProvider';
 

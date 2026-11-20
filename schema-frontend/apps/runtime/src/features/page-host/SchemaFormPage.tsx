@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 已装载表单页渲染 + 提交闭环（渐进重构第四批——自 FormPageHost.tsx 原样抽出，行为不变）：
  * FormStore 构造期破环 / 受控字段包装（EnhancedCache 类型稳定）/ 提交三阶段协议
  * + 服务端错误回填 + 脚本钩子 beforeSubmit·afterSubmit·onActionClick + 错误汇总区。
@@ -11,7 +11,7 @@ import {
 } from '@schema/schema-form';
 import { materialRegistry } from '@schema/schema-renderer';
 import type { FieldSchema, PageSchema } from '@schema/schema-protocol';
-import { RequestClient } from './request';
+import { RequestClient } from '../../shared/request';
 import { useScriptHooks } from './useScriptHooks';
 import { SchemaRenderer, fieldRefOf, UnknownWidget } from './hostShared';
 

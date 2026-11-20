@@ -4,8 +4,8 @@
  */
 import React from 'react';
 import { Typography } from 'antd';
-import { RequestClient } from './request';
-import FormPageHost from './FormPageHost';
+import { RequestClient } from '../../shared/request';
+import { FormPageHost } from '../page-host';
 
 export default function PreviewPage({ grantId }: { grantId: string }): React.ReactElement {
   const [state, setState] = React.useState<{ phase: 'loading' } | { phase: 'error'; message: string } | {

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 仪表盘宿主（spec 017 · 12FE §4 最小路径；018 收口——装载状态机抽至 chartLoad.ts）：
  * - 消费 page.layout（SchemaRenderer 物料轨道渲染图表物料）；
  * - 数据装载：ChartLoadCoordinator（取消/竞态/重试语义单测覆盖），本组件只做
@@ -11,7 +11,7 @@ import { bindSchemaRenderer, materialRegistry, RenderScope } from '@schema/schem
 import type { PageSchema, FieldSchema, LayoutNode } from '@schema/schema-protocol';
 import { isChartDs } from '@schema/component-materials';
 import { ChartLoadCoordinator, type ChartState } from './chartLoad';
-import type { RequestClient } from './request';
+import type { RequestClient } from '../../shared/request';
 
 const SchemaRenderer = bindSchemaRenderer({ createElement: React.createElement, useState, useEffect });
 const ChartContext = React.createContext<{

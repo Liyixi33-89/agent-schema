@@ -9,12 +9,12 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConfigProvider, Typography } from 'antd';
-import { RequestClient } from './request';
+import { RequestClient } from '../shared/request';
 import { UsageTracker } from '@schema/usage-tracker';
-import FormPageHost from './FormPageHost';
+import FormPageHost from '../features/page-host/FormPageHost';
 import { AppShell, watchTenantChange } from './AppShell';
 import SessionExpired from './SessionExpired';
-import PreviewPage from './PreviewPage';
+import PreviewPage from '../features/preview/PreviewPage';
 import { cachedEntry, cacheEntry } from './pageCache';
 import { parseRuntimeHash, type RouteInfo } from './route';
 

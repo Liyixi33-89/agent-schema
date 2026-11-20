@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M14 runtime 页面脚本消费（08FE §4 线上执行器接线）：
  * - PageSchema.scripts → ScriptHost（Worker 隔离 + terminate 硬中断——与测试台同一执行器）
  * - 真实消息桥：form.* 直连 FormStore；api.call 走 RequestClient（宿主代理——Worker 不持 token）；
@@ -14,7 +14,7 @@ import {
 } from '@schema/script-host';
 import type { FormStore } from '@schema/schema-form';
 import type { PageSchema } from '@schema/schema-protocol';
-import type { RequestClient } from './request';
+import type { RequestClient } from '../../shared/request';
 
 export interface ScriptHooksOptions {
   page: PageSchema;
