@@ -1,26 +1,18 @@
-/**
- * 维护公告 Tab（13BE §6 /api/ops/notices）——由 main.tsx 原样拆出，行为不变。
+﻿/**
+ * 维护公告页（feature 内聚：页面只编排——取数 Hook + 表单提交 + 展示装配）。
  */
 import React from 'react';
-import { Alert, Button, Card, Form, Input, List, Space, Tag, message } from 'antd';
-import { req, errOf } from './api';
+import { Button, Card, Form, Input, List, Space, Tag, message } from 'antd';
+import { errOf } from '../../api';
+import { RegionStatusBar } from '../../shared/ui';
+import { useAsyncData } from '../../shared/async';
+import { deactivateNotice, fetchNotices, publishNotice } from './api';
 
-interface NoticeItem {
-  id: number; title: string; content: string; level: string; active: boolean; updated_at?: string;
-}
-
-export default function NoticesTab(): React.ReactElement {
-  const [list, setList] = React.useState<NoticeItem[] | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+export default function NoticesPage(): React.ReactElement {
+  const notices = useAsyncData(fetchNotices, []);
   const [form] = Form.useForm();
-  const load = React.useCallback(() => {
-    req('GET', '/api/ops/notices')
-      .then((r) => setList(((r as { list?: NoticeItem[] }).list ?? []) as NoticeItem[]))
-      .catch((e) => setError(errOf(e)));
-  }, []);
-  React.useEffect(() => { load(); }, [load]);
+  const reload = notices.reload;
 
-  if (error) return <Alert type="error" showIcon message="公告加载失败" description={error} />;
   return (
     <>
       <Card size="small" style={{ marginBottom: 12 }} title="发布维护公告（发布即生效，撤销旧公告）">
@@ -28,10 +20,10 @@ export default function NoticesTab(): React.ReactElement {
           title: string; content: string; level: string;
         }) => {
           try {
-            await req('POST', '/api/ops/notices', v);
+            await publishNotice(v);
             message.success('公告已发布');
             form.resetFields();
-            load();
+            reload();
           } catch (e) { message.error(errOf(e)); }
         }}>
           <Form.Item name="title" label="标题" rules={[{ required: true }]}>
@@ -46,15 +38,16 @@ export default function NoticesTab(): React.ReactElement {
           <Space>
             <Button type="primary" htmlType="submit">发布公告</Button>
             <Button onClick={async () => {
-              try { await req('PUT', '/api/ops/notices/deactivate'); message.success('已撤下'); load(); }
+              try { await deactivateNotice(); message.success('已撤下'); reload(); }
               catch (e) { message.error(errOf(e)); }
             }}>撤下当前公告</Button>
           </Space>
         </Form>
       </Card>
+      <div style={{ marginBottom: 8 }}><RegionStatusBar status={notices} label="公告列表" /></div>
       <List
-        loading={list === null}
-        dataSource={list ?? []}
+        loading={notices.loading}
+        dataSource={notices.data ?? []}
         locale={{ emptyText: '暂无公告' }}
         renderItem={(n) => (
           <List.Item

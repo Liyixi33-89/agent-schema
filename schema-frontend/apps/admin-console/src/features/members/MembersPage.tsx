@@ -1,33 +1,28 @@
-/**
- * 成员管理 Tab（03BE /api/org/members）——由 main.tsx 原样拆出，行为不变。
+﻿/**
+ * 成员管理页（feature 内聚：页面只编排——取数 Hook + 表单提交 + 展示装配）。
+ * 展示组件不自行请求；错误/加载/刷新状态由 RegionStatusBar 如实呈现。
  */
 import React from 'react';
-import { Alert, Button, Card, Form, Input, Table, Tag, message } from 'antd';
-import { req, errOf } from './api';
+import { Button, Card, Form, Input, Table, Tag, message } from 'antd';
+import { errOf } from '../../api';
+import { RegionStatusBar } from '../../shared/ui';
+import { createMember } from './api';
+import { useMembers } from './useMembers';
 
-interface MemberItem { id: number; account: string; name?: string; status: string }
-
-export default function MembersTab(): React.ReactElement {
-  const [list, setList] = React.useState<MemberItem[] | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+export default function MembersPage(): React.ReactElement {
+  const members = useMembers();
   const [form] = Form.useForm();
-  const load = React.useCallback(() => {
-    req('GET', '/api/org/members')
-      .then((r) => setList(((r as { list?: MemberItem[] }).list ?? []) as MemberItem[]))
-      .catch((e) => setError(errOf(e)));
-  }, []);
-  React.useEffect(() => { load(); }, [load]);
+  const reload = members.reload;
 
-  if (error) return <Alert type="error" showIcon message="成员加载失败" description={error} />;
   return (
     <>
       <Card size="small" style={{ marginBottom: 12 }} title="新建成员">
         <Form form={form} layout="inline" onFinish={async (v: { account: string; name: string }) => {
           try {
-            await req('POST', '/api/org/members', v);
+            await createMember(v);
             message.success('成员已创建（初始密码仅返回一次）');
             form.resetFields();
-            load();
+            reload();
           } catch (e) { message.error(errOf(e)); }
         }}>
           <Form.Item name="account" rules={[{ required: true }]}><Input placeholder="账号" /></Form.Item>
@@ -35,10 +30,11 @@ export default function MembersTab(): React.ReactElement {
           <Button type="primary" htmlType="submit">创建</Button>
         </Form>
       </Card>
+      <div style={{ marginBottom: 8 }}><RegionStatusBar status={members} label="成员列表" /></div>
       <Table
         rowKey="id"
-        loading={list === null}
-        dataSource={list ?? []}
+        loading={members.loading}
+        dataSource={members.data ?? []}
         columns={[
           { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
           { title: '账号', dataIndex: 'account', key: 'account' },
