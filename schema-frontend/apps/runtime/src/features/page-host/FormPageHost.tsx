@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 表单页装配（M11 最小宿主核心；渐进重构第四批收敛为装载编排壳）：
  * 发布 PageSchema + 字段元数据 + 编辑态详情 一体化装载（M16 竞态修复——零回填竞态）
  * → migrate + validatePageSchema 协议校验 → 按页面类型分发：
@@ -95,7 +95,15 @@ export function FormPageHost({ client, pageId, recordId, onSubmitted, etag, cach
     return () => { cancelled = true; };
   }, [client, pageId, etag, cachedSchema, recordId]);
 
-  if (state.phase === 'loading') return <Spin tip="页面加载中..." />;
+  // antd 5：Spin 的 tip 仅在 nest/fullscreen 模式下生效——独立使用时用文案替代（避免 warning）
+  if (state.phase === 'loading') {
+    return (
+      <div style={{ textAlign: 'center', padding: 64 }}>
+        <Spin />
+        <div style={{ marginTop: 12, color: 'rgba(0,0,0,0.45)' }}>页面加载中…</div>
+      </div>
+    );
+  }
   if (state.phase === 'error') {
     return <Alert type="error" showIcon message="页面加载失败" description={state.message} />;
   }
