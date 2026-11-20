@@ -1,9 +1,9 @@
-﻿/**
+/**
  * SLA 展示组件（阶段 C 范例——props 进/回调出）：
  * 月度统计卡片区 + 口径说明 + 故障时段 + 维护窗口表单/列表。
  */
 import React from 'react';
-import { Button, Card, Form, Input, Space, Statistic, Table, Tag, Typography, message } from 'antd';
+import { Button, Card, Checkbox, Form, Input, Space, Statistic, Table, Tag, Typography, message } from 'antd';
 import type { MaintenanceWindow, SlaMonthly } from '../../../shared/contracts';
 import { RegionStatusBar, type RegionStatus } from '../../../shared/ui';
 
@@ -107,7 +107,7 @@ export function MaintenanceWindowSection({ windows, status, onSubmit }: {
         <Form.Item name="title" rules={[{ required: true }]}><Input placeholder="窗口标题" /></Form.Item>
         <Form.Item name="startAt" rules={[{ required: true }]}><Input placeholder="开始 ISO-8601 如 2026-11-20T02:00:00+08:00" style={{ width: 280 }} /></Form.Item>
         <Form.Item name="endAt" rules={[{ required: true }]}><Input placeholder="结束 ISO-8601" style={{ width: 220 }} /></Form.Item>
-        <Form.Item name="emergency" valuePropName="checked" initialValue={false}><Input type="checkbox" />紧急</Form.Item>
+        <Form.Item name="emergency" valuePropName="checked" initialValue={false}><Checkbox>紧急</Checkbox></Form.Item>
         <Button type="primary" htmlType="submit" disabled={submitting}>{submitting ? '登记中…' : '登记'}</Button>
       </Form>
       <Table
