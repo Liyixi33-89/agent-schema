@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { FlowSchema } from '@schema/schema-protocol';
 import {
   UNKNOWN_NODE_TYPE, approverText, countUnknownNodes, instanceStateColor,
-  layeredFlowLayout, toCanvasGraph,
+  layeredFlowLayout, toCanvasGraph, toInstanceNodeState,
 } from '../src/layout';
 
 /** 合法基准（与协议校验测试同构——七型全覆盖报销审批流）。 */
@@ -108,6 +108,15 @@ describe('toCanvasGraph（渲染快照等价断言）', () => {
     expect(nodes.find((n) => n.id === 'apr')?.data.state).toBe('ACTIVE');
     expect(nodes.find((n) => n.id === 'start')?.data.state).toBeUndefined();
   });
+  it('实例状态封闭收窄：未知 state 值丢弃不着色（容错不抛异常）', () => {
+    const f = demoFlow();
+    const { nodes } = toCanvasGraph(f, { instanceState: { nodes: [
+      { nodeId: 'apr', state: 'WHATEVER' },      // 未知值
+      { nodeId: 'cc', state: 'DONE' },           // 合法值对照
+    ] } });
+    expect(nodes.find((n) => n.id === 'apr')?.data.state).toBeUndefined();
+    expect(nodes.find((n) => n.id === 'cc')?.data.state).toBe('DONE');
+  });
   it('外部 positions 覆盖自动布局（视图态注入）', () => {
     const f = demoFlow();
     const { nodes } = toCanvasGraph(f, { positions: { start: { x: 999, y: 999 } } });
@@ -135,6 +144,14 @@ describe('辅助纯函数', () => {
     expect(instanceStateColor('DONE')).toBe('#1677ff');
     expect(instanceStateColor('SKIPPED')).toBe('#d9d9d9');
     expect(instanceStateColor('PENDING')).toBeNull();
-    expect(instanceStateColor('WHATEVER')).toBeNull();
+  });
+  it('toInstanceNodeState：封闭四态收窄，未知值 → undefined', () => {
+    expect(toInstanceNodeState('PENDING')).toBe('PENDING');
+    expect(toInstanceNodeState('ACTIVE')).toBe('ACTIVE');
+    expect(toInstanceNodeState('DONE')).toBe('DONE');
+    expect(toInstanceNodeState('SKIPPED')).toBe('SKIPPED');
+    expect(toInstanceNodeState('WHATEVER')).toBeUndefined();
+    expect(toInstanceNodeState(null)).toBeUndefined();
+    expect(toInstanceNodeState(42)).toBeUndefined();
   });
 });

@@ -12,16 +12,30 @@ import React from 'react';
 import { Alert, ConfigProvider, theme as antdTheme } from 'antd';
 import { resolveWithReport, cssVarsOf, antdTokenOf, type AppTheme } from '@schema/theme-engine';
 
+/** 解析结果：raw 非法（坏 JSON / 非对象）与「无主题」区分——前者须可观察反馈（spec 019 §8）。 */
+export type ParsedTheme =
+  | { kind: 'theme'; value: AppTheme }
+  | { kind: 'absent' }
+  | { kind: 'invalid'; reason: string };
+
 /** 解析 nav 响应里的 theme 字段（JSON 串或对象双兼容——宽松 Jackson 口径 ADR-013）。 */
-export function parseTheme(raw: unknown): AppTheme | null {
+export function parseTheme(raw: unknown): ParsedTheme {
+  if (raw == null) return { kind: 'absent' };
   if (typeof raw === 'string') {
-    try { return JSON.parse(raw) as AppTheme; } catch { return null; }
+    const text = raw.trim();
+    if (!text) return { kind: 'absent' };
+    try { return { kind: 'theme', value: JSON.parse(text) as AppTheme }; }
+    catch (e) { return { kind: 'invalid', reason: `theme JSON 解析失败: ${(e as Error).message}` }; }
   }
-  if (raw && typeof raw === 'object') return raw as AppTheme;
-  return null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return { kind: 'theme', value: raw as AppTheme };
+  return { kind: 'invalid', reason: `theme 须为 JSON 串或对象: ${String(raw)}` };
 }
 
-/** CSS 变量通道：批量写入并返回恢复函数（应用切换/卸载恢复——13FE §4）。 */
+/** CSS 变量通道：批量写入并返回恢复函数（应用切换/卸载恢复——13FE §4）。
+ *  边界：恢复按「卸载前原值」还原普通声明优先级——若页面样式表里存在
+ *  `!important` 同名变量，内联恢复无法覆盖（CSS 优先级铁律）；本系统
+ *  --schema-* 变量仅由本函数经内联写入，样式表不含 !important 同名声明，
+ *  该边界已在 spec 019 §7 登记（承诺范围 = 恢复内联写入的原值）。 */
 export function applyCssVars(vars: Record<string, string>): () => void {
   const prev: Record<string, string> = {};
   for (const [k, v] of Object.entries(vars)) {
@@ -44,8 +58,15 @@ export function AppThemeProvider({ navTheme, children }: {
   navTheme: unknown;
   children: React.ReactNode;
 }): React.ReactElement {
-  const { tokens, errors } = React.useMemo(
-    () => resolveWithReport(parseTheme(navTheme)), [navTheme]);
+  const { tokens, errors } = React.useMemo(() => {
+    const parsed = parseTheme(navTheme);
+    if (parsed.kind === 'invalid') {
+      // 坏 JSON/非对象：不能静默当「无主题」——降级默认渲染 + 明细反馈（spec 019 §8）
+      return { tokens: resolveWithReport(null).tokens, errors: [parsed.reason] };
+    }
+    const report = resolveWithReport(parsed.kind === 'theme' ? parsed.value : null);
+    return { tokens: report.tokens, errors: report.errors };
+  }, [navTheme]);
   const spec = React.useMemo(() => antdTokenOf(tokens), [tokens]);
   React.useEffect(() => {
     const restore = applyCssVars(cssVarsOf(tokens));

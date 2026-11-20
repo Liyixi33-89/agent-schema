@@ -8,6 +8,6 @@ export { default as FlowCanvas } from './FlowCanvas';
 export type { FlowCanvasProps, InstanceState } from './FlowCanvas';
 export {
   layeredFlowLayout, toCanvasGraph, countUnknownNodes, approverText,
-  FLOW_NODE_META, UNKNOWN_NODE_TYPE, INSTANCE_STATES, instanceStateColor,
+  FLOW_NODE_META, UNKNOWN_NODE_TYPE, INSTANCE_STATES, instanceStateColor, toInstanceNodeState,
 } from './layout';
-export type { FlowCanvasNodeData, FlowNodeMeta } from './layout';
+export type { FlowCanvasNodeData, FlowNodeMeta, InstanceNodeState } from './layout';
