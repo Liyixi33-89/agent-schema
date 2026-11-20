@@ -1,15 +1,16 @@
-/**
+﻿/**
  * SLA 可用性看板页（阶段 C 范例——编排：月度查询 + 权限引导 + 维护窗口登记）。
  * 行为基线：month 切换重载、availability null=采样中、口径 basis 真源直显、维护窗口登记后刷新。
+ * 本轮修复：月度与维护窗口两区域各自展示加载/刷新/失败状态；月份切换期间不展示旧月份数据。
  */
 import React from 'react';
-import { Card, Input, Space } from 'antd';
+import { Input, Space, Typography } from 'antd';
 import { useSlaData } from './useSlaData';
-import { ErrorRetryAlert, ForbiddenAlert } from './components/HealthSummary';
+import { ErrorRetryAlert, ForbiddenAlert, RegionStatusBar } from '../../shared/ui';
 import {
   IncidentsCard, MaintenanceWindowSection, SlaBasisCard, SlaSummary,
 } from './components/SlaSummary';
-import { parseYearMonth } from './contracts';
+import { parseYearMonth } from '../../shared/contracts';
 
 export default function SlaPage(): React.ReactElement {
   const [month, setMonth] = React.useState<string>(() => {
@@ -39,13 +40,15 @@ export default function SlaPage(): React.ReactElement {
           onSearch={(v) => { if (parseYearMonth(v)) setMonth(v); }}
           enterButton="查询"
         />
+        <Typography.Text type="secondary">当前查询月份：{month}</Typography.Text>
       </Space>
+      <div><RegionStatusBar status={d.monthly} label="SLA 月度数据" /></div>
       <SlaSummary data={d.monthly.data} stale={d.monthly.stale} />
       {d.monthly.data ? <SlaBasisCard data={d.monthly.data} /> : null}
       {d.monthly.data && d.monthly.data.incidents.length > 0 ? (
         <IncidentsCard data={d.monthly.data.incidents} />
       ) : null}
-      <MaintenanceWindowSection windows={d.windows.data} onSubmit={d.submitWindow} />
+      <MaintenanceWindowSection windows={d.windows.data} status={d.windows} onSubmit={d.submitWindow} />
     </Space>
   );
 }

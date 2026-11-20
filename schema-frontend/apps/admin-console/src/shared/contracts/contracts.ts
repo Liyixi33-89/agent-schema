@@ -1,8 +1,19 @@
 /**
  * 运行时响应校验（阶段 C 重构范例——外部数据不裸类型断言）：
- * 后端契约字段缺失/null 时返回 null（页面按「不可用」渲染），不猜测补值。
+ * 契约结构不合法 → 抛 ContractError（进入明确错误态，不再返回 null 冒充「不可用/无样本」）；
+ * 合法无样本（如 series: []）→ 返回空数组，与损坏响应严格区分。
  * 全部为纯函数，可单测。
  */
+
+/** 契约解析失败（响应结构与后端契约不符——必须进入错误态，不能当合法空数据）。 */
+export class ContractError extends Error {
+  readonly endpoint: string;
+  constructor(endpoint: string, detail: string) {
+    super(`响应契约校验失败（${endpoint}）：${detail}`);
+    this.name = 'ContractError';
+    this.endpoint = endpoint;
+  }
+}
 
 /** 平台探活（无权限要求）。 */
 export interface HealthInfo { status: string; db: string; version: string; timestamp: string }
@@ -51,16 +62,18 @@ function num(v: unknown): number | null { return typeof v === 'number' && Number
 
 // ---------- 各接口响应校验 ----------
 
-export function parseHealthInfo(raw: unknown): HealthInfo | null {
-  if (!isObj(raw)) return null;
+export function parseHealthInfo(raw: unknown): HealthInfo {
+  if (!isObj(raw)) throw new ContractError('/api/ops/health', '响应不是对象');
   const status = str(raw.status); const db = str(raw.db);
   const version = str(raw.version); const timestamp = str(raw.timestamp);
-  if (!status || !db || !version || !timestamp) return null;
+  if (!status || !db || !version || !timestamp) {
+    throw new ContractError('/api/ops/health', 'status/db/version/timestamp 缺失或类型不符');
+  }
   return { status, db, version, timestamp };
 }
 
-export function parseTenantOverview(raw: unknown): TenantHealthOverview | null {
-  if (!isObj(raw)) return null;
+export function parseTenantOverview(raw: unknown): TenantHealthOverview {
+  if (!isObj(raw)) throw new ContractError('/api/ops/health/tenant/overview', '响应不是对象');
   const db = str(raw.db); const timestamp = str(raw.timestamp);
   const activeUsers = num(raw.activeUsersLastHour);
   const api = isObj(raw.apiThroughputLastHour) ? num(raw.apiThroughputLastHour.calls) : null;
@@ -74,8 +87,12 @@ export function parseTenantOverview(raw: unknown): TenantHealthOverview | null {
   const storage = isObj(raw.resourceUsage) ? num(raw.resourceUsage.storageMb) : null;
   if (db === null || timestamp === null || activeUsers === null
     || api === null || apiSrc === null || err === null || errSrc === null
-    || compileTotal === null || compileSuccess === null || storage === null) return null;
-  if (compileRate !== null && num(compileRate) === null) return null; // 非数字非 null 拒
+    || compileTotal === null || compileSuccess === null || storage === null) {
+    throw new ContractError('/api/ops/health/tenant/overview', '必填统计字段缺失或类型不符');
+  }
+  if (compileRate !== null && num(compileRate) === null) {
+    throw new ContractError('/api/ops/health/tenant/overview', 'successRate 非数字且非 null');
+  }
   return {
     db, activeUsersLastHour: activeUsers, timestamp,
     apiThroughputLastHour: { calls: api, source: apiSrc },
@@ -88,23 +105,26 @@ export function parseTenantOverview(raw: unknown): TenantHealthOverview | null {
   };
 }
 
-function parseSeries<T>(raw: unknown, item: (v: unknown) => T | null): T[] | null {
-  if (!isObj(raw) || !Array.isArray(raw.series)) return null;
+/** 时序信封校验：series 必须是数组（缺失/非数组 → 契约错误）；空数组是合法无样本。 */
+function parseSeries<T>(endpoint: string, raw: unknown, item: (v: unknown) => T | null): T[] {
+  if (!isObj(raw) || !Array.isArray(raw.series)) {
+    throw new ContractError(endpoint, 'series 缺失或不是数组');
+  }
   const out: T[] = [];
   for (const it of raw.series) { const p = item(it); if (p !== null) out.push(p); }
   return out; // 部分坏行剔除——不因单点坏数据丢弃整段时序
 }
 
-export function parseThroughput(raw: unknown): ThroughputPoint[] | null {
-  return parseSeries<ThroughputPoint>(raw, (v) => {
+export function parseThroughput(raw: unknown): ThroughputPoint[] {
+  return parseSeries<ThroughputPoint>('/api/ops/health/tenant/api-throughput', raw, (v) => {
     if (!isObj(v)) return null;
     const minute = str(v.minute); const calls = num(v.calls);
     return minute !== null && calls !== null ? { minute, calls } : null;
   });
 }
 
-export function parseCompile(raw: unknown): CompilePoint[] | null {
-  return parseSeries<CompilePoint>(raw, (v) => {
+export function parseCompile(raw: unknown): CompilePoint[] {
+  return parseSeries<CompilePoint>('/api/ops/health/tenant/script-compile', raw, (v) => {
     if (!isObj(v)) return null;
     const hour = str(v.hour); const total = num(v.total);
     const success = num(v.success); const failed = num(v.failed); const blocked = num(v.blocked);
@@ -115,8 +135,10 @@ export function parseCompile(raw: unknown): CompilePoint[] | null {
   });
 }
 
-export function parseRecentErrors(raw: unknown): RecentErrorItem[] | null {
-  if (!isObj(raw) || !Array.isArray(raw.list)) return null;
+export function parseRecentErrors(raw: unknown): RecentErrorItem[] {
+  if (!isObj(raw) || !Array.isArray(raw.list)) {
+    throw new ContractError('/api/ops/health/tenant/recent-errors', 'list 缺失或不是数组');
+  }
   const out: RecentErrorItem[] = [];
   for (const v of raw.list) {
     if (!isObj(v)) continue;
@@ -131,8 +153,8 @@ export function parseRecentErrors(raw: unknown): RecentErrorItem[] | null {
   return out;
 }
 
-export function parseSlaMonthly(raw: unknown): SlaMonthly | null {
-  if (!isObj(raw)) return null;
+export function parseSlaMonthly(raw: unknown): SlaMonthly {
+  if (!isObj(raw)) throw new ContractError('/api/ops/sla/monthly', '响应不是对象');
   const yearMonth = str(raw.yearMonth); const targetSla = num(raw.targetSla);
   const availability = raw.availability == null ? null : num(raw.availability);
   const totalMinutes = num(raw.totalMinutes);
@@ -143,8 +165,12 @@ export function parseSlaMonthly(raw: unknown): SlaMonthly | null {
   const basis = isObj(raw.basis) ? (raw.basis as Record<string, string>) : null;
   if (yearMonth === null || targetSla === null
     || totalMinutes === null || excluded === null || effective === null
-    || unavailable === null || sampled === null || basis === null) return null;
-  if (!Array.isArray(raw.incidents)) return null;
+    || unavailable === null || sampled === null || basis === null) {
+    throw new ContractError('/api/ops/sla/monthly', '必填统计字段或 basis 缺失');
+  }
+  if (!Array.isArray(raw.incidents)) {
+    throw new ContractError('/api/ops/sla/monthly', 'incidents 不是数组');
+  }
   const incidents: { startAt: string; minutes: number }[] = [];
   for (const v of raw.incidents) {
     if (!isObj(v)) continue;
@@ -158,8 +184,10 @@ export function parseSlaMonthly(raw: unknown): SlaMonthly | null {
   };
 }
 
-export function parseMaintenanceWindows(raw: unknown): MaintenanceWindow[] | null {
-  if (!isObj(raw) || !Array.isArray(raw.list)) return null;
+export function parseMaintenanceWindows(raw: unknown): MaintenanceWindow[] {
+  if (!isObj(raw) || !Array.isArray(raw.list)) {
+    throw new ContractError('/api/ops/sla/maintenance-windows', 'list 缺失或不是数组');
+  }
   const out: MaintenanceWindow[] = [];
   for (const v of raw.list) {
     if (!isObj(v)) continue;

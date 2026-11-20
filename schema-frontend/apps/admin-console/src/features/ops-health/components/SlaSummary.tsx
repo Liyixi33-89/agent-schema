@@ -1,10 +1,11 @@
-/**
+﻿/**
  * SLA 展示组件（阶段 C 范例——props 进/回调出）：
  * 月度统计卡片区 + 口径说明 + 故障时段 + 维护窗口表单/列表。
  */
 import React from 'react';
 import { Button, Card, Form, Input, Space, Statistic, Table, Tag, Typography, message } from 'antd';
-import type { MaintenanceWindow, SlaMonthly } from '../contracts';
+import type { MaintenanceWindow, SlaMonthly } from '../../../shared/contracts';
+import { RegionStatusBar, type RegionStatus } from '../../../shared/ui';
 
 /** 月度统计卡片区（availability null=采样中，不转 100%——口径红线）。 */
 export function SlaSummary({ data, stale }: { data: SlaMonthly | null; stale: boolean }): React.ReactElement {
@@ -74,14 +75,17 @@ export function IncidentsCard({ data }: { data: { startAt: string; minutes: numb
  * 表单校验/提交状态在组件内（表单态是组件局部职责），请求执行走 onSubmit 回调——
  * 失败提示由回调返回值驱动（不重复弹窗逻辑）。
  */
-export function MaintenanceWindowSection({ windows, onSubmit }: {
+export function MaintenanceWindowSection({ windows, status, onSubmit }: {
   windows: MaintenanceWindow[] | null;
+  /** 区域状态（加载/刷新/失败/无权限/非最新）——区分「没有窗口」与「查询失败」。 */
+  status?: RegionStatus;
   onSubmit: (input: { title: string; startAt: string; endAt: string; emergency: boolean }) => Promise<{ ok: true } | { ok: false; message: string }>;
 }): React.ReactElement {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = React.useState(false);
   return (
     <Card size="small" title="计划内维护窗口（SLA 排除项登记——提前 72h、每月≤1 次、单次≤2h）">
+      {status ? <div style={{ marginBottom: 12 }}><RegionStatusBar status={status} label="维护窗口" /></div> : null}
       <Form form={form} layout="inline" style={{ marginBottom: 12 }} onFinish={async (v: {
           title: string; startAt: string; endAt: string; emergency?: boolean;
         }) => {

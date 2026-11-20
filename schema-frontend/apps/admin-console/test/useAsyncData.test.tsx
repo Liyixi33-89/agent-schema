@@ -1,71 +1,145 @@
-/**
- * useAsyncData 调度行为测试（阶段 C 范例）：竞态序号/卸载标记与状态机的装配语义。
- * 策略：注入式最小宿主（零新增依赖红线——不引 jsdom；同 AppThemeProvider 先例的
- * stub 思路）。React 无 DOM 时 createRoot 不可用——改为验证调度承诺的可测面：
- * seq 递增使旧响应失效（shouldAccept 已单测）；此处锁定 loader 重载与轮询装配约定。
+﻿/**
+ * 异步调度核心测试（阶段 C 范例）：直接测 AsyncController（框架无关），
+ * 真实覆盖：查询身份重置、相同查询刷新保留数据、轮询不重叠、真实取消、卸载停止。
+ * 策略：注入假定时器 + 手动 resolve 的 Promise，零新增依赖（不引 jsdom）。
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { AsyncController } from '../src/shared/async/asyncController';
+import { ASYNC_INIT, type AsyncState } from '../src/shared/async/asyncMachine';
+import { HEALTH_POLL_MS } from '../src/shared/async/useAsyncData';
 
-vi.mock('../src/features/ops-health/api', () => ({
-  fetchHealthInfo: vi.fn().mockResolvedValue(null),
-  fetchTenantOverview: vi.fn().mockResolvedValue(null),
-  fetchThroughput: vi.fn().mockResolvedValue(null),
-  fetchCompile: vi.fn().mockResolvedValue(null),
-  fetchRecentErrors: vi.fn().mockResolvedValue(null),
-}));
+/** 收集状态迁移的宿主（模拟 React setState）。 */
+function makeHost<T>() {
+  let state: AsyncState<T> = { ...ASYNC_INIT } as AsyncState<T>;
+  return {
+    onState: (updater: (prev: AsyncState<T>) => AsyncState<T>) => { state = updater(state); },
+    get: () => state,
+  };
+}
 
-import {
-  fetchCompile, fetchHealthInfo, fetchRecentErrors, fetchThroughput, fetchTenantOverview,
-} from '../src/features/ops-health/api';
-import { useHealthData } from '../src/features/ops-health/useHealthData';
-import { HEALTH_POLL_MS } from '../src/features/ops-health/useAsyncData';
-import { parseYearMonth } from '../src/features/ops-health/contracts';
+/** 假定时器（手动触发；用显式 cleared 标记，避免依赖函数 toString 的转译差异）。 */
+function makeTimers() {
+  const queue: { fn: () => void; ms: number; cleared: boolean }[] = [];
+  return {
+    timers: {
+      setTimeout: (fn: () => void, ms: number) => { queue.push({ fn, ms, cleared: false }); return queue.length - 1; },
+      clearTimeout: (h: unknown) => { const i = h as number; if (queue[i]) queue[i].cleared = true; },
+    },
+    pending: () => queue.filter((q) => !q.cleared).length,
+    fire: () => { const q = queue.find((x) => !x.cleared); if (q) { q.cleared = true; q.fn(); } },
+  };
+}
 
-const mockedOverview = vi.mocked(fetchTenantOverview);
-const mockedThroughput = vi.mocked(fetchThroughput);
+/** 可手动控制的 Promise。 */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
 
-afterEach(() => { vi.clearAllMocks(); });
+const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
-describe('useHealthData 装配约定（五区域各自独立请求）', () => {
-  it('五区域 loader 各自调用对应接口（聚合 Hook 只是编排不重复请求）', async () => {
-    const { useHealthData: hook } = await import('../src/features/ops-health/useHealthData');
-    expect(typeof hook).toBe('function');
-    // Hook 必须在组件内调用——loader 约定直接验证 api 模块五个入口与接口路径
-    await Promise.all([
-      fetchHealthInfo(), fetchTenantOverview(), fetchThroughput(), fetchCompile(), fetchRecentErrors(),
-    ]);
-    expect(fetchHealthInfo).toHaveBeenCalledTimes(1);
-    expect(mockedOverview).toHaveBeenCalledTimes(1);
-    expect(mockedThroughput).toHaveBeenCalledTimes(1);
-    expect(fetchCompile).toHaveBeenCalledTimes(1);
-    expect(fetchRecentErrors).toHaveBeenCalledTimes(1);
+describe('AsyncController · 查询身份', () => {
+  it('身份变化 → 重置（旧数据不保留）', async () => {
+    const host = makeHost<number>();
+    const d1 = deferred<number>();
+    const loader = vi.fn().mockReturnValueOnce(d1.promise).mockReturnValueOnce(Promise.resolve(2));
+    const c = new AsyncController<number>({ loader, onState: host.onState });
+    c.start('2026-11');
+    d1.resolve(1);
+    await flush();
+    expect(host.get().data).toBe(1);
+    // 切到另一个月份：重置后旧数据清空
+    c.start('2026-12');
+    expect(host.get().data).toBeNull();
+    expect(host.get().loading).toBe(true);
+    await flush();
+    expect(host.get().data).toBe(2);
   });
 
-  it('五个 loader 均可独立 resolve null（契约不过不抛错——静默不可用态）', async () => {
-    await expect(fetchHealthInfo()).resolves.toBeNullOrDefinedish();
-    await expect(mockedOverview()).resolves.not.toThrow();
+  it('相同身份刷新 → 保留旧数据并标 refreshing', async () => {
+    const host = makeHost<number>();
+    const d2 = deferred<number>();
+    const loader = vi.fn().mockReturnValueOnce(Promise.resolve(1)).mockReturnValueOnce(d2.promise);
+    const c = new AsyncController<number>({ loader, onState: host.onState });
+    c.start('same');
+    await flush();
+    expect(host.get().data).toBe(1);
+    c.reload();
+    expect(host.get().data).toBe(1);        // 旧数据保留
+    expect(host.get().refreshing).toBe(true);
+    d2.resolve(2);
+    await flush();
+    expect(host.get().data).toBe(2);
+    expect(host.get().refreshing).toBe(false);
+  });
+});
+
+describe('AsyncController · 轮询不重叠', () => {
+  it('上一次未完成时不调度下一次', async () => {
+    const host = makeHost<number>();
+    const t = makeTimers();
+    const d1 = deferred<number>();
+    const loader = vi.fn().mockReturnValueOnce(d1.promise);
+    const c = new AsyncController<number>({ loader, onState: host.onState, pollMs: 1000, timers: t.timers });
+    c.start('x');
+    await flush();
+    expect(t.pending()).toBe(0);            // 请求未完成 → 无定时器
+    d1.resolve(1);
+    await flush();
+    expect(t.pending()).toBe(1);            // 完成后才排下一次
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AsyncController · 真实取消', () => {
+  it('新请求发起时 abort 上一次在途请求', async () => {
+    const host = makeHost<number>();
+    const signals: AbortSignal[] = [];
+    const loader = vi.fn((signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise<number>(() => {}); // 永不 resolve
+    });
+    const c = new AsyncController<number>({ loader, onState: host.onState });
+    c.start('x');
+    c.reload();
+    expect(signals).toHaveLength(2);
+    expect(signals[0].aborted).toBe(true);  // 第一次被真实取消
+    expect(signals[1].aborted).toBe(false);
   });
 
-  it('健康区域轮询常量 30s（既有行为）', () => {
+  it('stop 时 abort 在途请求并清定时器', async () => {
+    const host = makeHost<number>();
+    const t = makeTimers();
+    let captured: AbortSignal | null = null;
+    const loader = vi.fn((signal: AbortSignal) => { captured = signal; return Promise.resolve(1); });
+    const c = new AsyncController<number>({ loader, onState: host.onState, pollMs: 1000, timers: t.timers });
+    c.start('x');
+    await flush();
+    expect(t.pending()).toBe(1);
+    c.stop();
+    expect(captured!.aborted).toBe(true);
+    expect(t.pending()).toBe(0);
+  });
+
+  it('取消（AbortError）不迁移为错误态', async () => {
+    const host = makeHost<number>();
+    const loader = vi.fn(() => {
+      const e = new Error('aborted');
+      e.name = 'AbortError';
+      return Promise.reject(e);
+    });
+    const c = new AsyncController<number>({ loader, onState: host.onState });
+    c.start('x');
+    await flush();
+    expect(host.get().error).toBeNull();
+    expect(host.get().forbidden).toBe(false);
+  });
+});
+
+describe('常量基线', () => {
+  it('健康页轮询 30s', () => {
     expect(HEALTH_POLL_MS).toBe(30000);
   });
-});
-
-describe('SlaPage month 查询参数约定', () => {
-  it('非法月输入不发起请求（parseYearMonth null 短路）', () => {
-    expect(parseYearMonth('2026-13')).toBeNull();
-    expect(parseYearMonth('2026-11')).toEqual({ year: 2026, month: 11 });
-  });
-});
-
-// vitest 扩展断言（避免引入 jest-dom）
-declare module 'vitest' {
-  interface Assertion<T = unknown> {
-    toBeNullOrDefinedish(): T;
-  }
-}
-expect.extend({
-  toBeNullOrDefinedish(received: unknown) {
-    return { pass: received === null || received !== undefined, message: () => `expected ${String(received)} to be null or defined` };
-  },
 });

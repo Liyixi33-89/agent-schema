@@ -1,14 +1,15 @@
-/**
+﻿/**
  * 契约层回归测试（阶段 C 范例）：
- * 覆盖：正常响应、字段缺失、null、非法统计值、SLA 无样本不转 100%、
- *       时序部分坏行剔除、维护窗口字段映射（snake_case→camelCase）。
+ * 覆盖：正常响应、字段缺失抛 ContractError、null、非法统计值、SLA 无样本不转 100%、
+ *       时序部分坏行剔除、合法空样本（series: []）与损坏响应严格区分、
+ *       维护窗口字段映射（snake_case→camelCase）。
  */
 import { describe, expect, it } from 'vitest';
 import {
-  parseCompile, parseHealthInfo, parseMaintenanceWindows, parseRecentErrors,
+  ContractError, parseCompile, parseHealthInfo, parseMaintenanceWindows, parseRecentErrors,
   parseSlaMonthly, parseTenantOverview, parseThroughput, parseYearMonth,
-} from '../src/features/ops-health/contracts';
-import statusTag from '../src/features/ops-health/components/HealthSummary';
+} from '../src/shared/contracts/contracts';
+import statusTag from '../src/shared/ui/HealthSummary';
 import React from 'react';
 
 const HEALTH_OK = { status: 'UP', db: 'UP', version: '0.1.0', timestamp: '2026-11-20T10:00:00Z' };
@@ -31,32 +32,32 @@ describe('parseHealthInfo', () => {
   it('正常响应解析', () => {
     expect(parseHealthInfo(HEALTH_OK)).toEqual(HEALTH_OK);
   });
-  it('缺 timestamp 拒（null 不猜测补值）', () => {
-    expect(parseHealthInfo({ ...HEALTH_OK, timestamp: undefined })).toBeNull();
+  it('缺 timestamp 抛 ContractError（不猜测补值）', () => {
+    expect(() => parseHealthInfo({ ...HEALTH_OK, timestamp: undefined })).toThrow(ContractError);
   });
-  it('null/非对象拒', () => {
-    expect(parseHealthInfo(null)).toBeNull();
-    expect(parseHealthInfo('UP')).toBeNull();
+  it('null/非对象抛 ContractError', () => {
+    expect(() => parseHealthInfo(null)).toThrow(ContractError);
+    expect(() => parseHealthInfo('UP')).toThrow(ContractError);
   });
 });
 
 describe('parseTenantOverview', () => {
   it('正常响应解析', () => {
     const r = parseTenantOverview(OVERVIEW_OK);
-    expect(r?.scriptCompileLastHour.successRate).toBe(0.9);
+    expect(r.scriptCompileLastHour.successRate).toBe(0.9);
   });
   it('successRate null 合法（采样中）', () => {
     const r = parseTenantOverview({ ...OVERVIEW_OK, scriptCompileLastHour: { total: 0, success: 0, successRate: null } });
-    expect(r?.scriptCompileLastHour.successRate).toBeNull();
+    expect(r.scriptCompileLastHour.successRate).toBeNull();
   });
-  it('successRate 非数字非 null 拒（非法统计值）', () => {
-    expect(parseTenantOverview({ ...OVERVIEW_OK, scriptCompileLastHour: { total: 1, success: 1, successRate: '99%' } })).toBeNull();
+  it('successRate 非数字非 null 抛错（非法统计值）', () => {
+    expect(() => parseTenantOverview({ ...OVERVIEW_OK, scriptCompileLastHour: { total: 1, success: 1, successRate: '99%' } })).toThrow(ContractError);
   });
-  it('嵌套对象缺失拒', () => {
-    expect(parseTenantOverview({ ...OVERVIEW_OK, apiThroughputLastHour: null })).toBeNull();
+  it('嵌套对象缺失抛错', () => {
+    expect(() => parseTenantOverview({ ...OVERVIEW_OK, apiThroughputLastHour: null })).toThrow(ContractError);
   });
-  it('activeUsers NaN 拒', () => {
-    expect(parseTenantOverview({ ...OVERVIEW_OK, activeUsersLastHour: NaN })).toBeNull();
+  it('activeUsers NaN 抛错', () => {
+    expect(() => parseTenantOverview({ ...OVERVIEW_OK, activeUsersLastHour: NaN })).toThrow(ContractError);
   });
 });
 
@@ -64,11 +65,11 @@ describe('parseThroughput / parseCompile（时序）', () => {
   it('正常序列', () => {
     expect(parseThroughput({ series: [{ minute: '10:00', calls: 3 }] })).toEqual([{ minute: '10:00', calls: 3 }]);
   });
-  it('series 缺失 → null（不可用态，不误判空样本）', () => {
-    expect(parseThroughput({})).toBeNull();
-    expect(parseThroughput({ series: null })).toBeNull();
+  it('series 缺失/非数组 → 抛 ContractError（损坏响应，不当空样本）', () => {
+    expect(() => parseThroughput({})).toThrow(ContractError);
+    expect(() => parseThroughput({ series: null })).toThrow(ContractError);
   });
-  it('series 空数组 → []（无样本态，与不可用区分）', () => {
+  it('series 空数组 → []（合法无样本，与损坏响应区分）', () => {
     expect(parseThroughput({ series: [] })).toEqual([]);
   });
   it('部分坏行剔除不丢整段', () => {
@@ -87,37 +88,42 @@ describe('parseThroughput / parseCompile（时序）', () => {
 describe('parseRecentErrors', () => {
   it('可选字段缺失保留 undefined', () => {
     const r = parseRecentErrors({ list: [{ kind: 'AUDIT', at: 't', type: 'x', resource: 'r' }] });
-    expect(r?.[0].durationMs).toBeUndefined();
+    expect(r[0].durationMs).toBeUndefined();
   });
   it('必填字段缺失剔除该行', () => {
     expect(parseRecentErrors({ list: [{ kind: 'AUDIT' }] })).toEqual([]);
+  });
+  it('list 缺失抛 ContractError', () => {
+    expect(() => parseRecentErrors({})).toThrow(ContractError);
   });
 });
 
 describe('parseSlaMonthly', () => {
   it('正常响应解析', () => {
-    expect(parseSlaMonthly(SLA_OK)?.availability).toBe(0.9995);
+    expect(parseSlaMonthly(SLA_OK).availability).toBe(0.9995);
   });
   it('availability null（采样中）保持 null——不转 100%（口径红线）', () => {
     const r = parseSlaMonthly({ ...SLA_OK, availability: null });
-    expect(r?.availability).toBeNull();
-    expect(r).not.toBeNull();
+    expect(r.availability).toBeNull();
   });
-  it('basis 缺失拒（口径可追溯性）', () => {
-    expect(parseSlaMonthly({ ...SLA_OK, basis: null })).toBeNull();
+  it('basis 缺失抛错（口径可追溯性）', () => {
+    expect(() => parseSlaMonthly({ ...SLA_OK, basis: null })).toThrow(ContractError);
   });
-  it('incidents 非数组拒', () => {
-    expect(parseSlaMonthly({ ...SLA_OK, incidents: null })).toBeNull();
+  it('incidents 非数组抛错', () => {
+    expect(() => parseSlaMonthly({ ...SLA_OK, incidents: null })).toThrow(ContractError);
   });
 });
 
 describe('parseMaintenanceWindows', () => {
   it('snake_case 字段映射为 camelCase', () => {
     const r = parseMaintenanceWindows({ list: [{ id: 1, tenant_id: 0, title: '升级', start_at: 'a', end_at: 'b', status: 'DONE' }] });
-    expect(r?.[0]).toMatchObject({ tenantId: 0, startAt: 'a', endAt: 'b' });
+    expect(r[0]).toMatchObject({ tenantId: 0, startAt: 'a', endAt: 'b' });
   });
   it('非法行剔除', () => {
     expect(parseMaintenanceWindows({ list: [{ id: 'x' }] })).toEqual([]);
+  });
+  it('list 缺失抛 ContractError', () => {
+    expect(() => parseMaintenanceWindows({})).toThrow(ContractError);
   });
 });
 

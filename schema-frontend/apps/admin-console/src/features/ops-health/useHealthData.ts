@@ -1,22 +1,26 @@
-/**
+﻿/**
  * 健康页数据 Hook（阶段 C 范例——页面编排层只消费此 Hook，不直接发请求）：
- * - 五区域各自独立加载/竞态保护；overview 区域承载 403/错误引导（与既有行为一致）；
- * - 探活/时序/错误清单失败静默置 null（页面渲染「不可用」文案）——保持原有静默策略，
- *   但 overview 失败必须显式错误 + 重试（原行为保留）。
+ * - 五区域各自独立加载/竞态保护/取消；
+ * - **每个区域都暴露完整状态**（loading/refreshing/error/forbidden/stale/reload）——
+ *   不能因为 overview 成功就把其他区域的失败隐藏起来；
+ * - 403 由各区域自行上报，页面按区域展示权限引导（overview 仍承载整页引导）。
  */
-import React from 'react';
 import {
   fetchCompile, fetchHealthInfo, fetchRecentErrors, fetchThroughput, fetchTenantOverview,
 } from './api';
-import { useAsyncData, HEALTH_POLL_MS } from './useAsyncData';
-import type { CompilePoint, HealthInfo, RecentErrorItem, TenantHealthOverview, ThroughputPoint } from './contracts';
+import { useAsyncData, HEALTH_POLL_MS } from '../../shared/async';
+import type { CompilePoint, HealthInfo, RecentErrorItem, TenantHealthOverview, ThroughputPoint } from '../../shared/contracts';
+import type { AsyncState } from '../../shared/async';
+
+/** 区域状态（数据 + 完整异步状态 + 重试）。 */
+export type Region<T> = AsyncState<T> & { reload: () => void };
 
 export interface HealthData {
-  basic: { data: HealthInfo | null; loading: boolean };
-  overview: { data: TenantHealthOverview | null; loading: boolean; error: string | null; forbidden: boolean; stale: boolean; reload: () => void };
-  throughput: { data: ThroughputPoint[] | null; loading: boolean };
-  compile: { data: CompilePoint[] | null; loading: boolean };
-  recentErrors: { data: RecentErrorItem[] | null; loading: boolean };
+  basic: Region<HealthInfo>;
+  overview: Region<TenantHealthOverview>;
+  throughput: Region<ThroughputPoint[]>;
+  compile: Region<CompilePoint[]>;
+  recentErrors: Region<RecentErrorItem[]>;
 }
 
 export function useHealthData(): HealthData {
@@ -25,11 +29,5 @@ export function useHealthData(): HealthData {
   const throughput = useAsyncData(fetchThroughput, [], HEALTH_POLL_MS);
   const compile = useAsyncData(fetchCompile, [], HEALTH_POLL_MS);
   const recentErrors = useAsyncData(fetchRecentErrors, [], HEALTH_POLL_MS);
-  return {
-    basic: { data: basic.data, loading: basic.loading },
-    overview: { data: overview.data, loading: overview.loading, error: overview.error, forbidden: overview.forbidden, stale: overview.stale, reload: overview.reload },
-    throughput: { data: throughput.data, loading: throughput.loading },
-    compile: { data: compile.data, loading: compile.loading },
-    recentErrors: { data: recentErrors.data, loading: recentErrors.loading },
-  };
+  return { basic, overview, throughput, compile, recentErrors };
 }

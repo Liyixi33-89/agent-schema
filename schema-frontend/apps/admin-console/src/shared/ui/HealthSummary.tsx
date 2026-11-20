@@ -1,9 +1,9 @@
 /**
- * 健康/SLA 展示组件（阶段 C 范例——props 进/回调出，不自行请求、不读全局账号）。
+ * 健康/SLA 共享展示组件（应用内 shared——props 进/回调出，不自行请求、不读全局账号）。
  */
 import React from 'react';
 import { Alert, Button, Card, Space, Statistic, Table, Tag, Typography } from 'antd';
-import type { CompilePoint, HealthInfo, RecentErrorItem, TenantHealthOverview, ThroughputPoint } from '../contracts';
+import type { CompilePoint, HealthInfo, RecentErrorItem, TenantHealthOverview, ThroughputPoint } from '../contracts/contracts';
 
 /** 状态 Tag 颜色映射（仅按后端字段字面值——未知值灰态，不猜测转换）。 */
 export function statusTag(value: string): React.ReactElement {
@@ -70,18 +70,61 @@ export function HealthSummary({ basic, overview, stale }: {
   );
 }
 
-/** 三态时序表区（null=不可用 / []=无样本 / 有数据=Table）——通用化健康三块数据区。
- *  行级字段由各包装组件（ThroughputSeries 等）的 columns render 收窄——此处只管三态与表格骨架。 */
-export function SeriesCard<T extends object>({ title, unavailableText, emptyText, data, columns, rowKey }: {
+/** 区域状态摘要（loading/refreshing/error/forbidden/stale）——各区域独立展示自身状态。 */
+export interface RegionStatus {
+  loading: boolean;
+  refreshing: boolean;
+  error: string | null;
+  forbidden: boolean;
+  stale: boolean;
+  reload: () => void;
+}
+
+/** 区域状态条：把「加载中/刷新中/失败/无权限/非最新」如实呈现，不因其他区域成功而隐藏。 */
+export function RegionStatusBar({ status, label }: { status: RegionStatus; label: string }): React.ReactElement | null {
+  if (status.forbidden) {
+    return <Alert type="warning" showIcon message={`${label}：无权限查看（需要组织管理权限 org:manage）`} />;
+  }
+  if (status.error) {
+    return (
+      <Alert
+        type="error" showIcon message={`${label}加载失败`} description={status.error}
+        action={<Button size="small" onClick={status.reload}>重试</Button>}
+      />
+    );
+  }
+  if (status.stale) {
+    return (
+      <Alert
+        type="warning" showIcon message={`${label}刷新失败，以下为最近一次成功获取的数据（非实时）`}
+        action={<Button size="small" onClick={status.reload}>重试</Button>}
+      />
+    );
+  }
+  if (status.loading) {
+    return <Typography.Text type="secondary">{label}加载中…</Typography.Text>;
+  }
+  if (status.refreshing) {
+    return <Typography.Text type="secondary">{label}刷新中…</Typography.Text>;
+  }
+  return null;
+}
+
+/** 三态时序表区（null=尚未成功 / []=无样本 / 有数据=Table）——通用化健康三块数据区。
+ *  行级字段由各包装组件（ThroughputSeries 等）的 columns render 收窄——此处只管三态与表格骨架。
+ *  区域自身状态（错误/刷新中/过期）由 RegionStatusBar 在卡片上方独立呈现。 */
+export function SeriesCard<T extends object>({ title, unavailableText, emptyText, data, columns, rowKey, status }: {
   title: string;
   unavailableText: string;
   emptyText: string;
   data: readonly T[] | null;
   columns: { title: string; dataIndex: string; key: string; render?: (v: unknown, row: T) => React.ReactNode }[];
   rowKey: (r: T) => string;
+  status?: RegionStatus;
 }): React.ReactElement {
   return (
     <Card size="small" title={title}>
+      {status ? <div style={{ marginBottom: 8 }}><RegionStatusBar status={status} label={title} /></div> : null}
       {data === null ? (
         <Typography.Text type="secondary">{unavailableText}</Typography.Text>
       ) : data.length === 0 ? (
@@ -93,13 +136,14 @@ export function SeriesCard<T extends object>({ title, unavailableText, emptyText
   );
 }
 
-export function ThroughputSeries({ data }: { data: ThroughputPoint[] | null }): React.ReactElement {
+export function ThroughputSeries({ data, status }: { data: ThroughputPoint[] | null; status?: RegionStatus }): React.ReactElement {
   return (
     <SeriesCard
       title="API 吞吐时序（近 60 分钟，分钟粒度）"
-      unavailableText="吞吐数据不可用（无权限或加载失败）"
+      unavailableText="吞吐数据不可用（尚未成功获取）"
       emptyText="近 60 分钟无 api.calls 埋点（窗口内无开放 API 调用）"
       data={data}
+      status={status}
       rowKey={(r) => String(r.minute)}
       columns={[
         { title: '分钟', dataIndex: 'minute', key: 'minute' },
@@ -109,13 +153,14 @@ export function ThroughputSeries({ data }: { data: ThroughputPoint[] | null }): 
   );
 }
 
-export function CompileSeries({ data }: { data: CompilePoint[] | null }): React.ReactElement {
+export function CompileSeries({ data, status }: { data: CompilePoint[] | null; status?: RegionStatus }): React.ReactElement {
   return (
     <SeriesCard
       title="脚本编译时序（近 24 小时，小时粒度）"
-      unavailableText="编译数据不可用（无权限或加载失败）"
+      unavailableText="编译数据不可用（尚未成功获取）"
       emptyText="近 24 小时无编译任务（窗口内无脚本构建）"
       data={data}
+      status={status}
       rowKey={(r) => String(r.hour)}
       columns={[
         { title: '小时', dataIndex: 'hour', key: 'hour' },
@@ -129,13 +174,14 @@ export function CompileSeries({ data }: { data: CompilePoint[] | null }): React.
   );
 }
 
-export function RecentErrorsTable({ data }: { data: RecentErrorItem[] | null }): React.ReactElement {
+export function RecentErrorsTable({ data, status }: { data: RecentErrorItem[] | null; status?: RegionStatus }): React.ReactElement {
   return (
     <SeriesCard
       title="近期错误事件（审计失败 + 编译失败/安全拦截，倒序）"
-      unavailableText="错误清单不可用（无权限或加载失败）"
+      unavailableText="错误清单不可用（尚未成功获取）"
       emptyText="暂无错误事件"
       data={data}
+      status={status}
       rowKey={(r) => `${r.kind}-${r.at}-${r.resource}`}
       columns={[
         { title: '时间', dataIndex: 'at', key: 'at' },

@@ -1,37 +1,40 @@
-/**
- * SLA 页数据 Hook（阶段 C 范例）：月度聚合 + 维护窗口两区域；month 变化重载（既有行为）；
- * 维护窗口登记成功后调 reload 刷新列表（既有 load() 行为保留）。
+﻿/**
+ * SLA 页数据 Hook（阶段 C 范例）：月度聚合 + 维护窗口两区域。
+ * - month 变化 → 月度区域**重置**（不展示旧月份数据）；
+ * - 维护窗口区域暴露完整状态（loading/refreshing/error/forbidden/stale/reload）——
+ *   页面必须能区分「没有窗口」与「查询失败」；
+ * - 维护窗口登记成功后刷新列表（依赖稳定的 windows.reload，不依赖整个对象）。
  */
 import React from 'react';
 import { createMaintenanceWindow, fetchMaintenanceWindows, fetchSlaMonthly } from './api';
 import { errOf } from '../../api';
-import { useAsyncData } from './useAsyncData';
-import type { MaintenanceWindow, SlaMonthly } from './contracts';
+import { useAsyncData } from '../../shared/async';
+import type { MaintenanceWindow, SlaMonthly } from '../../shared/contracts';
+import type { AsyncState } from '../../shared/async';
+
+export type Region<T> = AsyncState<T> & { reload: () => void };
 
 export interface SlaData {
-  monthly: { data: SlaMonthly | null; loading: boolean; error: string | null; forbidden: boolean; stale: boolean; reload: () => void };
-  windows: { data: MaintenanceWindow[] | null; loading: boolean; reload: () => void };
+  monthly: Region<SlaMonthly>;
+  windows: Region<MaintenanceWindow[]>;
   /** 维护窗口登记（返回执行结果文案——页面只管提示，不重复请求细节）。 */
   submitWindow: (input: { title: string; startAt: string; endAt: string; emergency: boolean }) => Promise<{ ok: true } | { ok: false; message: string }>;
 }
 
 export function useSlaData(month: string): SlaData {
-  const monthly = useAsyncData(() => fetchSlaMonthly(month), [month]);
+  const monthly = useAsyncData((signal) => fetchSlaMonthly(month, signal), [month]);
   const windows = useAsyncData(fetchMaintenanceWindows, []);
+  const reloadWindows = windows.reload;
   const submitWindow = React.useCallback(async (input: {
     title: string; startAt: string; endAt: string; emergency: boolean;
   }): Promise<{ ok: true } | { ok: false; message: string }> => {
     try {
       await createMaintenanceWindow(input);
-      windows.reload();
+      reloadWindows();
       return { ok: true };
     } catch (e) {
       return { ok: false, message: errOf(e) };
     }
-  }, [windows]);
-  return {
-    monthly: { data: monthly.data, loading: monthly.loading, error: monthly.error, forbidden: monthly.forbidden, stale: monthly.stale, reload: monthly.reload },
-    windows: { data: windows.data, loading: windows.loading, reload: windows.reload },
-    submitWindow,
-  };
+  }, [reloadWindows]);
+  return { monthly, windows, submitWindow };
 }
