@@ -8,6 +8,7 @@ import { api, type AppCard } from './api';
 import { statusTag } from './shellShared';
 import ModelTab from './ModelTab';
 import PageDesignerTab from './PageDesignerTab';
+import FlowTab from './FlowTab';
 import MembersTab from './MembersTab';
 import NavTab from './NavTab';
 import ThemeTab from './ThemeTab';
@@ -26,6 +27,7 @@ export default function AppSettings({ app, onBack }: { app: AppCard; onBack: () 
           items={[
             { key: 'models', label: '模型', children: <ModelTab api={api} appId={app.id} /> },
             { key: 'pages', label: '页面', children: <PageDesignerTab api={api} app={app} /> },
+            { key: 'flows', label: '流程', children: <FlowTab /> },
             { key: 'members', label: '成员', children: <MembersTab appId={app.id} /> },
             { key: 'nav', label: '导航', children: <NavTab appId={app.id} /> },
             { key: 'theme', label: '主题', children: <ThemeTab app={app} onBack={onBack} /> },
