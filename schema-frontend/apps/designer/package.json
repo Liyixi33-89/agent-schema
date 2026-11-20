@@ -12,6 +12,7 @@
     "@schema/auth-sdk": "workspace:*",
     "@schema/component-materials": "workspace:*",
     "@schema/data-model-designer": "workspace:*",
+    "@schema/flow-designer": "workspace:*",
     "@schema/page-designer": "workspace:*",
     "@schema/schema-protocol": "workspace:*",
     "@schema/schema-renderer": "workspace:*",

@@ -1,4 +1,5 @@
-import type { FieldSchema, LayoutNode, ModelSchema, PageSchema } from './types';
+import type { FieldSchema, FlowSchema, LayoutNode, ModelSchema, PageSchema } from './types';
+import { APPROVER_RULE_MODES, FLOW_NODE_TYPES } from './types';
 
 /** zod 未引入前的手写结构校验器——零运行时依赖门禁（AGENTS.md），结构定义与 types.ts 同源 */
 export class SchemaValidationError extends Error {
@@ -204,4 +205,124 @@ export function validatePageSchema(input: unknown): PageSchema {
   }
   if (errs.length) throw new SchemaValidationError(errs);
   return input as unknown as PageSchema;
+}
+
+/**
+ * FlowSchema 结构校验（spec 020 阶段 A——10FE §2.1 七型节点集）：
+ * 形态（flowKey/nodes/edges）→ 节点 ID 唯一 → 边端点存在 → 连通性（START 可达全部）
+ * → 网关配对（分支/并行网关必有 MERGE 汇聚）→ 循环拒绝（除网关回边外无环）
+ * → 审批人规则（APPROVAL 必填三模式）→ 分支出边与 branches 配对。
+ * 只读阶段 A 校验拒绝即不可渲染——画布消费方捕获 SchemaValidationError 展示错误态。
+ */
+export function validateFlowSchema(input: unknown): FlowSchema {
+  const errs: string[] = [];
+  if (!isObject(input)) throw new SchemaValidationError(['/: 必须为对象']);
+  if (typeof input.flowKey !== 'string' || !input.flowKey) errs.push('/flowKey: 必填');
+  if (typeof input.name !== 'string' || !input.name) errs.push('/name: 必填');
+  if (typeof input.schemaVersion !== 'number') errs.push('/schemaVersion: 必须为数字');
+  if (!Array.isArray(input.nodes) || input.nodes.length === 0) errs.push('/nodes: 非空必填');
+  if (!Array.isArray(input.edges)) errs.push('/edges: 必须为数组');
+  if (errs.length) throw new SchemaValidationError(errs);
+
+  const nodes = input.nodes as Array<Record<string, unknown>>;
+  const edges = input.edges as Array<Record<string, unknown>>;
+  const nodeIds = new Set<string>();
+  const nodeType = new Map<string, string>();
+  nodes.forEach((n, i) => {
+    const p = `/nodes/${i}`;
+    if (!isObject(n)) { errs.push(`${p}: 必须为对象`); return; }
+    if (typeof n.id !== 'string' || !n.id) { errs.push(`${p}/id: 必填`); return; }
+    if (nodeIds.has(n.id)) errs.push(`${p}/id: 重复 (${n.id})`);
+    nodeIds.add(n.id);
+    if (!FLOW_NODE_TYPES.includes(n.type as never)) errs.push(`${p}/type: 未知节点类型 ${String(n.type)}`);
+    else nodeType.set(n.id, n.type as string);
+    if (n.approver != null) {
+      const a = n.approver as Record<string, unknown>;
+      if (!APPROVER_RULE_MODES.includes(a.mode as never)) errs.push(`${p}/approver/mode: 未知模式 ${String(a.mode)}`);
+      else if (a.mode === 'USER' && (!Array.isArray(a.userIds) || (a.userIds as unknown[]).length === 0)) errs.push(`${p}/approver/userIds: USER 模式必填非空`);
+      else if (a.mode === 'DEPT_ROLE' && (!Array.isArray(a.roleKeys) || (a.roleKeys as unknown[]).length === 0)) errs.push(`${p}/approver/roleKeys: DEPT_ROLE 模式必填非空`);
+    }
+    if (n.branches != null && !Array.isArray(n.branches)) errs.push(`${p}/branches: 必须为数组`);
+  });
+
+  const edgeIds = new Set<string>();
+  edges.forEach((e, i) => {
+    const p = `/edges/${i}`;
+    if (!isObject(e)) { errs.push(`${p}: 必须为对象`); return; }
+    if (typeof e.id !== 'string' || !e.id) { errs.push(`${p}/id: 必填`); return; }
+    if (edgeIds.has(e.id)) errs.push(`${p}/id: 重复`);
+    edgeIds.add(e.id);
+    if (!nodeIds.has(String(e.from))) errs.push(`${p}/from: 端点不存在 (${String(e.from)})`);
+    if (!nodeIds.has(String(e.to))) errs.push(`${p}/to: 端点不存在 (${String(e.to)})`);
+    if (e.from === e.to) errs.push(`${p}: 自环边禁止`);
+  });
+
+  // START/END 唯一性 + 连通性（START 可达全部节点）
+  const starts = nodes.filter((n) => n.type === 'START');
+  const ends = nodes.filter((n) => n.type === 'END');
+  if (starts.length !== 1) errs.push('/nodes: START 节点必须恰好 1 个');
+  if (ends.length === 0) errs.push('/nodes: END 节点至少 1 个');
+
+  if (starts.length === 1 && errs.filter((x) => x.includes('端点不存在')).length === 0) {
+    const adj = new Map<string, string[]>();
+    edges.forEach((e) => {
+      if (!adj.has(e.from as string)) adj.set(e.from as string, []);
+      adj.get(e.from as string)!.push(e.to as string);
+    });
+    const seen = new Set<string>([starts[0].id as string]);
+    const queue = [starts[0].id as string];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      for (const nxt of adj.get(cur) ?? []) {
+        if (!seen.has(nxt)) { seen.add(nxt); queue.push(nxt); }
+      }
+    }
+    for (const id of nodeIds) if (!seen.has(id)) errs.push(`/nodes: 节点不可达 (${id}——START 出发不可及)`);
+
+    // 循环拒绝：全图无环（阶段 A 只读展示——审批流执行期回退边属 B 阶段扩展）
+    const WHITE = 0, GRAY = 1, BLACK = 2;
+    const color = new Map<string, number>();
+    for (const id of nodeIds) color.set(id, WHITE);
+    let cyclic = false;
+    const dfs = (u: string) => {
+      color.set(u, GRAY);
+      for (const v of adj.get(u) ?? []) {
+        const c = color.get(v) ?? WHITE;
+        if (c === GRAY) { cyclic = true; return; }
+        if (c === WHITE) dfs(v);
+        if (cyclic) return;
+      }
+      color.set(u, BLACK);
+    };
+    for (const id of nodeIds) if (color.get(id) === WHITE) dfs(id);
+    if (cyclic) errs.push('/edges: 存在循环（阶段 A 只读展示拒绝环形流程）');
+
+    // 网关配对：CONDITION_BRANCH / PARALLEL_GATEWAY 必有对应 MERGE_GATEWAY 汇聚
+    const merges = new Set(nodes.filter((n) => n.type === 'MERGE_GATEWAY').map((n) => n.id as string));
+    for (const n of nodes) {
+      if (n.type !== 'CONDITION_BRANCH' && n.type !== 'PARALLEL_GATEWAY') continue;
+      const p = `/nodes/${nodes.indexOf(n)}`;
+      const branchOuts = (adj.get(n.id as string) ?? []).filter((t) => merges.has(t));
+      if (branchOuts.length === 0) errs.push(`${p}: 网关缺少 MERGE_GATEWAY 汇聚（${n.type}）`);
+    }
+    // 分支出边配对：CONDITION_BRANCH 出边 branchId 与 branches.id 一一对应
+    for (const n of nodes) {
+      if (n.type !== 'CONDITION_BRANCH' || !Array.isArray(n.branches)) continue;
+      const branchIds = new Set((n.branches as Array<Record<string, unknown>>).map((b) => String(b.id)));
+      const outEdges = edges.filter((e) => e.from === n.id);
+      for (const e of outEdges) {
+        if (e.branchId != null && !branchIds.has(String(e.branchId))) {
+          errs.push(`/edges/${edges.indexOf(e)}/branchId: 不在节点 branches 集合内`);
+        }
+      }
+      for (const b of n.branches as Array<Record<string, unknown>>) {
+        if (!outEdges.some((e) => String(e.branchId ?? '') === String(b.id))) {
+          errs.push(`/nodes/${nodes.indexOf(n)}/branches: 分支 ${String(b.id)} 无对应出边`);
+        }
+      }
+    }
+  }
+
+  if (errs.length) throw new SchemaValidationError(errs);
+  return input as unknown as FlowSchema;
 }

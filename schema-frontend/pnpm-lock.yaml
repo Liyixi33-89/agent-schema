@@ -60,6 +60,9 @@ importers:
       '@schema/data-model-designer':
         specifier: workspace:*
         version: link:../../packages/data-model-designer
+      '@schema/flow-designer':
+        specifier: workspace:*
+        version: link:../../packages/flow-designer
       '@schema/page-designer':
         specifier: workspace:*
         version: link:../../packages/page-designer
@@ -195,7 +198,21 @@ importers:
 
   packages/data-model-designer: {}
 
-  packages/flow-designer: {}
+  packages/flow-designer:
+    dependencies:
+      '@schema/schema-protocol':
+        specifier: workspace:*
+        version: link:../schema-protocol
+    devDependencies:
+      '@types/react':
+        specifier: 18.3.23
+        version: 18.3.23
+      '@xyflow/react':
+        specifier: ^12.12.1
+        version: 12.12.1(@types/react-dom@18.3.7(@types/react@18.3.23))(@types/react@18.3.23)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
 
   packages/page-designer:
     dependencies:

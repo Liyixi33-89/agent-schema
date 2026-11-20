@@ -11,6 +11,10 @@ export const TIME_BUCKET_INTERVALS = ['DAY', 'WEEK', 'MONTH'] as const;
 export const PAGE_TYPES = ['FORM', 'LIST', 'DETAIL', 'DASHBOARD'] as const;
 export const DATA_SOURCE_TYPES = ['MODEL_LIST', 'MODEL_DETAIL', 'MODEL_AGG', 'STATIC_JSON'] as const;
 export const FIELD_STATUSES = ['ACTIVE', 'DELETED'] as const;
+/** 流程节点类型枚举（10FE §2.1 七型——与后端 05BE Phase 2 节点集对齐；阶段 A 只读消费）。 */
+export const FLOW_NODE_TYPES = ['START', 'END', 'APPROVAL', 'CC', 'CONDITION_BRANCH', 'PARALLEL_GATEWAY', 'MERGE_GATEWAY'] as const;
+/** 审批人规则模式（10FE §2.1 ApproverRule——三模式封闭集）。 */
+export const APPROVER_RULE_MODES = ['USER', 'DEPT_ROLE', 'INITIATOR_SUPERVISOR'] as const;
 export interface ExpressionBinding {
   kind: 'expr'; source: string; dependsOn?: string[];
 }
@@ -48,6 +52,34 @@ export interface FieldSchema {
 }
 export interface ModelSchema {
   id: string; modelKey: string; name: string; fields: FieldSchema[]; version: number; schemaVersion: number;
+}
+/**
+ * FlowSchema 显式协议结构（spec 020 阶段 A 首次入代码真源——10FE §2.1 / 05BE §2 节点集）。
+ * 与 PageSchema 共享 schemaVersion 迁移管线；阶段 A 仅只读消费（校验 + 画布展示），
+ * 编辑/保存/发布/执行属 B/C 阶段（05BE 分期红线）。
+ */
+export interface FlowSchema {
+  flowKey: string; name: string; version: number; schemaVersion: number;
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+}
+export type FlowNodeType = typeof FLOW_NODE_TYPES[number];
+/** 审批人规则（10FE §2.1——三模式封闭联合，未知模式校验拒）。 */
+export type ApproverRule =
+  | { mode: 'USER'; userIds: string[] }
+  | { mode: 'DEPT_ROLE'; roleKeys: string[] }
+  | { mode: 'INITIATOR_SUPERVISOR'; fallbackUserIds?: string[] };
+export interface FlowNode {
+  id: string; type: FlowNodeType; name?: string;
+  /** 审批/抄送节点审批人规则（APPROVAL 必填；CC 同构可选）。 */
+  approver?: ApproverRule;
+  /** 条件分支出口（CONDITION_BRANCH 出边 label 真源——与 edges 配对校验）。 */
+  branches?: { id: string; label?: string; priority: number }[];
+}
+export interface FlowEdge {
+  id: string; from: string; to: string;
+  /** 关联 CONDITION_BRANCH 分支 id（分支网关出边必填——网关配对校验锚点）。 */
+  branchId?: string;
 }
 export interface PageSchema {
   id: string; pageKey: string; name: string; type: typeof PAGE_TYPES[number];

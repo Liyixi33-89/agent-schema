@@ -1,9 +1,9 @@
 ---
 spec_id: 020-flow-readonly-stage-a
-status: draft
+status: done
 milestone: M18             # 依赖图 Phase 2「流程引擎」（05BE/10FE 分期声明）；spec 016 §12「完整流程」阶段 A
 created: 2026-11-18
-last_verified_at: null
+last_verified_at: 2026-11-20
 owner: human-lead
 ---
 
@@ -53,8 +53,16 @@ owner: human-lead
 
 ### 3.1 schema-protocol 新增（契约冻结——阶段 B/C 的公共前提）
 
+> **落地修订（T5 文档对齐时定案）**：实现采用大写七型枚举 `['START','END','APPROVAL','CC','CONDITION_BRANCH','PARALLEL_GATEWAY','MERGE_GATEWAY']`
+> 与三模式审批人联合（USER/DEPT_ROLE/INITIATOR_SUPERVISOR）。与下方草案（小写八型）差异属**契约草案→实现的收窄**：
+> ① action/connector 推迟阶段 C（阶段 A 只读展示无动作语义消费方）；② CC（抄送）自 05BE UserTask 语义并入；
+> ③ parallelGatewaySplit/Join 合并为 PARALLEL_GATEWAY + MERGE_GATEWAY（配对校验走 MERGE 汇聚存在性）；
+> ④ ApproverRule 六规则收窄为三模式（ROLE→DEPT_ROLE、SUPERIOR→INITIATOR_SUPERVISOR、FIELD_VALUE/EXPR 留阶段 B）。
+> 05BE 是 Phase 2 设计、flow-service 无实现——以本代码真源为阶段 B 后端 Transpiler 的冻结输入；
+> 10FE §2.1 文档定义与本实现的差异已在该文档「与实现的差异登记」小节回写（文档修订随本 spec 完成）。
+
 ```ts
-// types.ts 追加（FlowSchema 首版 v1——无迁移）
+// types.ts 追加（FlowSchema 首版 v1——无迁移；实际落地形态见上方修订说明）
 export const FLOW_NODE_TYPES = ['start', 'approver', 'condition', 'parallelGatewaySplit',
   'parallelGatewayJoin', 'action', 'connector', 'end'] as const;
 export interface FlowSchema {
@@ -98,26 +106,26 @@ export function layeredFlowLayout(nodes: FlowNode[], edges: FlowEdge[]): Record<
 
 ## 4. Tasks（任务清单，执行时逐项勾选）
 
-- [ ] T1 schema-protocol：FLOW_NODE_TYPES/FlowSchema/FlowNode/FlowEdge/ApproverRule 类型 +
+- [x] T1 schema-protocol：FLOW_NODE_TYPES/FlowSchema/FlowNode/FlowEdge/ApproverRule 类型 +
       validateFlowSchema（结构/连通性/网关配对）+ 单测（合法 fixture 过 / 悬空节点拒 / 网关不配对拒 / 未知 type 拒）
-- [ ] T2 flow-designer 包：FlowCanvas 只读渲染（七型节点卡 + conditionExpr 边样式 + 未知节点占位报错）
+- [x] T2 flow-designer 包：FlowCanvas 只读渲染（七型节点卡 + conditionExpr 边样式 + 未知节点占位报错）
       + layeredFlowLayout 分层布局 + 单测（渲染快照/未知节点不抛异常）
-- [ ] T3 designer：「流程」只读页（列表 + 画布）+ 契约 Mock fixture（演示用合法 FlowSchema 样例）
-- [ ] T4 测试：协议校验负样本（三阻断）+ 画布渲染分支；全量回归零破坏
-- [ ] T5 验证：全量 test + verify.ps1；10FE §2 文档核对（FlowSchema 代码真源与文档定义一致——
+- [x] T3 designer：「流程」只读页（列表 + 画布）+ 契约 Mock fixture（演示用合法 FlowSchema 样例）
+- [x] T4 测试：协议校验负样本（三阻断）+ 画布渲染分支；全量回归零破坏
+- [x] T5 验证：全量 test + verify.ps1；10FE §2 文档核对（FlowSchema 代码真源与文档定义一致——
       文档对齐项随本 spec 完成）
-- [ ] T6 阶段 B 前置登记：05BE 接口契约（A.1/A.2）消费面类型定义是否随阶段 A 提前入 protocol
+- [x] T6 阶段 B 前置登记：05BE 接口契约（A.1/A.2）消费面类型定义是否随阶段 A 提前入 protocol
       （决策：不提前——接口 DTO 随阶段 B 后端实现冻结，避免双端空转）
 
 ## 5. Acceptance（验收标准，可测试）
 
-- [ ] A1 `verify -Level commit` 通过
-- [ ] A2 合法 FlowSchema fixture 在只读画布完整渲染（七型节点全部可见、边正确连接）
-- [ ] A3 未知节点类型 → 占位节点 + Alert 报错，画布不白屏不抛异常（单测断言）
-- [ ] A4 悬空节点/网关不配对/缺 start-end 连通的 Schema 被 validateFlowSchema 拒绝（单测断言）
-- [ ] A5 designer「流程」页可打开并查看示例流程（人工链路）；无任何编辑/保存入口（UI 断言）
-- [ ] A6 既有页面设计/ER 建模功能零回归（全量测试绿即证）
-- [ ] A7 协议包零新增依赖（schema-protocol 依赖数仍为 0——架构巡航红线）
+- [x] A1 `verify -Level commit` 通过
+- [x] A2 合法 FlowSchema fixture 在只读画布完整渲染（七型节点全部可见、边正确连接）
+- [x] A3 未知节点类型 → 占位节点 + Alert 报错，画布不白屏不抛异常（单测断言）
+- [x] A4 悬空节点/网关不配对/缺 start-end 连通的 Schema 被 validateFlowSchema 拒绝（单测断言）
+- [x] A5 designer「流程」页可打开并查看示例流程（人工链路）；无任何编辑/保存入口（UI 断言）
+- [x] A6 既有页面设计/ER 建模功能零回归（全量测试绿即证）
+- [x] A7 协议包零新增依赖（schema-protocol 依赖数仍为 0——架构巡航红线）
 
 ## 6. 验证步骤（人可复跑）
 
@@ -130,7 +138,14 @@ export function layeredFlowLayout(nodes: FlowNode[], edges: FlowEdge[]): Record<
 
 ## 7. 沉淀记录（结项时回填）
 
-- （待回填）
+- **交付形态**：schema-protocol 新增 FlowSchema 七型契约 + `validateFlowSchema`（连通性/网关配对/循环拒绝/审批人三模式/分支配对校验）；flow-designer 包由空壳落地为只读画布（`FlowCanvas` + `layeredFlowLayout` + `toCanvasGraph` 图转换）；designer 新增「流程」页签（契约 Mock 演示 fixture 两条：报销审批 + 并行会签，界面标明演示）。
+- **只读红线落实**：React Flow `nodesDraggable/nodesConnectable/edgesReconnectable` 全关 + `deleteKeyCode={null}`，仅保留选择/平移/缩放；FlowTab 无任何新建/编辑/保存/发布按钮。
+- **渲染容错双闸**：宿主入口先过 `validateFlowSchema`（非法结构 → antd Alert 错误面板不进画布）；画布内对未知节点类型二次容错（`__UnknownNode__` 红色占位 + 顶部计数提示，不白屏不抛异常）。
+- **⚠️ 协议零依赖红线 vs 测试文件位置**：`validate-flow.test.ts` 初版放 `src/` 内被 depcruise 判违规（src 内文件 import vitest 即触发出边）——协议包测试必须在 `test/` 目录（同既有 4 个测试文件先例）。
+- **⚠️ vitest 不查类型遮蔽 tsc 错误**：T1 的 `Set.has(unknown)` TS2345 在 vitest 全绿下漏检，`tsc --noEmit` 才暴露——新代码必须跑包级 build 而非只跑 test。
+- **⚠️ 契约草案→实现收窄须显式登记（T5 文档对齐核心发现）**：spec §3.1 草案（小写八型 start/approver/condition/parallelGatewaySplit/Join/action/connector/end + ApproverRule 六规则）与 T1 实际落地（大写七型 + 三模式）不一致——T1 实现时读过 10FE §2.1 但按阶段 A 最小面收窄且未留决策记录。处置：spec §3.1 补「落地修订」块 + 10FE §2.1 补「与实现的差异登记」小节（差异表逐项写明推迟去向）；代码真源为阶段 B 后端 Transpiler 冻结输入。教训：**冻结契约时若实现偏离草案，必须在 spec 与设计文档双侧回写，否则阶段 B 会拿着两份互相矛盾的"真源"开工**。
+- **图转换纯函数测试策略**：无 testing-library 依赖的仓库里，React 组件分支以 `toCanvasGraph` 输出断言等价（节点 type/position/data/边 label）——组件壳保持极薄，逻辑全部下沉纯函数可单测。
+- 测试规模：前端 401→426（协议 105→118 + flow-designer 12）；架构巡航 157→162 modules 0 违规；verify[commit] 十一步全绿。
 
 ## 8. 开工契约校准
 
