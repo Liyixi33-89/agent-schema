@@ -1,0 +1,149 @@
+name: smoke
+
+# 浏览器冒烟（CDP 驱动，非 Playwright）——独立测试栈，不连公网业务库。
+#
+# 分层原则（AGENTS.md §8 / 测试文档 00）：
+#   - 每次 PR：类型/架构/契约/单测/IT/最小浏览器冒烟（本工作流）
+#   - 发布候选：完整业务/安全/权限/发布快照（专项验收，另行触发）
+#   - 可靠性验收：压测/恢复/故障/告警（隔离环境 + 批准窗口）
+#
+# 环境前提显式声明：
+#   - 本轮自起后端（18080）+ 独立 PG（schema_dev）+ 前端静态产物（nginx 或 vite preview）
+#   - 不使用 --unsafely-treat-insecure-origin-as-secure 掩盖部署认证问题
+#     （本地回环 HTTP 下 Secure Cookie 由后端按 X-Forwarded-Proto 判定，见 SessionCookies）
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: schema_dev
+          POSTGRES_USER: schema_dev
+          POSTGRES_PASSWORD: schema_local_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U schema_dev -d schema_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Chrome（CDP 驱动依赖）——ubuntu-latest 预装 google-chrome，此处显式确认
+      - name: Verify Chrome availability
+        run: |
+          if ! command -v google-chrome >/dev/null 2>&1; then
+            echo "google-chrome 未预装，安装 chromium"
+            sudo apt-get update -qq && sudo apt-get install -y -qq chromium-browser
+          fi
+          google-chrome --version || chromium-browser --version
+
+      - name: Install frontend dependencies
+        working-directory: schema-frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install build-worker dependencies
+        working-directory: schema-platform/build-module/node
+        run: npm ci --no-fund --no-audit
+
+      # 构建后端 jar + 三前端产物（验收面 base，与生产同构）
+      - name: Build backend
+        working-directory: schema-platform
+        run: mvn -q -pl bootstrap -am package -DskipTests
+
+      - name: Build frontend
+        working-directory: schema-frontend
+        run: pnpm run build
+
+      # 起后端（独立 PG，Flyway 自动建表 + 种子数据）
+      - name: Start backend
+        run: |
+          cd schema-platform
+          nohup java -jar bootstrap/target/bootstrap-0.1.0-SNAPSHOT.jar \
+            --server.port=18080 \
+            --spring.datasource.url=jdbc:postgresql://127.0.0.1:5432/schema_dev \
+            --spring.datasource.username=schema_dev \
+            --spring.datasource.password=schema_local_only \
+            > /tmp/backend.log 2>&1 &
+          echo "backend pid=$!"
+          for i in $(seq 1 60); do
+            sleep 3
+            if curl -sf -m 3 http://127.0.0.1:18080/internal/health/readiness >/dev/null 2>&1; then
+              echo "READY after $((i*3))s"
+              curl -s http://127.0.0.1:18080/internal/health/readiness
+              exit 0
+            fi
+          done
+          echo "后端未就绪——日志尾部："
+          tail -50 /tmp/backend.log
+          exit 1
+
+      # 起前端静态服务（vite preview，三应用各自端口）
+      - name: Start frontend preview
+        working-directory: schema-frontend
+        run: |
+          for app in designer runtime admin-console; do
+            case "$app" in
+              designer) port=5173 ;;
+              runtime) port=5174 ;;
+              admin-console) port=5175 ;;
+            esac
+            nohup pnpm --filter "@schema/$app" exec vite preview --port $port --strictPort \
+              > /tmp/preview-$app.log 2>&1 &
+            echo "$app preview pid=$! port=$port"
+          done
+          sleep 8
+          for port in 5173 5174 5175; do
+            curl -sf -m 5 "http://127.0.0.1:$port/" >/dev/null && echo "port $port OK" || { echo "port $port FAIL"; exit 1; }
+          done
+
+      # 浏览器冒烟（三应用独立会话）
+      - name: Run browser smoke
+        env:
+          ACCEPT_BASE_URL: http://127.0.0.1:5173
+          SMOKE_DESIGNER: http://127.0.0.1:5173
+          SMOKE_RUNTIME: http://127.0.0.1:5174
+          SMOKE_ADMIN: http://127.0.0.1:5175
+          ACCEPT_USERNAME: accept_admin
+          ACCEPT_PASSWORD: ${{ secrets.SMOKE_ACCEPT_PASSWORD || 'Accept!2026' }}
+          ACCEPT_RUN_DIR: ${{ github.workspace }}/smoke-out
+          CHROME_PATH: /usr/bin/google-chrome
+          CDP_PORT: '9333'
+        run: node scripts/acceptance/smoke-all.cjs
+
+      # 失败证据：截图 + 控制台 + 服务日志（凭据脱敏由脚本保证——不打印密码）
+      - name: Archive smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-evidence
+          path: |
+            smoke-out/
+            /tmp/backend.log
+            /tmp/preview-*.log
+          if-no-files-found: ignore
+          retention-days: 14

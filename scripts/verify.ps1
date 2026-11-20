@@ -375,12 +375,22 @@ if ($Level -in @('commit', 'ci')) {
 # ============================================================
 # ci 级
 # ============================================================
-if (Test-Path (Join-Path $fe 'playwright.config.ts')) {
-    Step 'frontend-e2e' {
-        Push-Location $fe
-        try { pnpm exec playwright test; if ($LASTEXITCODE -ne 0) { throw "e2e 退出码 $LASTEXITCODE" } }
-        finally { Pop-Location }
+# 浏览器冒烟（CDP 驱动，非 Playwright）：
+# - 项目实际使用 scripts/acceptance/cdp.cjs（零依赖 Chrome DevTools Protocol），
+#   此前 ci 级只探测 playwright.config.ts，导致浏览器测试永远 SKIP。
+# - 冒烟脚本按应用拆分（smoke-designer/runtime/admin），各自独立浏览器会话。
+# - 环境前提由调用方声明：ACCEPT_BASE_URL 指向本轮独立测试栈（CI 起后端+前端+独立 PG），
+#   禁止用 --unsafely-treat-insecure-origin-as-secure 掩盖部署认证问题。
+$smokeEntry = Join-Path $root 'scripts\acceptance\smoke-all.cjs'
+if (Test-Path $smokeEntry) {
+    Step 'frontend-smoke' {
+        if (-not $env:ACCEPT_BASE_URL) {
+            throw 'ACCEPT_BASE_URL 未设置——浏览器冒烟需显式声明被测站点（CI 应指向本轮独立测试栈）'
+        }
+        if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'node 不可用——浏览器冒烟不可跳过' }
+        node $smokeEntry
+        if ($LASTEXITCODE -ne 0) { throw "浏览器冒烟退出码 $LASTEXITCODE" }
     }
-} else { Skip 'frontend-e2e' 'Playwright 未配置（E2E 链路任务落地后生效）' }
+} else { Skip 'frontend-smoke' 'smoke-all.cjs 不存在' }
 
 Finish -Level $Level -swTotal $swTotal

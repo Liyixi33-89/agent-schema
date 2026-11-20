@@ -1,14 +1,44 @@
 /**
  * M11 浏览器验收 CDP 驱动（零依赖）：Chrome headless + 原生 WebSocket
  * 能力：导航、等待选择器、截图、点击、输入、读文本、执行 JS、读 console 错误
+ *
+ * 跨平台（CI Linux / 本地 Windows）：
+ * - CHROME_PATH 环境变量优先；未设置时按平台探测常见安装路径
+ * - CDP_PORT 环境变量优先（默认 9333）；并发任务须各自指定不同端口
+ * - ACCEPT_RUN_DIR 决定截图/临时 profile 输出目录
  */
 const { spawn } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-const PORT = 9333;
+/** Chrome 可执行文件：环境变量优先，其次按平台探测。 */
+function resolveChrome() {
+  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
+  const candidates = process.platform === 'win32'
+    ? [
+      'C:/Program Files/Google/Chrome/Application/chrome.exe',
+      'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+      path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'),
+    ]
+    : [
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/snap/bin/chromium',
+    ];
+  for (const c of candidates) {
+    try { if (c && fs.existsSync(c)) return c; } catch { /* ignore */ }
+  }
+  // 未找到时返回平台默认值，由 launch 的启动失败检查给出明确错误
+  return process.platform === 'win32'
+    ? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+    : '/usr/bin/google-chrome';
+}
+
+const CHROME = resolveChrome();
+const PORT = Number(process.env.CDP_PORT || 9333);
 const OUT_DIR = process.env.ACCEPT_RUN_DIR || path.join(__dirname, 'out');
 const SHOT_DIR = path.join(OUT_DIR, process.env.ACCEPT_RUN_ID ? path.join('shots', process.env.ACCEPT_SUITE || 'default') : 'shots');
 fs.mkdirSync(SHOT_DIR, { recursive: true });
@@ -41,15 +71,22 @@ async function launch(url = 'about:blank') {
   // 纯 HTTP 公网 IP 下浏览器拒存——--unsafely-treat-insecure-origin-as-secure 解锁存储；
   // 该 flag 只影响验收 Chrome 的 cookie 存储策略，不改变服务端任何安全语义。
   // 支持逗号分隔多源（本地 dev server 冒烟：designer/runtime/admin 三端口各自豁免）。
+  // ⚠️ 禁止在 CI 用它掩盖部署认证问题——CI 应起独立测试栈并显式声明环境前提。
   const insecureOrigin = process.env.ACCEPT_ALLOW_INSECURE_ORIGIN || '';
   const extraArgs = insecureOrigin
     ? ['--unsafely-treat-insecure-origin-as-secure=' + insecureOrigin.split(',').map((s) => s.trim()).join(',')] : [];
+  // 启动失败检查：Chrome 不存在/不可执行时给出明确错误（而非静默等 15s 超时）
+  if (!fs.existsSync(CHROME)) {
+    throw new Error(`Chrome 未找到: ${CHROME}（设置 CHROME_PATH 环境变量指向可执行文件）`);
+  }
   browser = spawn(CHROME, [
     `--remote-debugging-port=${PORT}`,
     '--headless=new',
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-gpu',
+    '--no-sandbox',              // CI 容器内 root 运行必需（本地无影响）
+    '--disable-dev-shm-usage',   // CI 容器 /dev/shm 过小会导致渲染崩溃
     '--no-proxy-server',        // 验收环境系统代理会拦截 127.0.0.1 本地探针端口（实测 18095 不可达）
     '--disable-cache',           // 每轮验收强制拉最新产物
     '--disk-cache-size=1',
@@ -59,11 +96,14 @@ async function launch(url = 'about:blank') {
     ...extraArgs,
     'about:blank',
   ], { stdio: 'ignore' });
+  // 进程级启动失败（ENOENT/EACCES）立即上抛，不进入就绪轮询
+  browser.on('error', (e) => { throw new Error(`Chrome 启动失败: ${e.message}`); });
   allBrowsers.push(browser);
   // 重启后域启用状态归零（新浏览器实例须重新 enable）
   runtimeEnabled = false;
   logEnabled = false;
-  // 等 CDP 就绪
+  // 等 CDP 就绪（30 × 500ms = 15s 上限）
+  let lastErr = null;
   for (let i = 0; i < 30; i++) {
     try {
       const ver = JSON.parse(await httpGet(`http://127.0.0.1:${PORT}/json/version`));
@@ -77,9 +117,13 @@ async function launch(url = 'about:blank') {
       runtimeEnabled = true;
       logEnabled = true;
       return;
-    } catch { await new Promise((r) => setTimeout(r, 500)); }
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 500));
+    }
   }
-  throw new Error('Chrome CDP 未就绪');
+  // 就绪超时：带上最后一次错误与端口，便于定位（端口占用/Chrome 崩溃/权限）
+  throw new Error(`Chrome CDP 未就绪（port=${PORT}, chrome=${CHROME}）: ${lastErr ? lastErr.message : 'unknown'}`);
 }
 
 function connect(wsUrl) {
