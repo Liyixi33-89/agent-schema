@@ -1,10 +1,7 @@
 /**
- * M11 管理端入口（渐进重构第一批——职责收敛为：认证会话 + 导航壳 + 页面装配）。
- * 数据面板拆分为独立页面组件（UsageTab/MembersTab/HealthTab/SlaTab/NoticesTab），
+ * M11 管理端入口（应用壳：认证会话 + 导航壳 + 页面装配）。
+ * 业务页面按 feature 内聚（features/<业务>/），入口只做组合根——不承载业务请求与转换。
  * 请求层收敛至 api.ts（复用 auth-sdk；安全边界不动：主站/验收隔离、Cookie/Bearer 通道隔离）。
- * 数据源：/api/metering/usage/summary（09BE）、/api/org/members（03BE）、
- * /api/ops/health 与 /api/ops/notices（13BE §6 分期最小集）。
- * v0.4：HttpOnly Cookie 通道（schema_at 自动携带 + X-CSRF-Token 双提交）。
  */
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -13,11 +10,11 @@ import {
   broadcastLogout, initCsrf, login as sdkLogin, logout as sdkLogout, watchAuthChannel,
 } from '@schema/auth-sdk';
 import { errOf, setSessionExpiredHandler } from './api';
-import UsageTab from './UsageTab';
-import MembersTab from './MembersTab';
-import HealthTab from './HealthTab';
-import SlaTab from './SlaTab';
-import NoticesTab from './NoticesTab';
+import { UsagePage } from './features/usage';
+import { MembersPage } from './features/members';
+import { NoticesPage } from './features/notices';
+import HealthPage from './features/ops-health/HealthPage';
+import SlaPage from './features/ops-health/SlaPage';
 
 interface SessionState { account: string }
 
@@ -108,11 +105,11 @@ function App(): React.ReactElement {
           <Card>
             <Tabs
               items={[
-                { key: 'usage', label: '租户用量', children: <UsageTab /> },
-                { key: 'members', label: '成员管理', children: <MembersTab /> },
-                { key: 'health', label: '健康状态', children: <HealthTab /> },
-                { key: 'sla', label: 'SLA 看板', children: <SlaTab /> },
-                { key: 'notices', label: '维护公告', children: <NoticesTab /> },
+                { key: 'usage', label: '租户用量', children: <UsagePage /> },
+                { key: 'members', label: '成员管理', children: <MembersPage /> },
+                { key: 'health', label: '健康状态', children: <HealthPage /> },
+                { key: 'sla', label: 'SLA 看板', children: <SlaPage /> },
+                { key: 'notices', label: '维护公告', children: <NoticesPage /> },
               ]}
             />
           </Card>
