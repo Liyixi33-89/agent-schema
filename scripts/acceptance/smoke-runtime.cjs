@@ -1,4 +1,4 @@
-/**
+﻿/**
  * runtime 浏览器冒烟（独立会话）：
  *  R1 应用列表可读（API 通道，为导航壳提供目标应用）
  *  R2 导航壳装载（app/AppShell）
@@ -13,6 +13,8 @@ const { BASE, ok, record, ApiClient, summary } = require('./accept-lib.cjs');
 const S = require('./smoke-lib.cjs');
 
 const RUNTIME = process.env.SMOKE_RUNTIME || BASE;
+/** 路径前缀：验收面 /accept，CI 独立栈为空串。 */
+const P = process.env.SMOKE_PATH_PREFIX !== undefined ? process.env.SMOKE_PATH_PREFIX : '/accept';
 const SUITE = 'smoke-runtime';
 
 (async () => {
@@ -28,7 +30,7 @@ const SUITE = 'smoke-runtime';
     const targetApp = appList[0];
 
     // ===== R2 导航壳 =====
-    await cdp.goto(`${RUNTIME}/accept/runtime/#/app/${targetApp.id}`);
+    await cdp.goto(`${RUNTIME}${P}/runtime/#/app/${targetApp.id}`);
     const shellText = await S.waitAnyText(['加载导航', '无可访问菜单', '从左侧菜单选择页面'], 25000);
     ok('R2-1 导航壳装载（app/AppShell）', shellText != null, String(shellText));
 
@@ -54,7 +56,7 @@ const SUITE = 'smoke-runtime';
     const pageList = (pages.json && pages.json.list) || [];
     if (pageList.length > 0) {
       const pid = pageList[0].id;
-      await cdp.goto(`${RUNTIME}/accept/runtime/#/app/${targetApp.id}/page/${pid}`);
+      await cdp.goto(`${RUNTIME}${P}/runtime/#/app/${targetApp.id}/page/${pid}`);
       const pageUp = await (async () => {
         const start = Date.now();
         while (Date.now() - start < 25000) {

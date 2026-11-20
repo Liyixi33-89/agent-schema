@@ -1,4 +1,4 @@
-/**
+﻿/**
  * designer 浏览器冒烟（独立会话）：
  *  D1 登录页装载 → 登录成功进入工作台壳
  *  D2 工作台卡片墙渲染（features/workspace）
@@ -13,13 +13,15 @@ const { BASE, ok, record, summary } = require('./accept-lib.cjs');
 const S = require('./smoke-lib.cjs');
 
 const DESIGNER = process.env.SMOKE_DESIGNER || BASE;
+/** 路径前缀：验收面 /accept，CI 独立栈为空串。 */
+const P = process.env.SMOKE_PATH_PREFIX !== undefined ? process.env.SMOKE_PATH_PREFIX : '/accept';
 const SUITE = 'smoke-designer';
 
 (async () => {
   await cdp.launch();
   try {
     // ===== D1 登录 =====
-    await cdp.goto(`${DESIGNER}/accept/designer/`);
+    await cdp.goto(`${DESIGNER}${P}/designer/`);
     const loginReady = await S.waitInput('账号', 25000);
     ok('D1-1 designer 登录页装载', loginReady, '');
     if (!loginReady) throw new Error('designer 登录页未装载');

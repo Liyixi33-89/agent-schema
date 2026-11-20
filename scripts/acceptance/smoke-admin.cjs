@@ -1,4 +1,4 @@
-/**
+﻿/**
  * admin-console 浏览器冒烟（独立会话）：
  *  A1 登录页装载 → 登录成功进入壳
  *  A2 五页签齐全（features/{usage,members,notices,ops-health}）
@@ -13,13 +13,15 @@ const { BASE, ok, record, summary } = require('./accept-lib.cjs');
 const S = require('./smoke-lib.cjs');
 
 const ADMIN = process.env.SMOKE_ADMIN || BASE;
+/** 路径前缀：验收面 /accept，CI 独立栈为空串。 */
+const P = process.env.SMOKE_PATH_PREFIX !== undefined ? process.env.SMOKE_PATH_PREFIX : '/accept';
 const SUITE = 'smoke-admin';
 
 (async () => {
   await cdp.launch();
   try {
     // ===== A1 登录 =====
-    await cdp.goto(`${ADMIN}/accept/admin/`);
+    await cdp.goto(`${ADMIN}${P}/admin/`);
     const loginReady = await S.waitInput('管理员账号', 30000);
     ok('A1-1 admin-console 登录页装载', loginReady, '');
     if (!loginReady) throw new Error('admin 登录页未装载');
