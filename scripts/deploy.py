@@ -50,6 +50,9 @@ ACCEPT_ENTRIES = {  # 验收面入口（nginx accept-loopback.conf 的 alias 路
     "runtime": "/accept/runtime/",
 }
 ACCEPT_PROBE = f"http://127.0.0.1:{ACCEPT_BACKEND_PORT}/internal/health/readiness"
+# ⚠️ 服务器默认 java 是 JDK 17（class 61），而 jar 由 JDK 21 编译（class 65）——
+#    必须用 JDK 21 全路径启动，否则 UnsupportedClassVersionError。
+ACCEPT_JAVA = os.environ.get("SCHEMA_ACCEPT_JAVA", "/usr/lib/jvm/jre-21-konajdk/bin/java")
 
 
 def run(cmd, cwd=None, check=True, capture=False):
@@ -263,7 +266,7 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
         #    app.version/git.commit——用环境变量前缀最直接（-D 是 JVM 属性，Spring 需 --app.version 形式）
         f"pkill -f 'schema-platform-accept.jar' || true; sleep 2; "
         f"cd {ACCEPT_ROOT}/current && "
-        f"APP_VERSION={head} GIT_COMMIT={head} nohup java -jar schema-platform.jar "
+        f"APP_VERSION={head} GIT_COMMIT={head} nohup {ACCEPT_JAVA} -jar schema-platform.jar "
         f"  --server.port={ACCEPT_BACKEND_PORT} "
         f"  --spring.datasource.url=jdbc:postgresql://127.0.0.1:5432/schema_acceptance "
         f"  --spring.datasource.username=schema_accept "
