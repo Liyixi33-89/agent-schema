@@ -40,9 +40,10 @@ async function launch(url = 'about:blank') {
   // 公网验收豁免（仅验收轮）：平台会话 cookie 强制 Secure（03BE 生产强制 HTTPS 前提），
   // 纯 HTTP 公网 IP 下浏览器拒存——--unsafely-treat-insecure-origin-as-secure 解锁存储；
   // 该 flag 只影响验收 Chrome 的 cookie 存储策略，不改变服务端任何安全语义。
+  // 支持逗号分隔多源（本地 dev server 冒烟：designer/runtime/admin 三端口各自豁免）。
   const insecureOrigin = process.env.ACCEPT_ALLOW_INSECURE_ORIGIN || '';
   const extraArgs = insecureOrigin
-    ? ['--unsafely-treat-insecure-origin-as-secure=' + insecureOrigin] : [];
+    ? ['--unsafely-treat-insecure-origin-as-secure=' + insecureOrigin.split(',').map((s) => s.trim()).join(',')] : [];
   browser = spawn(CHROME, [
     `--remote-debugging-port=${PORT}`,
     '--headless=new',
