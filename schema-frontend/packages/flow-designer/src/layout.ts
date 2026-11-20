@@ -96,15 +96,22 @@ export interface FlowCanvasNodeData extends Record<string, unknown> {
   flowNode: FlowNode;
   /** 未知类型原值（__UnknownNode__ 占位时展示）。 */
   rawType: string;
-  /** 实例状态高亮（阶段 B 数据——PENDING|ACTIVE|DONE|SKIPPED）。 */
-  state?: string;
+  /** 实例状态高亮（阶段 B 数据——封闭四态 InstanceNodeState）。 */
+  state?: InstanceNodeState;
   unknown: boolean;
 }
 
+/** 实例节点状态封闭枚举（05BE A.2 nodes[].state——阶段 A 仅定义与着色，无真实实例数据）。 */
 export const INSTANCE_STATES = ['PENDING', 'ACTIVE', 'DONE', 'SKIPPED'] as const;
+export type InstanceNodeState = typeof INSTANCE_STATES[number];
 
-/** 实例状态着色（05BE A.2 nodes[].state——阶段 A 仅定义封闭枚举与着色能力）。 */
-export function instanceStateColor(state: string): string | null {
+/** 未知 state 值收窄为 null（封闭枚举外的值不参与着色——容错不抛异常）。 */
+export function toInstanceNodeState(v: unknown): InstanceNodeState | undefined {
+  return (INSTANCE_STATES as readonly unknown[]).includes(v) ? (v as InstanceNodeState) : undefined;
+}
+
+/** 实例状态着色（05BE A.2 nodes[].state——封闭四态；未知值不着色）。 */
+export function instanceStateColor(state: InstanceNodeState): string | null {
   if (state === 'ACTIVE') return '#52c41a';
   if (state === 'DONE') return '#1677ff';
   if (state === 'SKIPPED') return '#d9d9d9';
@@ -125,11 +132,12 @@ export function toCanvasGraph(
   schema: { nodes: FlowNode[]; edges: FlowEdge[] },
   options?: {
     positions?: Record<string, { x: number; y: number }>;
-    instanceState?: { nodes: { nodeId: string; state: string }[] };
+    instanceState?: { nodes: { nodeId: string; state: unknown }[] };
   },
 ): { nodes: Node<FlowCanvasNodeData>[]; edges: Edge[] } {
   const positions = options?.positions ?? layeredFlowLayout(schema.nodes, schema.edges);
-  const stateMap = new Map((options?.instanceState?.nodes ?? []).map((s) => [s.nodeId, s.state]));
+  const stateMap = new Map((options?.instanceState?.nodes ?? [])
+    .map((s) => [s.nodeId, toInstanceNodeState(s.state)]));
 
   const nodes: Node<FlowCanvasNodeData>[] = schema.nodes.map((n) => {
     const known = (FLOW_NODE_TYPES as readonly string[]).includes(n.type);

@@ -19,12 +19,12 @@ import '@xyflow/react/dist/style.css';
 import type { FlowSchema } from '@schema/schema-protocol';
 import {
   FLOW_NODE_META, UNKNOWN_NODE_TYPE, approverText, countUnknownNodes, instanceStateColor,
-  toCanvasGraph, type FlowCanvasNodeData,
+  toCanvasGraph, type FlowCanvasNodeData, type InstanceNodeState,
 } from './layout';
 
-/** 实例状态高亮输入（05BE A.2 形态——阶段 B 数据，阶段 A 仅定义通道与着色）。 */
+/** 实例状态高亮输入（05BE A.2 形态——阶段 B 数据；state 经 toInstanceNodeState 封闭收窄）。 */
 export interface InstanceState {
-  nodes: { nodeId: string; state: string }[];
+  nodes: { nodeId: string; state: unknown }[];
 }
 
 export interface FlowCanvasProps {
@@ -41,8 +41,7 @@ export interface FlowCanvasProps {
 function FlowNodeCard({ data, selected }: NodeProps<Node<FlowCanvasNodeData>>): React.ReactElement {
   const { flowNode, state } = data;
   const meta = FLOW_NODE_META[flowNode.type as keyof typeof FLOW_NODE_META];
-  const stateColor = state != null ? instanceStateColor(state) : null;
-  const branches = (flowNode.branches ?? []).map((b) => b.label || b.id).join(' / ');
+  const stateColor = state != null ? instanceStateColor(state) : null;  const branches = (flowNode.branches ?? []).map((b) => b.label || b.id).join(' / ');
   const approver = flowNode.approver != null ? approverText(flowNode.approver) : '';
   const handleStyle = { width: 7, height: 7, background: meta.color, border: '1px solid #fff' };
   return (
@@ -164,5 +163,5 @@ export default function FlowCanvas(props: FlowCanvasProps): React.ReactElement {
 }
 
 /** 导出渲染面公共 API（宿主只消费 FlowCanvas + 布局函数 + 元数据）。 */
-export { layeredFlowLayout, FLOW_NODE_META, approverText, countUnknownNodes, toCanvasGraph, UNKNOWN_NODE_TYPE, INSTANCE_STATES, instanceStateColor } from './layout';
-export type { FlowCanvasNodeData, FlowNodeMeta } from './layout';
+export { layeredFlowLayout, FLOW_NODE_META, approverText, countUnknownNodes, toCanvasGraph, UNKNOWN_NODE_TYPE, INSTANCE_STATES, instanceStateColor, toInstanceNodeState } from './layout';
+export type { FlowCanvasNodeData, FlowNodeMeta, InstanceNodeState } from './layout';

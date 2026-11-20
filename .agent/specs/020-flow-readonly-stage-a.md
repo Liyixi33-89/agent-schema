@@ -124,7 +124,10 @@ export function layeredFlowLayout(nodes: FlowNode[], edges: FlowEdge[]): Record<
 - [x] A3 未知节点类型 → 占位节点 + Alert 报错，画布不白屏不抛异常（单测断言）
 - [x] A4 悬空节点/网关不配对/缺 start-end 连通的 Schema 被 validateFlowSchema 拒绝（单测断言）
 - [x] A5 designer「流程」页可打开并查看示例流程（人工链路）；无任何编辑/保存入口（UI 断言）
-- [x] A6 既有页面设计/ER 建模功能零回归（全量测试绿即证）
+- [x] A6 既有页面设计/ER 建模功能零回归——**证明口径**：全量单测绿 + turbo 全量构建通过；
+      本 PR 零 `apps/designer` 既有文件行为改动（仅 AppSettings 加页签项）。完整浏览器级
+      UI 回归不在本步证明范围（ER/页面关键浏览器链路的历史 CDP 验收结论仍有效；若后续
+      spec 改动 ER/页面画布本体，须重跑对应浏览器链路——本 spec 未触碰）
 - [x] A7 协议包零新增依赖（schema-protocol 依赖数仍为 0——架构巡航红线）
 
 ## 6. 验证步骤（人可复跑）
@@ -140,7 +143,14 @@ export function layeredFlowLayout(nodes: FlowNode[], edges: FlowEdge[]): Record<
 
 - **交付形态**：schema-protocol 新增 FlowSchema 七型契约 + `validateFlowSchema`（连通性/网关配对/循环拒绝/审批人三模式/分支配对校验）；flow-designer 包由空壳落地为只读画布（`FlowCanvas` + `layeredFlowLayout` + `toCanvasGraph` 图转换）；designer 新增「流程」页签（契约 Mock 演示 fixture 两条：报销审批 + 并行会签，界面标明演示）。
 - **只读红线落实**：React Flow `nodesDraggable/nodesConnectable/edgesReconnectable` 全关 + `deleteKeyCode={null}`，仅保留选择/平移/缩放；FlowTab 无任何新建/编辑/保存/发布按钮。
-- **渲染容错双闸**：宿主入口先过 `validateFlowSchema`（非法结构 → antd Alert 错误面板不进画布）；画布内对未知节点类型二次容错（`__UnknownNode__` 红色占位 + 顶部计数提示，不白屏不抛异常）。
+- **渲染容错双闸（口径澄清）**：两条路径须分别表述——① **designer 入口**（FlowTab）先过
+  `validateFlowSchema`：非法结构（含未知类型）整体拒绝进画布，antd Alert 错误面板列出全部
+  校验指针；② **画布组件**（FlowCanvas）对未校验直接渲染的输入二次容错：未知类型渲染
+  `__UnknownNode__` 占位 + 顶部计数，不白屏不抛异常。即：经 designer 的链路不会出现占位节点
+  （校验先行拒绝），占位容错是画布作为独立组件的防御层（供阶段 B 后端返回数据直渲等场景）。
+- **收尾核查补强（2026-11-20 合并后复查）**：① `InstanceState.nodes[].state` 已收紧为封闭
+  枚举 `InstanceNodeState`（PENDING/ACTIVE/DONE/SKIPPED）+ `toInstanceNodeState` 收窄函数
+  （未知值丢弃不着色，测试覆盖）；② A6 证明口径已降为如实表述（见验收区修订）。
 - **⚠️ 协议零依赖红线 vs 测试文件位置**：`validate-flow.test.ts` 初版放 `src/` 内被 depcruise 判违规（src 内文件 import vitest 即触发出边）——协议包测试必须在 `test/` 目录（同既有 4 个测试文件先例）。
 - **⚠️ vitest 不查类型遮蔽 tsc 错误**：T1 的 `Set.has(unknown)` TS2345 在 vitest 全绿下漏检，`tsc --noEmit` 才暴露——新代码必须跑包级 build 而非只跑 test。
 - **⚠️ 契约草案→实现收窄须显式登记（T5 文档对齐核心发现）**：spec §3.1 草案（小写八型 start/approver/condition/parallelGatewaySplit/Join/action/connector/end + ApproverRule 六规则）与 T1 实际落地（大写七型 + 三模式）不一致——T1 实现时读过 10FE §2.1 但按阶段 A 最小面收窄且未留决策记录。处置：spec §3.1 补「落地修订」块 + 10FE §2.1 补「与实现的差异登记」小节（差异表逐项写明推迟去向）；代码真源为阶段 B 后端 Transpiler 冻结输入。教训：**冻结契约时若实现偏离草案，必须在 spec 与设计文档双侧回写，否则阶段 B 会拿着两份互相矛盾的"真源"开工**。

@@ -150,8 +150,17 @@ export function validateAppTheme(v: unknown): { ok: true; value: AppTheme } | { 
   实际形态 `AntdThemeSpec{dark, token}`（纯数据），算法分派在消费方接线。预览与 runtime 共用唯一映射点。
 - **暗色壳层缺口**：AppShell 是原生 div（非 antd Layout），darkAlgorithm 只影响 antd 组件——
   cssVarsOf 补 --schema-bg/--schema-bg-layout/--schema-fg/--schema-border，壳层消费后暗色全屏生效。
-- **非法 JSON 双路径**：parseTheme 对坏 JSON 串 → null（等价无配置，合法静默）；解析成功的对象走
-  resolveWithReport 白名单（未知键 → 黄条 + 明细 + 降级默认）。两种路径行为不同属预期。
+- **非法 JSON 双路径（2026-11-20 收尾核查修订）**：parseTheme 原对坏 JSON 串返回 null——
+  与「无主题」不可区分，会被当合法缺省静默默认渲染（无警告）。已修正为三态返回
+  `{kind:'theme'|'absent'|'invalid'}`：坏 JSON/数组/原始值 → invalid（AppThemeProvider 降级
+  默认渲染 + 黄条明细反馈，不再静默吞）；null/空白串 → absent（真缺省，静默默认）。
+  边界测试 `AppThemeProvider.test.tsx` 覆盖三态全分支。
+- **CSS 变量恢复边界（2026-11-20 收尾核查登记）**：applyCssVars 恢复承诺 = 还原「写入前的
+  内联原值」（含原值空 → removeProperty 分支；连续两轮应用嵌套还原；恢复函数幂等）——
+  `AppThemeProvider.test.tsx` 注入式 style stub 全覆盖（不引 jsdom，零新增依赖红线）。
+  ⚠️ 已知边界：若页面样式表存在同名 `--schema-*` 的 `!important` 声明，内联恢复无法覆盖
+  （CSS 优先级铁律）——本系统 `--schema-*` 仅经本函数内联写入、样式表无同名 !important
+  声明，边界成立；若未来引入全局样式表同名变量须重新评估。
 - **SPA 同源 hash 切换不重载 JS**：验收跨应用断言前须 `about:blank` 中转真导航。
 - **antd 两字按钮带空格**：「保存」渲染「保 存」——UI 自动化按钮匹配必须去空白。
 - **ant Form 合成事件提交**：`b.click()` 不触发 onFinish（rc-field-form 拦截）；须 `form.requestSubmit(btn)`。
