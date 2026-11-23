@@ -137,6 +137,45 @@ jobs:
           psql -h 127.0.0.1 -U schema_dev -d schema_dev -t -A \
             -c "SELECT ur.user_id, r.code FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id ORDER BY 1,2;"
 
+      # 播种冒烟应用：必须走 API 而非直写表——create 内部会 initDefaultRoles
+      # （app_admin/developer/user 三角色）+ grantCreatorAdmin（创建者自动 app_admin），
+      # 手写 SQL 极易漏建角色导致卡片墙/导航为空。
+      - name: Seed smoke app via API
+        run: |
+          set -euo pipefail
+          BASE=http://127.0.0.1:18080
+          # ⚠️ CsrfFilter 校验 Origin 精确匹配或命中 DEV_ORIGINS
+          #    （http://127.0.0.1:5173/5174/5175）。种子脚本不是浏览器，
+          #    需显式带上被放行的 Origin，否则 CSRF_ORIGIN_REJECTED。
+          ORIGIN=http://127.0.0.1:5173
+          JAR=/tmp/smoke-cookies.txt
+          rm -f "$JAR"
+          # 1) 匿名 CSRF
+          curl -sf -c "$JAR" -H "Origin: $ORIGIN" "$BASE/api/auth/csrf" >/dev/null
+          CSRF=$(awk '/schema_csrf/{print $7}' "$JAR")
+          # 2) 登录
+          curl -sf -b "$JAR" -c "$JAR" -X POST "$BASE/api/auth/login" \
+            -H "Origin: $ORIGIN" \
+            -H 'Content-Type: application/json' \
+            -H "X-CSRF-Token: $CSRF" \
+            -d '{"username":"accept_admin","password":"Accept!2026"}' >/dev/null
+          CSRF=$(awk '/schema_csrf/{print $7}' "$JAR")
+          # 3) 建应用（幂等：已存在则跳过）
+          CODE=$(curl -s -o /tmp/app-create.json -w '%{http_code}' \
+            -b "$JAR" -H "Origin: $ORIGIN" -H 'Content-Type: application/json' -H "X-CSRF-Token: $CSRF" \
+            -X POST "$BASE/api/apps" \
+            -d '{"name":"冒烟验收应用","description":"CI 浏览器冒烟用"}')
+          echo "create app -> $CODE $(cat /tmp/app-create.json)"
+          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+            echo "（非 2xx——名称重复属正常，继续校验列表）"
+          fi
+          # 4) 校验：应用列表非空（空则后续卡片墙/导航断言必失败，尽早暴露）
+          APPS=$(curl -sf -b "$JAR" -H "Origin: $ORIGIN" "$BASE/api/apps?keyword=")
+          echo "apps -> $APPS"
+          COUNT=$(printf '%s' "$APPS" | grep -o '"id"' | wc -l)
+          echo "app_count=$COUNT"
+          [ "$COUNT" -ge 1 ] || { echo "种子应用创建失败：列表为空"; exit 1; }
+
       # 起前端静态服务（vite preview，三应用各自端口）
       # ⚠️ 三应用 base 分别是 /designer/ /runtime/ /admin/——探测路径必须带 base，
       #    访问根 / 会 404（vite preview 不做 base 重写）。
