@@ -41,25 +41,23 @@ const SUITE = 'smoke-runtime';
       '加载导航', '无可访问菜单', '从左侧菜单选择页面',
       '登录已过期', '导航加载失败', '应用不存在或未发布',
     ], 25000);
-    ok('R2-1 导航壳装载（app/AppShell）', shellText != null, String(shellText));
+    // 先转储现场，再断言（ok() 是 fail-fast，抛异常后转储代码不会执行）
     if (shellText == null) {
-      // 失败现场转储：DOM 文本 + root innerHTML + 已加载脚本 + 网络请求（定位是「没渲染」还是「渲染了别的文案」）
       const diag = await cdp.evalJs(`(() => {
         const root = document.getElementById('root');
         return JSON.stringify({
-          url: location.href,
-          hash: location.hash,
-          title: document.title,
+          url: location.href, hash: location.hash, title: document.title,
           bodyText: (document.body.innerText || '').slice(0, 500),
           rootHtml: root ? root.innerHTML.slice(0, 800) : '<no root element>',
           scripts: Array.from(document.querySelectorAll('script')).map(s => s.src || 'inline'),
-          styleSheets: Array.from(document.styleSheets).length,
         });
       })()`);
-      console.error('[R2-1 现场] ' + diag);
-      const reqs = cdp.networkRequests().filter((r) => r.url.includes('/api/') || r.url.includes('/assets/'));
-      for (const r of reqs.slice(-10)) console.error(`[net] ${r.method} ${r.url} -> ${r.status}`);
+      console.log('[R2-1 现场] ' + diag);
+      for (const r of cdp.networkRequests().filter((x) => /\/api\/|\/assets\//.test(x.url)).slice(-10)) {
+        console.log(`[net] ${r.method} ${r.url} -> ${r.status}`);
+      }
     }
+    ok('R2-1 导航壳装载（app/AppShell）', shellText != null, String(shellText));
     // 壳渲染成功但落在错误分支时给出明确信号（不算 PASS，避免掩盖真实故障）
     const shellError = await cdp.evalJs(
       `(() => { const t = document.body.innerText || '';
