@@ -22,7 +22,8 @@ test('SMK-DES-01 登录后在卡片墙找到本轮应用', async ({ page, baseUR
   await expect(page.getByText('设计器工作台')).toBeVisible();
 
   // 核心断言：本轮创建的应用卡片可见（appName 含时间戳，唯一）
-  const card = page.getByText(meta.appName, { exact: false });
+  // RED-GREEN PROBE: 故意断言一个不存在的名称，用于验证门禁会变红（临时改动，验证后还原）
+  const card = page.getByText('RED-GREEN-PROBE-不存在的应用名', { exact: false });
   await expect(card).toBeVisible();
 
   // 反向保证：不是「空态兜底」通过
