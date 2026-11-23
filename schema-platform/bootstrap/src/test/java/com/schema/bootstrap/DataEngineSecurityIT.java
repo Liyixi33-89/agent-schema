@@ -878,10 +878,17 @@ class DataEngineSecurityIT {
 
     private long seedUserWithDept(String account, Long deptId) {
         // 测试专用账号插入（无密码——认证面不走此处）；返回真实自增 ID
-        return jdbc.queryForObject(
+        long uid = jdbc.queryForObject(
                 "INSERT INTO sys_user (tenant_id, account, name, status, dept_id) "
                         + "VALUES (1, ?, ?, 'ACTIVE', ?) RETURNING id",
                 Long.class, account, account, deptId);
+        // 隔离保证：清除该用户可能继承的任何既有角色绑定。
+        // 根因（2026-11-23 CI 稳定失败）：若新用户 id 恰好与种子管理员（id=1，
+        // 持 seed_data_admin 的 model_id=0/ALL 通配范围）重合或继承其角色，
+        // ScopeResolver.seesAll 短路 → scopeSql="TRUE" → 范围测试失效。
+        // 此处显式清空 user_role，保证「本用户只有测试随后 seedRole 授予的角色」。
+        jdbc.update("DELETE FROM sys_user_role WHERE user_id=?", uid);
+        return uid;
     }
 
     private void insertDeptRow(String deptKey, long createdBy) {
