@@ -72,6 +72,12 @@ jobs:
         working-directory: schema-frontend
         run: pnpm install --frozen-lockfile
 
+      # Playwright 的 Chromium（与上面 Verify Chrome availability 的系统 Chrome 相互独立）：
+      # --with-deps 会装齐 Linux 运行所需的系统库，避免 CI 上缺 so 报错。
+      - name: Install Playwright Chromium
+        working-directory: schema-frontend
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Install build-worker dependencies
         working-directory: schema-platform/build-module/node
         run: npm ci --no-fund --no-audit
@@ -232,6 +238,86 @@ jobs:
             *) echo "种子应用校验失败：目标 ID=$TARGET_ID 不在列表中（$VERIFY_LINE）"; exit 1 ;;
           esac
 
+          # 6) 建一张最小页面并发布——runtime 断言依赖「真实已发布页面」，
+          #    不能用已有页面或「容器就绪」占位文案替代，否则会把
+          #    「壳正常、业务没加载」误判为通过。
+          TS=$(date +%s)
+          PAGE_TITLE="E2E唯一标题_$TS"
+          APP_NAME_FULL=$(printf '%s' "$APPS" | python3 - "$TARGET_ID" <<'PY'
+          import json, sys
+          target = str(sys.argv[1])
+          d = json.load(open('/tmp/smoke-apps.json', encoding='utf-8'))
+          for a in d.get('list', []):
+              if str(a.get('id')) == target:
+                  print(a.get('name', ''))
+                  break
+          PY
+          )
+
+          PAGE_RESP=$(curl -s -b "$JAR" -H "Origin: $ORIGIN" -H 'Content-Type: application/json' \
+            -H "X-CSRF-Token: $(awk '/schema_csrf/{print $7}' "$JAR")" \
+            -X POST "$BASE/api/pages" \
+            -d "{\"appId\":$TARGET_ID,\"pageKey\":\"smoke_$TS\",\"name\":\"冒烟页$TS\",\"type\":\"DASHBOARD\",\"path\":\"/smoke_$TS\"}")
+          echo "page -> $PAGE_RESP"
+          PAGE_ID=$(printf '%s' "$PAGE_RESP" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d.get("id") or d.get("pageId") or "")')
+          PAGE_DRAFT_VER=$(printf '%s' "$PAGE_RESP" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d.get("draftVersion") or 1)')
+          [ -n "$PAGE_ID" ] || { echo "种子页面创建失败"; exit 1; }
+
+          # 7) 写草稿：必须带 baseDraftVersion（建页返回的 draftVersion），
+          #    否则后端 400 VALIDATION_FAILED「数值字段缺失或非法」
+          DRAFT_BODY=$(python3 - "$PAGE_TITLE" "$PAGE_DRAFT_VER" "$TS" <<'PY'
+          import json, sys
+          title, ver, ts = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+          # path 必须唯一：页面路由有唯一约束（重复会 422 PATH_DUPLICATED）。
+          # type 用 DASHBOARD：FormPageHost 明确允许 DASHBOARD 不绑定 modelId
+          #   （FormPageHost.tsx:66「DASHBOARD 页模型可空」）；
+          #   FORM/LIST/DETAIL 缺 modelId 会报「页面未绑定数据模型」，页面渲染不出内容。
+          schema = {
+              "id": "smoke_page", "pageKey": "smoke", "name": "冒烟页",
+              "type": "DASHBOARD", "path": "/smoke_%s" % ts,
+              "layout": [{"id": "n1", "componentName": "LabelText",
+                          "props": {"label": title}}],
+              "actions": [], "schemaVersion": 1,
+          }
+          print(json.dumps({"schema": schema, "baseDraftVersion": ver}, ensure_ascii=False))
+          PY
+          )
+          DRAFT_CODE=$(curl -s -o /tmp/draft.json -w '%{http_code}' \
+            -b "$JAR" -H "Origin: $ORIGIN" -H 'Content-Type: application/json' \
+            -H "X-CSRF-Token: $(awk '/schema_csrf/{print $7}' "$JAR")" \
+            -X PUT "$BASE/api/pages/$PAGE_ID/draft" -d "$DRAFT_BODY")
+          echo "draft -> $DRAFT_CODE $(head -c 200 /tmp/draft.json)"
+          [ "$DRAFT_CODE" = "200" ] || { echo "种子页面草稿写入失败"; exit 1; }
+
+          # 8) 发布
+          PUB_CODE=$(curl -s -o /tmp/pub.json -w '%{http_code}' \
+            -b "$JAR" -H "Origin: $ORIGIN" -H 'Content-Type: application/json' \
+            -H "X-CSRF-Token: $(awk '/schema_csrf/{print $7}' "$JAR")" \
+            -X POST "$BASE/api/apps/$TARGET_ID/publish" -d '{}')
+          echo "publish -> $PUB_CODE $(head -c 200 /tmp/pub.json)"
+          [ "$PUB_CODE" = "200" ] || { echo "种子页面发布失败"; exit 1; }
+
+          # 9) 核对运行时通道确实能读到这页（与 runtime 同源接口）
+          RT_CODE=$(curl -s -o /tmp/rt-page.json -w '%{http_code}' \
+            -b "$JAR" -H "Origin: $ORIGIN" "$BASE/api/runtime/pages/$PAGE_ID")
+          echo "runtime page -> $RT_CODE"
+          [ "$RT_CODE" = "200" ] || { echo "种子页面运行时读取失败"; exit 1; }
+          grep -q "$PAGE_TITLE" /tmp/rt-page.json \
+            || { echo "种子页面已发布但不含唯一标题（运行时读到的不是本轮内容）"; exit 1; }
+
+          # 10) 测试元数据（不含凭据）
+          python3 - "$TARGET_ID" "$APP_NAME_FULL" "$PAGE_ID" "$PAGE_TITLE" > /tmp/smoke-meta.json <<'PY'
+          import json, sys
+          app_id, app_name, page_id, title = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+          print(json.dumps({
+              "appId": int(app_id), "appName": app_name,
+              "pageId": int(page_id), "pageTitle": title,
+          }, ensure_ascii=False, indent=2))
+          PY
+          echo "--- smoke-meta.json ---"
+          cat /tmp/smoke-meta.json
+          echo "SMOKE_META_FILE=/tmp/smoke-meta.json" >> "$GITHUB_ENV"
+
       # 起前端静态服务（vite preview，三应用各自端口）
       # ⚠️ 三应用 base 分别是 /designer/ /runtime/ /admin/——探测路径必须带 base，
       #    访问根 / 会 404（vite preview 不做 base 重写）。
@@ -299,6 +385,87 @@ jobs:
           GIT_COMMIT: ${{ github.sha }}
         run: node scripts/acceptance/smoke-all.cjs
 
+      # ---------------------------------------------------------------
+      # Playwright 冒烟（PR 1：与新驱动并行对照，先不设必过）
+      #
+      # 与上一个 CDP 步骤共用同一套隔离栈（PG/后端/种子/Vite preview 都已就绪），
+      # 不重建环境。三条用例各自证明真实业务行为：
+      #   SMK-DES-01 真实登录 → 卡片墙找到本轮创建的应用
+      #   SMK-RUN-01 打开本轮已发布页面 → 唯一标题真实渲染
+      #   SMK-ADM-01 健康页指标与 overview 响应数值一致
+      #
+      # 必跑场景 ID 显式列出，缺报告/缺场景/跳过均判失败（见下一步核对）。
+      # 首版允许此步失败而不阻断（对照期），PR 2 再转为必过。
+      # ---------------------------------------------------------------
+      - name: Run Playwright smoke
+        id: pw
+        continue-on-error: true
+        working-directory: schema-frontend
+        env:
+          SMOKE_DESIGNER_BASE: http://127.0.0.1:5173/designer
+          SMOKE_RUNTIME_BASE: http://127.0.0.1:5174/runtime
+          SMOKE_ADMIN_BASE: http://127.0.0.1:5175/admin
+          SMOKE_META_FILE: /tmp/smoke-meta.json
+          SMOKE_USERNAME: accept_admin
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_ACCEPT_PASSWORD || 'Accept!2026' }}
+          CI: 'true'
+        run: |
+          set -o pipefail
+          pnpm exec playwright test --config playwright.config.ts 2>&1 | tee /tmp/pw.log
+          exit ${PIPESTATUS[0]}
+
+      # Playwright 必跑场景核对：
+      # 即使上一步失败也要核对报告完整性（缺报告 = 不能声称「跑过」）。
+      # 对照期内此步失败只告警不阻断（PR 2 改为硬门禁）。
+      - name: Verify Playwright required scenarios
+        if: always()
+        run: |
+          set -uo pipefail
+          REPORT="${{ github.workspace }}/schema-frontend/e2e-report.xml"
+          REQUIRED="SMK-DES-01 SMK-RUN-01 SMK-ADM-01"
+          FAIL=0
+
+          if [ ! -f "$REPORT" ]; then
+            echo "MISSING: e2e-report.xml（Playwright 未产出 JUnit 报告）"
+            FAIL=1
+          else
+            for id in $REQUIRED; do
+              if grep -q "$id" "$REPORT"; then
+                # 场景存在：再确认不是 skipped
+                if python3 - "$REPORT" "$id" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          report, target = sys.argv[1], sys.argv[2]
+          root = ET.parse(report).getroot()
+          for tc in root.iter('testcase'):
+              if target in (tc.get('name') or ''):
+                  if tc.find('skipped') is not None:
+                      print('SKIPPED: %s' % target); sys.exit(1)
+                  if tc.find('failure') is not None:
+                      print('FAILED: %s' % target); sys.exit(1)
+                  print('PASSED: %s' % target); sys.exit(0)
+          print('NOT-FOUND: %s' % target); sys.exit(1)
+          PY
+                then
+                  :
+                else
+                  FAIL=1
+                fi
+              else
+                echo "MISSING: 必跑场景 $id 不在报告中"
+                FAIL=1
+              fi
+            done
+          fi
+
+          if [ "$FAIL" -ne 0 ]; then
+            echo "[对照期] Playwright 必跑场景核对未通过（不阻断，PR 2 转硬门禁）"
+            if [ "${{ steps.pw.outcome }}" = "success" ]; then
+              echo "::warning::Playwright 报告核对失败但执行步骤成功——存在假绿风险"
+            fi
+          else
+            echo "Playwright 必跑场景核对通过"
+          fi
+
       # 必跑套件核对（消除假绿）：
       # smoke-all 自身已有「零场景/必验跳过/汇总缺失」门禁，
       # 此处再从 CI 侧独立核对「三套件各自都有统计文件」——
@@ -359,3 +526,20 @@ jobs:
             /tmp/preview-admin.log
           if-no-files-found: warn
           retention-days: 14
+
+      # Playwright 证据（PR 1 对照期）：
+      # - e2e-report.xml 供统计（下一步核对已消费）
+      # - e2e-results/ 含失败截图与 trace（trace 仅失败保留）
+      # ⚠️ 明确排除 storageState / Cookie jar：trace 可能夹带请求与会话信息，
+      #    只用隔离 CI 账号，且不归档任何会话状态文件。
+      - name: Archive Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-evidence
+          path: |
+            schema-frontend/e2e-report.xml
+            schema-frontend/e2e-results/
+            /tmp/pw.log
+          if-no-files-found: warn
+          retention-days: 7
