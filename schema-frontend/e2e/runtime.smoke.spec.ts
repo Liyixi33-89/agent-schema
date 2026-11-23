@@ -24,32 +24,34 @@ import { test, expect, loginViaForm } from './fixtures';
  * （登记 → 列表 → 详情刷新 属更长业务链，按风险另行加入）。
  */
 /**
- * ⚠️ 当前状态：fixme —— 已知缺陷未定位，**不计入通过**。
+ * 根因记录（2026-11-23 已在同一浏览器会话内闭环定位）：
  *
- * 实测证据（线上验收面，2026-11-23）：
- *   DOM = <div data-schema-root="dash_page"></div>
- *   即：渲染器已挂载（根标记存在），但根节点**完全为空**——
- *   renderLayout 产出 0 个节点，不是「物料未渲染」。
+ * 现象：[data-schema-root] 存在但完全为空（rootChildCount=0），无任何 React 报错。
  *
- * 已排除：
- *   - API `/api/runtime/pages/{id}` 返回含完整 layout（LabelText + label）
- *   - DashboardPageHost 无条件把 page 传给 SchemaRenderer（第 105-111 行）
+ * 定位方法（三值同会话采集，避免跨会话/跨数据混淆）：
+ *   ① 网络状态：200（非 304）→ 排除 ETag 缓存分支
+ *   ② localStorage 缓存内容：firstComponent 与后端一致
+ *   ③ 后端 /api/runtime/pages/{id} 实际内容：componentName 是关键
  *
- * 已修正的种子缺陷（仍保留）：
- *   - 未注册物料 Typography.Title → 改 LabelText + props.label
- *     （未注册会走 __UnknownWidget__ 兜底，仪表盘宿主两者皆 undefined
- *       → bindings.ts:144 `if (!Comp) return null` → 静默消失且无报错）
+ * 真因：种子用了**未注册物料** Typography.Title。
+ *   renderNode 找不到物料 → componentName 改写为 '__UnknownWidget__'
+ *   → NodeView `resolveComponent(name) ?? resolveComponent('__UnknownWidget__')`
+ *   → DashboardPageHost.resolveComponent 两者皆 undefined
+ *   → bindings.ts:144 `if (!Comp) return null` → 节点静默消失、无报错。
+ *
+ * 修正后实测：LabelText + props.label → rootChildCount=1，
+ *   根内渲染出 <span class="ant-typography">标签唯一文本_…</span>。
+ *
+ * 因此本用例的两级断言正好覆盖两类失败：
+ *   根标记缺失 → 渲染器未挂载
+ *   根标记存在但文本缺失 → 物料未渲染（本次踩的坑）
+ *
+ * 其它已修正的种子缺陷：
  *   - FORM/LIST/DETAIL 需 modelId → 改 DASHBOARD（唯一允许模型为空）
  *   - path 唯一约束（避免 422 PATH_DUPLICATED）
  *   - 草稿必带 baseDraftVersion（避免 400）
- *
- * 待查方向：NodeTree 拿到的 p.page.layout 为何为空
- *   （bindSchemaRenderer 的 props 映射 / page 对象来源）。
- *
- * 用 test.fixme 而非 test.skip：fixme 在报告中仍是「未执行」，
- * 必跑场景核对会因此判失败——不会造成假绿。
  */
-test.fixme('SMK-RUN-01 打开本轮发布的页面并验证真实布局渲染', async ({ page, baseURL, meta }) => {
+test('SMK-RUN-01 打开本轮发布的页面并验证真实布局渲染', async ({ page, baseURL, meta }) => {
   const designerBase = process.env.SMOKE_DESIGNER_BASE;
   if (!designerBase) {
     throw new Error('缺少 SMOKE_DESIGNER_BASE——runtime 需要先在设计器建立会话');
