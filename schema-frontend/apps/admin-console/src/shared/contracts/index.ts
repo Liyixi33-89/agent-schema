@@ -4,6 +4,6 @@
 export {
   ContractError, parseCompile, parseHealthInfo, parseMaintenanceWindows, parseRecentErrors,
   parseSlaMonthly, parseTenantOverview, parseThroughput, parseYearMonth,
-  type CompilePoint, type HealthInfo, type MaintenanceWindow,
+  type CompilePoint, type HealthInfo, type MaintenanceWindow, type MaintenanceWindowInput,
   type RecentErrorItem, type SlaMonthly, type TenantHealthOverview, type ThroughputPoint,
 } from './contracts';
