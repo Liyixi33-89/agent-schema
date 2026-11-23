@@ -102,30 +102,76 @@ jobs:
           tail -50 /tmp/backend.log
           exit 1
 
+      # 播种冒烟账号：Flyway 只建种子角色，不建用户（V6 的 INSERT 是角色绑定占位）。
+      # 这里直接写库创建 accept_admin + platform_admin(org:manage) + seed_data_admin，
+      # 密码哈希复用验收面已验证的 BCrypt 值（Accept!2026）。
+      # 不依赖外部密钥：CI 是一次性独立库，仅本 job 生命周期内存在。
+      - name: Seed smoke admin account
+        env:
+          PGPASSWORD: schema_local_only
+        run: |
+          psql -h 127.0.0.1 -U schema_dev -d schema_dev -v ON_ERROR_STOP=1 <<'SQL'
+          -- 复用验收库同款 BCrypt 哈希（对应 Accept!2026，已线上验证可登录）；仅 CI 一次性库使用
+          INSERT INTO sys_user (tenant_id, account, name, password_hash, status, must_change_password)
+          VALUES (1, 'accept_admin', '冒烟管理员',
+                  '$2a$10$CAgE4a5dLLQpfI24xrY8s.sNVMZFbwCuHXdhDDdSBdanv1LGJNMVm',
+                  'ACTIVE', false)
+          ON CONFLICT DO NOTHING;
+
+          INSERT INTO sys_role (tenant_id, app_id, code, name, role_type)
+          VALUES (1, NULL, 'platform_admin', '平台管理员', 'TENANT')
+          ON CONFLICT DO NOTHING;
+
+          INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action)
+          SELECT id, 'ACTION', 0, 'org:manage' FROM sys_role
+           WHERE tenant_id=1 AND code='platform_admin'
+          ON CONFLICT DO NOTHING;
+
+          INSERT INTO sys_user_role (user_id, role_id)
+          SELECT u.id, r.id FROM sys_user u, sys_role r
+           WHERE u.account='accept_admin' AND r.tenant_id=1
+             AND r.code IN ('platform_admin','seed_data_admin')
+          ON CONFLICT DO NOTHING;
+          SQL
+          echo "--- seeded ---"
+          psql -h 127.0.0.1 -U schema_dev -d schema_dev -t -A \
+            -c "SELECT ur.user_id, r.code FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id ORDER BY 1,2;"
+
       # 起前端静态服务（vite preview，三应用各自端口）
       # ⚠️ 三应用 base 分别是 /designer/ /runtime/ /admin/——探测路径必须带 base，
       #    访问根 / 会 404（vite preview 不做 base 重写）。
+      # ⚠️ 必须显式 --host 127.0.0.1：
+      #    vite preview 默认绑定 localhost，在 GitHub Actions 上常解析为 ::1（仅 IPv6），
+      #    curl 127.0.0.1 连不上（实测日志显示 Local: http://localhost:5173/designer/ 已就绪，
+      #    但 IPv4 探测全部 FAIL）。显式绑定 IPv4 后探测与浏览器访问都稳定。
       # 注意：不使用 `set -- $spec` 拆参数（会污染位置参数，导致 vite 收到 "-2" 等杂散参数）。
       - name: Start frontend preview
         working-directory: schema-frontend
         run: |
           # ⚠️ pnpm exec 需用 -- 分隔自身参数与传给 vite 的参数，
           #    否则 --port 被 pnpm 吞掉/错传，vite 收到杂散参数报 "unexpected argument"。
-          nohup pnpm --filter @schema/designer exec -- vite preview --port 5173 --strictPort \
+          nohup pnpm --filter @schema/designer exec -- vite preview --host 127.0.0.1 --port 5173 --strictPort \
             > /tmp/preview-designer.log 2>&1 &
-          nohup pnpm --filter @schema/runtime exec -- vite preview --port 5174 --strictPort \
+          nohup pnpm --filter @schema/runtime exec -- vite preview --host 127.0.0.1 --port 5174 --strictPort \
             > /tmp/preview-runtime.log 2>&1 &
-          nohup pnpm --filter @schema/admin-console exec -- vite preview --port 5175 --strictPort \
+          nohup pnpm --filter @schema/admin-console exec -- vite preview --host 127.0.0.1 --port 5175 --strictPort \
             > /tmp/preview-admin.log 2>&1 &
-          sleep 12
+          # 轮询就绪（最多 60s）：不依赖固定 sleep，慢机器也能过
           ok=1
           for pair in "5173:/designer/" "5174:/runtime/" "5175:/admin/"; do
             p="${pair%%:*}"
             b="${pair#*:}"
-            if curl -sf -m 5 "http://127.0.0.1:${p}${b}" >/dev/null; then
-              echo "port ${p}${b} OK"
-            else
-              echo "port ${p}${b} FAIL"
+            ready=0
+            for i in $(seq 1 30); do
+              if curl -sf -m 3 "http://127.0.0.1:${p}${b}" >/dev/null; then
+                echo "port ${p}${b} OK (${i}s)"
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$ready" -ne 1 ]; then
+              echo "port ${p}${b} FAIL after 60s"
               ok=0
             fi
           done
@@ -134,6 +180,8 @@ jobs:
             for f in /tmp/preview-designer.log /tmp/preview-runtime.log /tmp/preview-admin.log; do
               echo "== $f =="; tail -25 "$f" || true
             done
+            echo "--- listening ports ---"
+            ss -lntp 2>/dev/null | grep -E ':(5173|5174|5175) ' || echo '(none)'
             exit 1
           fi
 
