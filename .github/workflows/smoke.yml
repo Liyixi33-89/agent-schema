@@ -1,0 +1,256 @@
+name: smoke
+
+# 浏览器冒烟（CDP 驱动，非 Playwright）——独立测试栈，不连公网业务库。
+#
+# 分层原则（AGENTS.md §8 / 测试文档 00）：
+#   - 每次 PR：类型/架构/契约/单测/IT/最小浏览器冒烟（本工作流）
+#   - 发布候选：完整业务/安全/权限/发布快照（专项验收，另行触发）
+#   - 可靠性验收：压测/恢复/故障/告警（隔离环境 + 批准窗口）
+#
+# 环境前提显式声明：
+#   - 本轮自起后端（18080）+ 独立 PG（schema_dev）+ 前端静态产物（nginx 或 vite preview）
+#   - 不使用 --unsafely-treat-insecure-origin-as-secure 掩盖部署认证问题
+#     （本地回环 HTTP 下 Secure Cookie 由后端按 X-Forwarded-Proto 判定，见 SessionCookies）
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: schema_dev
+          POSTGRES_USER: schema_dev
+          POSTGRES_PASSWORD: schema_local_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U schema_dev -d schema_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Chrome（CDP 驱动依赖）——ubuntu-latest 预装 google-chrome，此处显式确认
+      - name: Verify Chrome availability
+        run: |
+          if ! command -v google-chrome >/dev/null 2>&1; then
+            echo "google-chrome 未预装，安装 chromium"
+            sudo apt-get update -qq && sudo apt-get install -y -qq chromium-browser
+          fi
+          google-chrome --version || chromium-browser --version
+
+      - name: Install frontend dependencies
+        working-directory: schema-frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install build-worker dependencies
+        working-directory: schema-platform/build-module/node
+        run: npm ci --no-fund --no-audit
+
+      # 构建后端 jar + 三前端产物（验收面 base，与生产同构）
+      - name: Build backend
+        working-directory: schema-platform
+        run: mvn -q -pl bootstrap -am package -DskipTests
+
+      - name: Build frontend
+        working-directory: schema-frontend
+        run: pnpm run build
+
+      # 起后端（独立 PG，Flyway 自动建表 + 种子数据）
+      - name: Start backend
+        run: |
+          cd schema-platform
+          nohup java -jar bootstrap/target/bootstrap-0.1.0-SNAPSHOT.jar \
+            --server.port=18080 \
+            --spring.datasource.url=jdbc:postgresql://127.0.0.1:5432/schema_dev \
+            --spring.datasource.username=schema_dev \
+            --spring.datasource.password=schema_local_only \
+            > /tmp/backend.log 2>&1 &
+          echo "backend pid=$!"
+          for i in $(seq 1 60); do
+            sleep 3
+            if curl -sf -m 3 http://127.0.0.1:18080/internal/health/readiness >/dev/null 2>&1; then
+              echo "READY after $((i*3))s"
+              curl -s http://127.0.0.1:18080/internal/health/readiness
+              exit 0
+            fi
+          done
+          echo "后端未就绪——日志尾部："
+          tail -50 /tmp/backend.log
+          exit 1
+
+      # 播种冒烟账号：Flyway 只建种子角色，不建用户（V6 的 INSERT 是角色绑定占位）。
+      # 这里直接写库创建 accept_admin + platform_admin(org:manage) + seed_data_admin，
+      # 密码哈希复用验收面已验证的 BCrypt 值（Accept!2026）。
+      # 不依赖外部密钥：CI 是一次性独立库，仅本 job 生命周期内存在。
+      - name: Seed smoke admin account
+        env:
+          PGPASSWORD: schema_local_only
+        run: |
+          psql -h 127.0.0.1 -U schema_dev -d schema_dev -v ON_ERROR_STOP=1 <<'SQL'
+          -- 复用验收库同款 BCrypt 哈希（对应 Accept!2026，已线上验证可登录）；仅 CI 一次性库使用
+          INSERT INTO sys_user (tenant_id, account, name, password_hash, status, must_change_password)
+          VALUES (1, 'accept_admin', '冒烟管理员',
+                  '$2a$10$CAgE4a5dLLQpfI24xrY8s.sNVMZFbwCuHXdhDDdSBdanv1LGJNMVm',
+                  'ACTIVE', false)
+          ON CONFLICT DO NOTHING;
+
+          INSERT INTO sys_role (tenant_id, app_id, code, name, role_type)
+          VALUES (1, NULL, 'platform_admin', '平台管理员', 'TENANT')
+          ON CONFLICT DO NOTHING;
+
+          INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action)
+          SELECT id, 'ACTION', 0, 'org:manage' FROM sys_role
+           WHERE tenant_id=1 AND code='platform_admin'
+          ON CONFLICT DO NOTHING;
+
+          INSERT INTO sys_user_role (user_id, role_id)
+          SELECT u.id, r.id FROM sys_user u, sys_role r
+           WHERE u.account='accept_admin' AND r.tenant_id=1
+             AND r.code IN ('platform_admin','seed_data_admin')
+          ON CONFLICT DO NOTHING;
+          SQL
+          echo "--- seeded ---"
+          psql -h 127.0.0.1 -U schema_dev -d schema_dev -t -A \
+            -c "SELECT ur.user_id, r.code FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id ORDER BY 1,2;"
+
+      # 播种冒烟应用：必须走 API 而非直写表——create 内部会 initDefaultRoles
+      # （app_admin/developer/user 三角色）+ grantCreatorAdmin（创建者自动 app_admin），
+      # 手写 SQL 极易漏建角色导致卡片墙/导航为空。
+      - name: Seed smoke app via API
+        run: |
+          set -euo pipefail
+          BASE=http://127.0.0.1:18080
+          # ⚠️ CsrfFilter 校验 Origin 精确匹配或命中 DEV_ORIGINS
+          #    （http://127.0.0.1:5173/5174/5175）。种子脚本不是浏览器，
+          #    需显式带上被放行的 Origin，否则 CSRF_ORIGIN_REJECTED。
+          ORIGIN=http://127.0.0.1:5173
+          JAR=/tmp/smoke-cookies.txt
+          rm -f "$JAR"
+          # 1) 匿名 CSRF
+          curl -sf -c "$JAR" -H "Origin: $ORIGIN" "$BASE/api/auth/csrf" >/dev/null
+          CSRF=$(awk '/schema_csrf/{print $7}' "$JAR")
+          # 2) 登录
+          curl -sf -b "$JAR" -c "$JAR" -X POST "$BASE/api/auth/login" \
+            -H "Origin: $ORIGIN" \
+            -H 'Content-Type: application/json' \
+            -H "X-CSRF-Token: $CSRF" \
+            -d '{"username":"accept_admin","password":"Accept!2026"}' >/dev/null
+          CSRF=$(awk '/schema_csrf/{print $7}' "$JAR")
+          # 3) 建应用（幂等：已存在则跳过）
+          CODE=$(curl -s -o /tmp/app-create.json -w '%{http_code}' \
+            -b "$JAR" -H "Origin: $ORIGIN" -H 'Content-Type: application/json' -H "X-CSRF-Token: $CSRF" \
+            -X POST "$BASE/api/apps" \
+            -d '{"name":"冒烟验收应用","description":"CI 浏览器冒烟用"}')
+          echo "create app -> $CODE $(cat /tmp/app-create.json)"
+          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+            echo "（非 2xx——名称重复属正常，继续校验列表）"
+          fi
+          # 4) 校验：应用列表非空（空则后续卡片墙/导航断言必失败，尽早暴露）
+          APPS=$(curl -sf -b "$JAR" -H "Origin: $ORIGIN" "$BASE/api/apps?keyword=")
+          echo "apps -> $APPS"
+          COUNT=$(printf '%s' "$APPS" | grep -o '"id"' | wc -l)
+          echo "app_count=$COUNT"
+          [ "$COUNT" -ge 1 ] || { echo "种子应用创建失败：列表为空"; exit 1; }
+
+      # 起前端静态服务（vite preview，三应用各自端口）
+      # ⚠️ 三应用 base 分别是 /designer/ /runtime/ /admin/——探测路径必须带 base，
+      #    访问根 / 会 404（vite preview 不做 base 重写）。
+      # ⚠️ 必须显式 --host 127.0.0.1：
+      #    vite preview 默认绑定 localhost，在 GitHub Actions 上常解析为 ::1（仅 IPv6），
+      #    curl 127.0.0.1 连不上（实测日志显示 Local: http://localhost:5173/designer/ 已就绪，
+      #    但 IPv4 探测全部 FAIL）。显式绑定 IPv4 后探测与浏览器访问都稳定。
+      # 注意：不使用 `set -- $spec` 拆参数（会污染位置参数，导致 vite 收到 "-2" 等杂散参数）。
+      - name: Start frontend preview
+        working-directory: schema-frontend
+        run: |
+          # ⚠️ pnpm exec 需用 -- 分隔自身参数与传给 vite 的参数，
+          #    否则 --port 被 pnpm 吞掉/错传，vite 收到杂散参数报 "unexpected argument"。
+          nohup pnpm --filter @schema/designer exec -- vite preview --host 127.0.0.1 --port 5173 --strictPort \
+            > /tmp/preview-designer.log 2>&1 &
+          nohup pnpm --filter @schema/runtime exec -- vite preview --host 127.0.0.1 --port 5174 --strictPort \
+            > /tmp/preview-runtime.log 2>&1 &
+          nohup pnpm --filter @schema/admin-console exec -- vite preview --host 127.0.0.1 --port 5175 --strictPort \
+            > /tmp/preview-admin.log 2>&1 &
+          # 轮询就绪（最多 60s）：不依赖固定 sleep，慢机器也能过
+          ok=1
+          for pair in "5173:/designer/" "5174:/runtime/" "5175:/admin/"; do
+            p="${pair%%:*}"
+            b="${pair#*:}"
+            ready=0
+            for i in $(seq 1 30); do
+              if curl -sf -m 3 "http://127.0.0.1:${p}${b}" >/dev/null; then
+                echo "port ${p}${b} OK (${i}s)"
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$ready" -ne 1 ]; then
+              echo "port ${p}${b} FAIL after 60s"
+              ok=0
+            fi
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "--- preview logs ---"
+            for f in /tmp/preview-designer.log /tmp/preview-runtime.log /tmp/preview-admin.log; do
+              echo "== $f =="; tail -25 "$f" || true
+            done
+            echo "--- listening ports ---"
+            ss -lntp 2>/dev/null | grep -E ':(5173|5174|5175) ' || echo '(none)'
+            exit 1
+          fi
+
+      # 浏览器冒烟（三应用独立会话）
+      # 三应用 base 不同：designer=/designer/ runtime=/runtime/ admin=/admin/
+      # 冒烟脚本内部拼 `${BASE}/accept/designer/`——CI 无 /accept 前缀，
+      # 故用 SMOKE_*_BASE 覆盖为各自 base（脚本支持 SMOKE_DESIGNER 等完整前缀）。
+      - name: Run browser smoke
+        env:
+          ACCEPT_BASE_URL: http://127.0.0.1:5173
+          SMOKE_DESIGNER: http://127.0.0.1:5173
+          SMOKE_RUNTIME: http://127.0.0.1:5174
+          SMOKE_ADMIN: http://127.0.0.1:5175
+          SMOKE_PATH_PREFIX: ''
+          ACCEPT_USERNAME: accept_admin
+          ACCEPT_PASSWORD: ${{ secrets.SMOKE_ACCEPT_PASSWORD || 'Accept!2026' }}
+          ACCEPT_RUN_DIR: ${{ github.workspace }}/smoke-out
+          CHROME_PATH: /usr/bin/google-chrome
+          CDP_PORT: '9333'
+        run: node scripts/acceptance/smoke-all.cjs
+
+      # 失败证据：截图 + 控制台 + 服务日志（凭据脱敏由脚本保证——不打印密码）
+      - name: Archive smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-evidence
+          path: |
+            smoke-out/
+            /tmp/backend.log
+            /tmp/preview-*.log
+          if-no-files-found: ignore
+          retention-days: 14

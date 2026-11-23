@@ -17,6 +17,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import java.util.List;
 
+import static org.hamcrest.Matchers.hasItem;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -192,9 +193,27 @@ class AppHttpSecurityIT {
         mvc.perform(get("/api/apps/" + appId).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value(appName));
-        mvc.perform(get("/api/apps/" + appId + "/members").header("Authorization", "Bearer " + token))
+        // 成员列表断言「包含 app_admin」而非「roles[0] 等于 app_admin」：
+        // admin 同时持 it_org_admin（org:manage 闸所需），角色数组顺序由 DB 返回顺序决定。
+        // ⚠️ 且 list[0] 未必是本测试的 admin——列表按 user_id 排序，其他 IT 可能建了
+        // 同租户/同 app 的成员（如 AppServiceIT 的 org_admin）。故断言「存在某成员含 app_admin」。
+        String membersJson = mvc.perform(get("/api/apps/" + appId + "/members")
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.list[0].roles[0]").value("app_admin"));
+                .andReturn().getResponse().getContentAsString();
+        boolean adminIsAppAdmin = false;
+        for (var member : new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(membersJson).path("list")) {
+            if (member.path("userId").asLong() == adminId) {
+                for (var role : member.path("roles")) {
+                    if ("app_admin".equals(role.asText())) {
+                        adminIsAppAdmin = true;
+                    }
+                }
+            }
+        }
+        org.junit.jupiter.api.Assertions.assertTrue(adminIsAppAdmin,
+                "创建者应在本应用成员列表中持 app_admin，实际响应: " + membersJson);
     }
 
     // ---------- 应用创建权限闸（PRD07 §4：租户管理员） ----------

@@ -49,6 +49,13 @@ class DataEngineSecurityIT {
 
     private static final TenantInfo T1 = new TenantInfo(1, 1, 1);
 
+    /**
+     * 种子账号保留 ID 上限：V6__data_engine_tables.sql 把 seed_data_admin
+     * （model_id=0/ALL 通配范围）授予 user_id=1。测试用户必须落在该 ID 之上，
+     * 否则会继承 ALL 范围导致行级权限测试失效（详见 seedUserWithDept 注释）。
+     */
+    private static final long RESERVED_SEED_USER_ID = 1;
+
     @Autowired
     private DynamicQueryEngine engine;
 
@@ -59,6 +66,9 @@ class DataEngineSecurityIT {
     private JdbcTemplate jdbc;
 
     private long modelId;
+
+    /** 部门范围测试插入的业务行 id（测试后清理——total 断言依赖精确行数）。 */
+    private final java.util.List<Long> deptRowIds = new java.util.ArrayList<>();
 
     @BeforeAll
     void warmup() {
@@ -279,6 +289,7 @@ class DataEngineSecurityIT {
                 cleanupRole(roleIdNoDept);
             }
         } finally {
+            cleanupDeptRows();   // 业务行必须清理：total 断言依赖精确行数，跨轮累积会漂移
             jdbc.update("DELETE FROM sys_dept WHERE id IN (?, ?)", deptId, otherDeptId);
         }
     }
@@ -314,6 +325,7 @@ class DataEngineSecurityIT {
                 cleanupRole(roleId);
             }
         } finally {
+            cleanupDeptRows();   // 业务行必须清理：total 断言依赖精确行数，跨轮累积会漂移
             jdbc.update("DELETE FROM sys_dept WHERE id IN (?, ?, ?)", parentDept, childDept, outsideDept);
         }
     }
@@ -872,7 +884,17 @@ class DataEngineSecurityIT {
     }
 
     private long seedUserWithDept(String account, Long deptId) {
-        // 测试专用账号插入（无密码——认证面不走此处）；返回真实自增 ID
+        // 测试用户 ID 隔离（2026-11-23 CI 稳定失败根因）：
+        // V6__data_engine_tables.sql:38-42 把 seed_data_admin（model_id=0/ALL 通配范围）
+        // 授予 user_id=1。CI 全新库里 sys_user 序列从 1 开始，第一个测试用户会拿到 id=1
+        // → resolveScopes 命中 model_id=0 通配 → PermissionPolicy.seesAll 短路
+        // → scopeSql="TRUE" → 行级范围测试全部失效（DEPT 用例 total 期望 1 实得 2）。
+        //
+        // 处置：插入前把序列推到「保留 id 之上」，使测试用户永不与种子账号重合。
+        // 不删除任何角色绑定、不改生产代码权限语义（早期版本尝试 DELETE sys_user_role，
+        // 会在 uid=1 时误删种子管理员授权，导致 T1 后续写入/查询失去 ALL 权限而大面积失败）。
+        jdbc.execute("SELECT setval('sys_user_id_seq', GREATEST("
+                + "(SELECT COALESCE(max(id), 0) FROM sys_user), " + RESERVED_SEED_USER_ID + "))");
         return jdbc.queryForObject(
                 "INSERT INTO sys_user (tenant_id, account, name, status, dept_id) "
                         + "VALUES (1, ?, ?, 'ACTIVE', ?) RETURNING id",
@@ -887,5 +909,14 @@ class DataEngineSecurityIT {
             return Long.parseLong((String) resp.get("id"));
         });
         jdbc.update("UPDATE biz_model_" + modelId + " SET created_by=? WHERE id=?", createdBy, id);
+        deptRowIds.add(id);   // 登记待清理（见 deptScopeFiltersByRealDeptContext 的 finally）
+    }
+
+    /** 删除本测试插入的业务行（防跨轮累积——total 断言依赖精确行数）。 */
+    private void cleanupDeptRows() {
+        for (Long id : deptRowIds) {
+            jdbc.update("DELETE FROM biz_model_" + modelId + " WHERE id=?", id);
+        }
+        deptRowIds.clear();
     }
 }
