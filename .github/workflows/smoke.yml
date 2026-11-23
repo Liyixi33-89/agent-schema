@@ -180,38 +180,49 @@ jobs:
           echo "apps -> $APPS"
           export CREATED_JSON="$(cat /tmp/app-create.json 2>/dev/null || echo '')"
 
-          # 5) 用 Python 一次性完成：取目标 ID（创建返回优先，否则按名称从列表回查）
-          #    → 在列表中找到该 ID → 读其 myRole（卡片墙可见性前提）
-          #    输出两行：TARGET_ID=<id> 与 RESULT=FOUND|MISSING，roles=<...>
-          VERDICT=$(printf '%s' "$APPS" | python3 -c '
-import json, os, sys
-created = os.environ.get("CREATED_JSON", "")
-d = json.load(sys.stdin)
-lst = d.get("list", [])
-target = None
-if created:
-    try:
-        target = json.loads(created).get("appId")
-    except Exception:
-        target = None
-if target is None:
-    for a in lst:
-        if a.get("name") == "冒烟验收应用":
-            target = a.get("id"); break
-if target is None:
-    print("TARGET_ID=")
-    print("RESULT=MISSING roles=")
-    raise SystemExit(0)
-for a in lst:
-    if str(a.get("id")) == str(target):
-        roles = a.get("myRole") or []
-        print("TARGET_ID=%s" % target)
-        print("RESULT=FOUND roles=%s" % (",".join(roles) if roles else "<empty>"))
-        break
-else:
-    print("TARGET_ID=%s" % target)
-    print("RESULT=MISSING roles=")
-')
+          # 5) 取目标 ID（创建返回优先，否则按名称从列表回查）→ 在列表中定位 →
+          #    读其 myRole（卡片墙可见性前提）。输出 TARGET_ID= 与 RESULT= 两行。
+          #    ⚠️ 不能用 `printf | python3 - <<'PY'`：heredoc 与管道争抢 stdin。
+          #    改为把 JSON 写文件 + 路径作参数传给脚本，stdin 留给解释器。
+          printf '%s' "$APPS" > /tmp/smoke-apps.json
+          VERDICT=$(python3 - /tmp/smoke-apps.json <<'PY'
+          import json, os, sys
+          path = sys.argv[1]
+          created = os.environ.get("CREATED_JSON", "")
+          try:
+              with open(path, encoding="utf-8") as f:
+                  d = json.load(f)
+          except Exception:
+              print("TARGET_ID=")
+              print("RESULT=MISSING roles=<bad-json>")
+              raise SystemExit(0)
+          lst = d.get("list", [])
+          target = None
+          if created:
+              try:
+                  target = json.loads(created).get("appId")
+              except Exception:
+                  target = None
+          if target is None:
+              for a in lst:
+                  if a.get("name") == "冒烟验收应用":
+                      target = a.get("id")
+                      break
+          if target is None:
+              print("TARGET_ID=")
+              print("RESULT=MISSING roles=<no-target>")
+              raise SystemExit(0)
+          for a in lst:
+              if str(a.get("id")) == str(target):
+                  roles = a.get("myRole") or []
+                  print("TARGET_ID=%s" % target)
+                  print("RESULT=FOUND roles=%s" % (",".join(roles) if roles else "<empty>"))
+                  break
+          else:
+              print("TARGET_ID=%s" % target)
+              print("RESULT=MISSING roles=<not-in-list>")
+          PY
+          )
           echo "$VERDICT"
           TARGET_ID=$(printf '%s' "$VERDICT" | sed -n 's/^TARGET_ID=//p')
           VERIFY_LINE=$(printf '%s' "$VERDICT" | sed -n 's/^RESULT=//p')
