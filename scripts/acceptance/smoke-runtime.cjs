@@ -29,6 +29,24 @@ const SUITE = 'smoke-runtime';
     if (appList.length === 0) throw new Error('无可用应用——无法验证导航壳');
     const targetApp = appList[0];
 
+    // ===== R0 浏览器会话预备 =====
+    // runtime 无登录页（它依赖已登录会话），必须先把 API 拿到的会话 Cookie 注入浏览器。
+    // 不注入的后果：[R2 现场] 实测为 SessionExpired 接管整页
+    //（bodyText=「登录已失效」/ rootHtml=ant-result-403 Unauthorized）。
+    const authCookies = [...admin.cookies.entries()].map(([name, value]) => ({ name, value }));
+    await cdp.send('Network.enable');
+    for (const c of authCookies) {
+      await cdp.send('Network.setCookie', {
+        name: c.name,
+        value: c.value,
+        domain: '127.0.0.1',
+        path: '/',
+        httpOnly: true,
+        secure: false,
+      });
+    }
+    record('R0-1 会话 Cookie 注入浏览器', authCookies.length >= 2, `count=${authCookies.length}`);
+
     // ===== R2 导航壳 =====
     // 接受态覆盖 AppShell 的全部合法分支：
     //  - 加载导航…            （装载中）
