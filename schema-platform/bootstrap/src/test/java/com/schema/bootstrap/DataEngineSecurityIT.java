@@ -49,6 +49,13 @@ class DataEngineSecurityIT {
 
     private static final TenantInfo T1 = new TenantInfo(1, 1, 1);
 
+    /**
+     * 种子账号保留 ID 上限：V6__data_engine_tables.sql 把 seed_data_admin
+     * （model_id=0/ALL 通配范围）授予 user_id=1。测试用户必须落在该 ID 之上，
+     * 否则会继承 ALL 范围导致行级权限测试失效（详见 seedUserWithDept 注释）。
+     */
+    private static final long RESERVED_SEED_USER_ID = 1;
+
     @Autowired
     private DynamicQueryEngine engine;
 
@@ -877,18 +884,21 @@ class DataEngineSecurityIT {
     }
 
     private long seedUserWithDept(String account, Long deptId) {
-        // 测试专用账号插入（无密码——认证面不走此处）；返回真实自增 ID
-        long uid = jdbc.queryForObject(
+        // 测试用户 ID 隔离（2026-11-23 CI 稳定失败根因）：
+        // V6__data_engine_tables.sql:38-42 把 seed_data_admin（model_id=0/ALL 通配范围）
+        // 授予 user_id=1。CI 全新库里 sys_user 序列从 1 开始，第一个测试用户会拿到 id=1
+        // → resolveScopes 命中 model_id=0 通配 → PermissionPolicy.seesAll 短路
+        // → scopeSql="TRUE" → 行级范围测试全部失效（DEPT 用例 total 期望 1 实得 2）。
+        //
+        // 处置：插入前把序列推到「保留 id 之上」，使测试用户永不与种子账号重合。
+        // 不删除任何角色绑定、不改生产代码权限语义（早期版本尝试 DELETE sys_user_role，
+        // 会在 uid=1 时误删种子管理员授权，导致 T1 后续写入/查询失去 ALL 权限而大面积失败）。
+        jdbc.execute("SELECT setval('sys_user_id_seq', GREATEST("
+                + "(SELECT COALESCE(max(id), 0) FROM sys_user), " + RESERVED_SEED_USER_ID + "))");
+        return jdbc.queryForObject(
                 "INSERT INTO sys_user (tenant_id, account, name, status, dept_id) "
                         + "VALUES (1, ?, ?, 'ACTIVE', ?) RETURNING id",
                 Long.class, account, account, deptId);
-        // 隔离保证：清除该用户可能继承的任何既有角色绑定。
-        // 根因（2026-11-23 CI 稳定失败）：若新用户 id 恰好与种子管理员（id=1，
-        // 持 seed_data_admin 的 model_id=0/ALL 通配范围）重合或继承其角色，
-        // ScopeResolver.seesAll 短路 → scopeSql="TRUE" → 范围测试失效。
-        // 此处显式清空 user_role，保证「本用户只有测试随后 seedRole 授予的角色」。
-        jdbc.update("DELETE FROM sys_user_role WHERE user_id=?", uid);
-        return uid;
     }
 
     private void insertDeptRow(String deptKey, long createdBy) {
