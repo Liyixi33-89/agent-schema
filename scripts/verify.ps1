@@ -251,6 +251,15 @@ if ($toolTests.Count -gt 0) {
         }
         Write-Host ("工具自测: {0} 个套件全过" -f $toolTests.Count)
     }
+    # 冒烟门禁自测（P0 消除假绿）：喂合成 stats 验证「缺统计/零用例/必跑失败」都会变红。
+    # 独立于 node --test（该脚本是命令式断言，不走测试协议）。
+    $smokeGate = Join-Path $root 'scripts\acceptance\smoke-gate.test.cjs'
+    if (Test-Path $smokeGate) {
+        Step 'smoke-gate-selftest' {
+            node $smokeGate
+            if ($LASTEXITCODE -ne 0) { throw "冒烟门禁自测退出码 $LASTEXITCODE（门禁可能已退化）" }
+        }
+    }
 } else { Skip 'tools-selftest' '未发现 *.test.cjs（scripts 下）' }
 
 # 台账门禁真实测试（临时 Git 仓库 + 真实 CLI）：verify_commit/audit 拒绝路径

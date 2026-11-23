@@ -29,11 +29,20 @@ const SUITES = [
 
 const RUN_DIR = process.env.ACCEPT_RUN_DIR || path.join(__dirname, 'out');
 fs.mkdirSync(RUN_DIR, { recursive: true });
+// 套件脚本所在目录（默认与本文件同级）。
+// 可被 SMOKE_SUITE_DIR 覆盖——仅供 smoke-gate.test.cjs 注入桩脚本以自测门禁，
+// 生产运行不设置该变量。
+const SUITE_DIR = process.env.SMOKE_SUITE_DIR || __dirname;
 
 const results = [];
 for (const s of SUITES) {
-  const file = path.join(__dirname, s.file);
+  const file = path.join(SUITE_DIR, s.file);
   console.log(`\n${'='.repeat(60)}\n== ${s.name} ==\n${'='.repeat(60)}`);
+  if (!fs.existsSync(file)) {
+    console.error(`套件脚本缺失: ${file}`);
+    results.push({ name: s.name, code: 1 });
+    continue;
+  }
   const r = spawnSync(process.execPath, [file], {
     stdio: 'inherit',
     env: { ...process.env, ACCEPT_SUITE: `smoke-${s.name}` },
@@ -86,18 +95,55 @@ if (failed.length) {
   console.log(`\n${results.length}/${results.length} 套件全部通过`);
 }
 
-// 第二阶段门禁：零场景执行 / 统计缺失 / 必验项跳过 → 失败
-if (suites.length === 0) {
-  console.error('冒烟统计缺失：未产出任何 -stats.json（脚本未正常收尾）');
-  exitCode = 1;
-} else if (agg.expected === 0) {
-  console.error('冒烟零场景：expected=0（必验项不得空跑）');
-  exitCode = 1;
-} else if (agg.requiredSkipped > 0) {
-  console.error(`必验项被跳过 ${agg.requiredSkipped} 个`);
-  exitCode = 1;
-} else if (suites.length < SUITES.length) {
-  console.error(`统计不完整：${suites.length}/${SUITES.length} 套件有统计`);
+// ===== 门禁（独立检查，不用 else-if 短路：多个问题需一次全部暴露）=====
+const gateFailures = [];
+
+// 1) 每个必跑套件都必须有统计文件（脚本崩溃/被误删即触发）
+const missingStats = SUITES.filter(
+  (s) => !suites.some((st) => st.suite === `smoke-${s.name}`),
+).map((s) => s.name);
+if (missingStats.length) {
+  gateFailures.push(`套件统计缺失：${missingStats.join(',')}（未执行或脚本异常退出）`);
+}
+
+// 2) 零场景：汇总 expected 必须 > 0
+if (agg.expected === 0) {
+  gateFailures.push('零场景执行：expected=0（必验项不得空跑）');
+}
+
+// 3) 必验项被跳过
+if (agg.requiredSkipped > 0) {
+  gateFailures.push(`必验项被跳过 ${agg.requiredSkipped} 个`);
+}
+
+// 4) 单套件零用例（汇总非零但某套件空跑，同样是假绿）
+for (const st of suites) {
+  if ((st.expected ?? 0) === 0) {
+    gateFailures.push(`套件 ${st.suite} expected=0（空跑）`);
+  }
+}
+
+// 5) 矛盾检测：套件退出码失败，但统计显示全部通过 —— 说明断言结果未正确上报
+for (const r of results) {
+  if (r.code !== 0) continue;
+  const st = suites.find((x) => x.suite === `smoke-${r.name}`);
+  if (st && (st.failed ?? 0) > 0) {
+    gateFailures.push(`矛盾：${r.name} 退出码 0 但统计 failed=${st.failed}`);
+  }
+  if (!st) continue;
+  if ((st.passed ?? 0) + (st.failed ?? 0) !== (st.executed ?? 0)) {
+    gateFailures.push(`矛盾：${r.name} passed+failed != executed`);
+  }
+}
+
+// 6) 汇总必须落盘（后续 CI 归档依赖它）
+if (!fs.existsSync(path.join(RUN_DIR, 'smoke-summary.json'))) {
+  gateFailures.push('汇总文件 smoke-summary.json 未生成');
+}
+
+if (gateFailures.length) {
+  console.error('\n[门禁失败]');
+  for (const f of gateFailures) console.error(`  - ${f}`);
   exitCode = 1;
 }
 
