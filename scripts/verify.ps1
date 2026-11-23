@@ -427,22 +427,54 @@ if ($Level -in @('commit', 'ci')) {
 # ============================================================
 # ci 级
 # ============================================================
-# 浏览器冒烟（CDP 驱动，非 Playwright）：
-# - 项目实际使用 scripts/acceptance/cdp.cjs（零依赖 Chrome DevTools Protocol），
-#   此前 ci 级只探测 playwright.config.ts，导致浏览器测试永远 SKIP。
-# - 冒烟脚本按应用拆分（smoke-designer/runtime/admin），各自独立浏览器会话。
-# - 环境前提由调用方声明：ACCEPT_BASE_URL 指向本轮独立测试栈（CI 起后端+前端+独立 PG），
-#   禁止用 --unsafely-treat-insecure-origin-as-secure 掩盖部署认证问题。
-$smokeEntry = Join-Path $root 'scripts\acceptance\smoke-all.cjs'
-if (Test-Path $smokeEntry) {
+# 日常浏览器冒烟 = Playwright（与 .github/workflows/smoke.yml 同一个入口）。
+# - 这是唯一必过入口；旧的 CDP smoke-all.cjs 已从日常门禁移除
+#   （scripts/acceptance 下的 CDP 脚本保留，供专项验收使用）。
+# - 环境前提必须显式声明，缺失即失败——不静默跳过、不回退公网：
+#     SMOKE_DESIGNER_BASE / SMOKE_RUNTIME_BASE / SMOKE_ADMIN_BASE  三应用地址（含 base 前缀）
+#     SMOKE_META_FILE                                             种子元数据（appId/pageId/title）
+#     SMOKE_USERNAME / SMOKE_PASSWORD                             隔离 CI 账号
+$pwConfig = Join-Path $fe 'playwright.config.ts'
+if (Test-Path $pwConfig) {
     Step 'frontend-smoke' {
-        if (-not $env:ACCEPT_BASE_URL) {
-            throw 'ACCEPT_BASE_URL 未设置——浏览器冒烟需显式声明被测站点（CI 应指向本轮独立测试栈）'
+        foreach ($v in @('SMOKE_DESIGNER_BASE', 'SMOKE_RUNTIME_BASE', 'SMOKE_ADMIN_BASE', 'SMOKE_META_FILE', 'SMOKE_USERNAME', 'SMOKE_PASSWORD')) {
+            $val = [Environment]::GetEnvironmentVariable($v)
+            if ([string]::IsNullOrWhiteSpace($val)) {
+                throw "$v 未设置——ci 级冒烟要求显式声明隔离测试栈（不静默跳过/不回退公网）"
+            }
+        }
+        if (-not (Test-Path $env:SMOKE_META_FILE)) {
+            throw "SMOKE_META_FILE 指向的文件不存在: $env:SMOKE_META_FILE（种子步骤未完成）"
         }
         if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'node 不可用——浏览器冒烟不可跳过' }
-        node $smokeEntry
-        if ($LASTEXITCODE -ne 0) { throw "浏览器冒烟退出码 $LASTEXITCODE" }
+
+        Push-Location $fe
+        try {
+            $env:CI = 'true'
+            pnpm exec playwright test --config playwright.config.ts
+            if ($LASTEXITCODE -ne 0) { throw "Playwright 退出码 $LASTEXITCODE" }
+        }
+        finally { Pop-Location }
+
+        # 必跑场景核对（与 CI 同口径：缺报告/缺场景/跳过/失败 一律失败）
+        $report = Join-Path $fe 'e2e-report.xml'
+        if (-not (Test-Path $report)) { throw "Playwright 报告缺失: $report" }
+        $doc = New-Object System.Xml.XmlDocument
+        $doc.Load($report)
+        $required = @('SMK-DES-01', 'SMK-RUN-01', 'SMK-ADM-01')
+        $missing = @()
+        foreach ($id in $required) {
+            $hit = $null
+            foreach ($tc in $doc.SelectNodes('//testcase')) {
+                if ($tc.GetAttribute('name') -like "*$id*") { $hit = $tc; break }
+            }
+            if ($null -eq $hit) { $missing += "$id(缺失)"; continue }
+            if ($hit.SelectSingleNode('skipped')) { $missing += "$id(跳过)"; continue }
+            if ($hit.SelectSingleNode('failure') -or $hit.SelectSingleNode('error')) { $missing += "$id(失败)"; continue }
+            Write-Host "  PASSED: $id"
+        }
+        if ($missing.Count -gt 0) { throw ("必跑场景未通过: " + ($missing -join ', ')) }
     }
-} else { Skip 'frontend-smoke' 'smoke-all.cjs 不存在' }
+} else { Skip 'frontend-smoke' 'playwright.config.ts 不存在' }
 
 Finish -Level $Level -swTotal $swTotal
