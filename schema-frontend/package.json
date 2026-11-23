@@ -9,6 +9,7 @@
     "architecture": "depcruise --config .dependency-cruiser.cjs apps packages"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "dependency-cruiser": "16.10.2",
     "turbo": "2.5.4",
     "typescript": "5.8.3",

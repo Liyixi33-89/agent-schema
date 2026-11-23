@@ -35,3 +35,8 @@ scripts/acceptance/accept-deploy-*.config.json
 schema-frontend/vitest-report.xml
 scripts/acceptance/out/
 
+
+# Playwright 运行产物（CI 归档，不入库）
+schema-frontend/e2e-report.xml
+schema-frontend/e2e-results/
+
