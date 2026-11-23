@@ -224,10 +224,32 @@ function outPath(name) { fs.mkdirSync(RUN_DIR, { recursive: true }); return path
 function summary(suite) {
   const failed = results.filter((r) => !r.pass && !r.skipped);
   const skipped = results.filter((r) => r.skipped);
+  const passed = results.filter((r) => r.pass);
   const missedRequired = skipped.filter((r) => r.required);
-  console.log(`\n=== ${suite} 验收: ${results.length - failed.length - skipped.length}/${results.length - skipped.length} PASS` +
+  console.log(`\n=== ${suite} 验收: ${passed.length}/${results.length - skipped.length} PASS` +
     (skipped.length ? `，未执行 ${skipped.length}（必验缺失 ${missedRequired.length}）` : '') + ' ===');
   fs.writeFileSync(outPath(`${process.env.ACCEPT_SUITE || suite}-result.json`), JSON.stringify(results, null, 2));
+
+  // 第二阶段：单套件机器可读统计（供 CI 聚合三类测试 + 关联 SHA/环境/运行编号）
+  const stats = {
+    suite,
+    kind: 'browser-smoke',
+    expected: results.length,
+    executed: passed.length + failed.length,
+    passed: passed.length,
+    failed: failed.length,
+    skipped: skipped.length,
+    requiredSkipped: missedRequired.length,
+    // 关联信息：被测代码 SHA / 产物 / 环境 / 运行编号
+    commit: process.env.GIT_COMMIT || process.env.VERIFY_COMMIT || null,
+    runId: process.env.ACCEPT_RUN_ID || process.env.GITHUB_RUN_ID || null,
+    baseUrl: BASE,
+    chrome: process.env.CHROME_PATH || null,
+    finishedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(outPath(`${process.env.ACCEPT_SUITE || suite}-stats.json`), JSON.stringify(stats, null, 2));
+  console.log(`[stats] ${JSON.stringify(stats)}`);
+
   if (failed.length || missedRequired.length) process.exitCode = 1;
   // 清单只由父进程维护；子进程仅产出断言结果。
 }

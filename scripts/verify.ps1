@@ -48,10 +48,24 @@ function Finish() {
     # 结果落账（度量不入 git；.gitignore 含 .agent/metrics/verify-log.jsonl）
     $logDir = Join-Path $root '.agent\metrics'
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
+    # 关联信息（第二阶段）：被测代码 SHA / 运行编号 / 环境——便于跨轮追溯
+    $commitSha = ''
+    try { $commitSha = (git rev-parse HEAD 2>$null | Select-Object -First 1) } catch { $commitSha = '' }
+    $nodeVer = ''
+    try { $nodeVer = (node --version 2>$null | Select-Object -First 1) } catch { $nodeVer = '' }
+    $javaVer = ''
+    try { $javaVer = (java -version 2>&1 | Select-Object -First 1) } catch { $javaVer = '' }
     $entry = @{
         ts            = (Get-Date -Format o)
         level         = $Level
         result        = $overall
+        commit        = $commitSha
+        run_id        = $env:GITHUB_RUN_ID
+        env           = @{
+            os       = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+            node     = $nodeVer
+            java     = $javaVer
+        }
         duration_ms   = $swTotal.ElapsedMilliseconds
         failed_steps  = $script:failedCount
         trigger       = $(if ($env:GITHUB_ACTIONS -eq 'true') { 'ci' } elseif ($env:AGENT_SESSION) { 'agent' } else { 'manual' })
@@ -266,8 +280,37 @@ if (Test-Path (Join-Path $fe 'package.json')) {
     }
     Step 'frontend-test' {
         Push-Location $fe
-        try { pnpm run test; if ($LASTEXITCODE -ne 0) { throw "test 退出码 $LASTEXITCODE" } }
+        try {
+            # CI 环境启用 junit reporter（vitest.config.ts 按 process.env.CI 切换）
+            $env:CI = 'true'
+            pnpm run test; if ($LASTEXITCODE -ne 0) { throw "test 退出码 $LASTEXITCODE" }
+        }
         finally { Pop-Location }
+
+        # 报告核对（第二阶段）：拒绝「无报告 / 零用例」——与 backend-it 的 Surefire 核对同口径
+        $xmlPath = Join-Path $fe 'vitest-report.xml'
+        if (-not (Test-Path $xmlPath)) {
+            throw "vitest 报告缺失: $xmlPath（junit reporter 未生效——检查 vitest.config.ts 与 CI 环境变量）"
+        }
+        $doc = New-Object System.Xml.XmlDocument
+        $doc.Load($xmlPath)
+        # junit 根为 <testsuites>，其子节点为各测试文件 <testsuite>
+        $suiteNodes = @($doc.DocumentElement.SelectNodes('testsuite'))
+        $total = 0; $failures = 0; $errors = 0; $skipped = 0
+        foreach ($s in $suiteNodes) {
+            $total += [int]$s.GetAttribute('tests')
+            $failures += [int]$s.GetAttribute('failures')
+            $errors += [int]$s.GetAttribute('errors')
+            $skipped += [int]$s.GetAttribute('skipped')
+        }
+        $passed = $total - $failures - $errors - $skipped
+        Write-Host ("  vitest: files={0} tests={1} passed={2} failed={3} errors={4} skipped={5}" -f $suiteNodes.Count, $total, $passed, $failures, $errors, $skipped)
+        if ($suiteNodes.Count -eq 0) { throw "vitest 零测试文件（报告为空——测试发现规则可能失效）" }
+        if ($total -eq 0) { throw "vitest 零用例（报告 tests=0——必验项不得空跑）" }
+        if ($skipped -gt 0) {
+            # 跳过不直接判失败（有合法 skip 场景），但必须在日志中显式暴露
+            Write-Host "  [WARN] 存在 $skipped 个跳过用例——审查是否属必验项" -ForegroundColor Yellow
+        }
     }
 } else { Skip 'frontend-build/test' 'schema-frontend 尚未初始化' }
 

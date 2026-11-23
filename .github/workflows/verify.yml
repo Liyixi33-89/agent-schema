@@ -67,7 +67,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-      # 报告归档（始终上传，含失败现场）：Surefire XML/JUnit 结果 + 前端测试输出
+      # 报告归档（始终上传，含失败现场）：
+      #  - 后端 Surefire XML/txt（Maven 生成）
+      #  - 前端 vitest junit（vitest.config.ts 的 outputFile.junit →
+      #    schema-frontend/vitest-report.xml，仅在 process.env.CI 为真时生成；
+      #    verify.ps1 的 frontend-test 步骤会设置 CI=true 并核对报告存在/非零用例）
+      #  ⚠️ 路径必须与真实输出一致——否则 if-no-files-found: ignore 会静默吞掉「没生成」
       - name: Archive backend test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -79,13 +84,13 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-      - name: Archive frontend test output
+      - name: Archive frontend test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-test-output
+          name: frontend-test-reports
           path: |
-            schema-frontend/**/test-results/
+            schema-frontend/vitest-report.xml
             schema-frontend/**/vitest-report.xml
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 30

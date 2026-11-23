@@ -242,7 +242,7 @@ jobs:
           CDP_PORT: '9333'
         run: node scripts/acceptance/smoke-all.cjs
 
-      # 失败证据：截图 + 控制台 + 服务日志（凭据脱敏由脚本保证——不打印密码）
+      # 失败证据 + 统计产物
       - name: Archive smoke evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -254,3 +254,13 @@ jobs:
             /tmp/preview-*.log
           if-no-files-found: ignore
           retention-days: 14
+
+      # 第二阶段：统计产物单独归档（便于跨轮对比 expected/executed/passed/skipped）
+      - name: Archive smoke stats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-stats
+          path: ${{ github.workspace }}/smoke-out/smoke-summary.json
+          if-no-files-found: ignore
+          retention-days: 30
