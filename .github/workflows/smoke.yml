@@ -109,10 +109,15 @@ jobs:
       - name: Start frontend preview
         working-directory: schema-frontend
         run: |
-          nohup pnpm --filter @schema/designer exec vite preview --port 5173 --strictPort > /tmp/preview-designer.log 2>&1 &
-          nohup pnpm --filter @schema/runtime exec vite preview --port 5174 --strictPort > /tmp/preview-runtime.log 2>&1 &
-          nohup pnpm --filter @schema/admin-console exec vite preview --port 5175 --strictPort > /tmp/preview-admin.log 2>&1 &
-          sleep 10
+          # ⚠️ pnpm exec 需用 -- 分隔自身参数与传给 vite 的参数，
+          #    否则 --port 被 pnpm 吞掉/错传，vite 收到杂散参数报 "unexpected argument"。
+          nohup pnpm --filter @schema/designer exec -- vite preview --port 5173 --strictPort \
+            > /tmp/preview-designer.log 2>&1 &
+          nohup pnpm --filter @schema/runtime exec -- vite preview --port 5174 --strictPort \
+            > /tmp/preview-runtime.log 2>&1 &
+          nohup pnpm --filter @schema/admin-console exec -- vite preview --port 5175 --strictPort \
+            > /tmp/preview-admin.log 2>&1 &
+          sleep 12
           ok=1
           for pair in "5173:/designer/" "5174:/runtime/" "5175:/admin/"; do
             p="${pair%%:*}"
@@ -126,7 +131,9 @@ jobs:
           done
           if [ "$ok" -ne 1 ]; then
             echo "--- preview logs ---"
-            tail -20 /tmp/preview-designer.log /tmp/preview-runtime.log /tmp/preview-admin.log || true
+            for f in /tmp/preview-designer.log /tmp/preview-runtime.log /tmp/preview-admin.log; do
+              echo "== $f =="; tail -25 "$f" || true
+            done
             exit 1
           fi
 
