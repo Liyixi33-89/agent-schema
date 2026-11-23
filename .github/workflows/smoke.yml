@@ -105,31 +105,30 @@ jobs:
       # 起前端静态服务（vite preview，三应用各自端口）
       # ⚠️ 三应用 base 分别是 /designer/ /runtime/ /admin/——探测路径必须带 base，
       #    访问根 / 会 404（vite preview 不做 base 重写）。
+      # 注意：不使用 `set -- $spec` 拆参数（会污染位置参数，导致 vite 收到 "-2" 等杂散参数）。
       - name: Start frontend preview
         working-directory: schema-frontend
         run: |
-          for app in designer runtime admin-console; do
-            case "$app" in
-              designer) port=5173; base=/designer/ ;;
-              runtime) port=5174; base=/runtime/ ;;
-              admin-console) port=5175; base=/admin/ ;;
-            esac
-            nohup pnpm --filter "@schema/$app" exec vite preview --port $port --strictPort \
-              > /tmp/preview-$app.log 2>&1 &
-            echo "$app preview pid=$! port=$port base=$base"
-          done
+          nohup pnpm --filter @schema/designer exec vite preview --port 5173 --strictPort > /tmp/preview-designer.log 2>&1 &
+          nohup pnpm --filter @schema/runtime exec vite preview --port 5174 --strictPort > /tmp/preview-runtime.log 2>&1 &
+          nohup pnpm --filter @schema/admin-console exec vite preview --port 5175 --strictPort > /tmp/preview-admin.log 2>&1 &
           sleep 10
-          for spec in "5173 /designer/" "5174 /runtime/" "5175 /admin/"; do
-            set -- $spec
-            port=$1; base=$2
-            if curl -sf -m 5 "http://127.0.0.1:$port$base" >/dev/null; then
-              echo "port $port$base OK"
+          ok=1
+          for pair in "5173:/designer/" "5174:/runtime/" "5175:/admin/"; do
+            p="${pair%%:*}"
+            b="${pair#*:}"
+            if curl -sf -m 5 "http://127.0.0.1:${p}${b}" >/dev/null; then
+              echo "port ${p}${b} OK"
             else
-              echo "port $port$base FAIL"
-              tail -20 /tmp/preview-*.log
-              exit 1
+              echo "port ${p}${b} FAIL"
+              ok=0
             fi
           done
+          if [ "$ok" -ne 1 ]; then
+            echo "--- preview logs ---"
+            tail -20 /tmp/preview-designer.log /tmp/preview-runtime.log /tmp/preview-admin.log || true
+            exit 1
+          fi
 
       # 浏览器冒烟（三应用独立会话）
       # 三应用 base 不同：designer=/designer/ runtime=/runtime/ admin=/admin/
