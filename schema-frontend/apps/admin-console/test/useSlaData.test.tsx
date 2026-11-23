@@ -1,60 +1,74 @@
 /**
- * SLA submitWindow 编排语义测试（阶段 C 范例）：
- * 成功 → ok:true 且触发窗口列表刷新；失败 → 错误文案且不触发刷新/不显示成功。
- * 策略：mock api 模块边界 + 内联同构编排（errOf 为两行三元——内联避免动态 import
- * '../src/api' 拉入 auth-sdk/antd 全链在无 DOM 环境下模块加载挂起；
- * 状态机/调度行为由 asyncMachine.test.ts 与 useAsyncData.test.tsx 锁定）。
+ * 维护窗口登记编排测试（第三阶段：单测优先直接执行生产代码）。
+ *
+ * 覆盖：成功 → ok:true 且触发刷新；失败 → 错误文案且不触发刷新；
+ *       入参原样透传（不被改写）；errOf 归一语义；失败不产生副作用。
+ *
+ * 策略：直接 import 生产函数 submitMaintenanceWindow，
+ * 通过参数注入 create/reload/errOf spy —— 不复制任何编排逻辑。
+ * （旧版在用例里内联「同构逻辑」，生产改错时测试仍绿。）
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { submitMaintenanceWindow } from '../src/features/ops-health/submitWindow';
 
-vi.mock('../src/features/ops-health/api', () => ({
-  fetchSlaMonthly: vi.fn().mockResolvedValue(null),
-  fetchMaintenanceWindows: vi.fn().mockResolvedValue([]),
-  createMaintenanceWindow: vi.fn(),
-}));
-
-import { createMaintenanceWindow } from '../src/features/ops-health/api';
-
-const mockedCreate = vi.mocked(createMaintenanceWindow);
-
-/** errOf 等价镜像（shared-ui 两行三元——避免拉入 antd 链）。 */
+/** errOf 生产实现（与 shared-ui 同源：Error 取 message，否则 String）。
+ *  此处内联仅为避免拉入 antd 依赖链；errOf 自身行为由 shared-ui 保证。 */
 const errOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/** submitWindow 同构编排（与 useSlaData.submitWindow 逐行一致）。 */
-function submitWindow(
-  input: { title: string; startAt: string; endAt: string; emergency: boolean },
-  reloadWindows: () => void,
-): Promise<{ ok: true } | { ok: false; message: string }> {
-  return createMaintenanceWindow(input).then(
-    () => { reloadWindows(); return { ok: true as const }; },
-    (e: unknown) => ({ ok: false as const, message: errOf(e) }),
-  );
-}
+const INPUT = { title: '升级', startAt: '2026-12-01T02:00:00Z', endAt: '2026-12-01T03:00:00Z', emergency: true };
 
 afterEach(() => { vi.clearAllMocks(); });
 
-describe('submitWindow 编排语义（成功/失败路径）', () => {
-  it('登记成功 → { ok:true } 且刷新窗口列表，请求体含 emergency 布尔化', async () => {
-    mockedCreate.mockResolvedValueOnce({} as never);
+describe('submitMaintenanceWindow（生产代码）· 成功路径', () => {
+  it('成功后触发刷新并返回 ok:true', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 1 });
     const reload = vi.fn();
-    const r = await submitWindow({ title: '升级', startAt: 'a', endAt: 'b', emergency: true }, reload);
+    const r = await submitMaintenanceWindow(INPUT, create, reload, errOf);
     expect(r).toEqual({ ok: true });
     expect(reload).toHaveBeenCalledTimes(1);
-    expect(mockedCreate).toHaveBeenCalledWith({ title: '升级', startAt: 'a', endAt: 'b', emergency: true });
   });
 
-  it('登记失败 → { ok:false, message }，不刷新、不显示成功', async () => {
-    mockedCreate.mockRejectedValueOnce(new Error('窗口冲突 (409)'));
+  it('入参原样透传给 create（含 emergency 布尔，不改写）', async () => {
+    const create = vi.fn().mockResolvedValue({});
+    await submitMaintenanceWindow(INPUT, create, vi.fn(), errOf);
+    expect(create).toHaveBeenCalledWith(INPUT);
+    expect(vi.mocked(create).mock.calls[0][0].emergency).toBe(true);
+  });
+
+  it('刷新在 create 成功之后才发生（顺序保证）', async () => {
+    const order: string[] = [];
+    const create = vi.fn(async () => { order.push('create'); return {}; });
+    const reload = vi.fn(() => { order.push('reload'); });
+    await submitMaintenanceWindow(INPUT, create, reload, errOf);
+    expect(order).toEqual(['create', 'reload']);
+  });
+});
+
+describe('submitMaintenanceWindow（生产代码）· 失败路径', () => {
+  it('create 抛错 → 返回错误文案且不刷新', async () => {
+    const create = vi.fn().mockRejectedValue(new Error('窗口冲突 (409)'));
     const reload = vi.fn();
-    const r = await submitWindow({ title: 't', startAt: 'a', endAt: 'b', emergency: false }, reload);
+    const r = await submitMaintenanceWindow(INPUT, create, reload, errOf);
     expect(r).toEqual({ ok: false, message: '窗口冲突 (409)' });
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it('失败文案：非 Error 对象转字符串（errOf 兜底语义）', async () => {
-    mockedCreate.mockRejectedValueOnce('plain string');
-    const r = await submitWindow({ title: 't', startAt: 'a', endAt: 'b', emergency: false }, vi.fn());
+  it('非 Error 对象 → errOf 兜底转字符串', async () => {
+    const create = vi.fn().mockRejectedValue('plain string');
+    const r = await submitMaintenanceWindow(INPUT, create, vi.fn(), errOf);
     expect(r.ok).toBe(false);
-    expect(r.message).toBe('plain string');
+    expect((r as { message: string }).message).toBe('plain string');
+  });
+
+  it('不吞异常类型：ApiError 的 message 原样透出', async () => {
+    const create = vi.fn().mockRejectedValue(new Error('您没有该资源的访问权限'));
+    const r = await submitMaintenanceWindow(INPUT, create, vi.fn(), errOf);
+    expect((r as { message: string }).message).toBe('您没有该资源的访问权限');
+  });
+
+  it('失败时不返回 ok:true（不产生假成功）', async () => {
+    const create = vi.fn().mockRejectedValue(new Error('x'));
+    const r = await submitMaintenanceWindow(INPUT, create, vi.fn(), errOf);
+    expect('ok' in r && r.ok === true).toBe(false);
   });
 });

@@ -52,6 +52,11 @@ export interface MaintenanceWindow {
   announcedAt?: string; status: string;
 }
 
+/** 维护窗口登记入参（POST /api/ops/sla/maintenance-windows 请求体）。 */
+export interface MaintenanceWindowInput {
+  title: string; startAt: string; endAt: string; emergency: boolean;
+}
+
 // ---------- 基础守卫 ----------
 
 function isObj(v: unknown): v is Record<string, unknown> {
