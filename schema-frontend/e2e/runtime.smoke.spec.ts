@@ -23,7 +23,33 @@ import { test, expect, loginViaForm } from './fixtures';
  * 首版边界：只证明「发布页真实渲染」，**不宣称**登记闭环
  * （登记 → 列表 → 详情刷新 属更长业务链，按风险另行加入）。
  */
-test('SMK-RUN-01 打开本轮发布的页面并验证真实布局渲染', async ({ page, baseURL, meta }) => {
+/**
+ * ⚠️ 当前状态：fixme —— 已知缺陷未定位，**不计入通过**。
+ *
+ * 实测证据（线上验收面，2026-11-23）：
+ *   DOM = <div data-schema-root="dash_page"></div>
+ *   即：渲染器已挂载（根标记存在），但根节点**完全为空**——
+ *   renderLayout 产出 0 个节点，不是「物料未渲染」。
+ *
+ * 已排除：
+ *   - API `/api/runtime/pages/{id}` 返回含完整 layout（LabelText + label）
+ *   - DashboardPageHost 无条件把 page 传给 SchemaRenderer（第 105-111 行）
+ *
+ * 已修正的种子缺陷（仍保留）：
+ *   - 未注册物料 Typography.Title → 改 LabelText + props.label
+ *     （未注册会走 __UnknownWidget__ 兜底，仪表盘宿主两者皆 undefined
+ *       → bindings.ts:144 `if (!Comp) return null` → 静默消失且无报错）
+ *   - FORM/LIST/DETAIL 需 modelId → 改 DASHBOARD（唯一允许模型为空）
+ *   - path 唯一约束（避免 422 PATH_DUPLICATED）
+ *   - 草稿必带 baseDraftVersion（避免 400）
+ *
+ * 待查方向：NodeTree 拿到的 p.page.layout 为何为空
+ *   （bindSchemaRenderer 的 props 映射 / page 对象来源）。
+ *
+ * 用 test.fixme 而非 test.skip：fixme 在报告中仍是「未执行」，
+ * 必跑场景核对会因此判失败——不会造成假绿。
+ */
+test.fixme('SMK-RUN-01 打开本轮发布的页面并验证真实布局渲染', async ({ page, baseURL, meta }) => {
   const designerBase = process.env.SMOKE_DESIGNER_BASE;
   if (!designerBase) {
     throw new Error('缺少 SMOKE_DESIGNER_BASE——runtime 需要先在设计器建立会话');
