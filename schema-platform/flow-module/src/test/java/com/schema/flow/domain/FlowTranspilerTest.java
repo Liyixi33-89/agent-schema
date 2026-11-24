@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -52,6 +53,10 @@ class FlowTranspilerTest {
         assertTrue(xml.contains("<startEvent id=\"s1\"/>"), "START → startEvent");
         assertTrue(xml.contains("<userTask id=\"a1\""), "APPROVAL → userTask");
         assertTrue(xml.contains("flowable:taskListener"), "审批人由 TaskListener 运行时解析");
+        // 必须是 delegateExpression（Spring bean），不能是 class（引擎反射 new，拿不到依赖）
+        assertTrue(xml.contains("delegateExpression=\"${approverTaskListener}\""),
+                "TaskListener 必须走 delegateExpression 以获取 Spring 依赖");
+        assertFalse(xml.contains("class=\"com.schema.flow"), "不得用 class 反射实例化");
         // assignee 必须留空——三模式实时解析，不能在定义期固定
         assertTrue(!xml.contains("flowable:assignee"), "assignee 不得在定义期固化");
         assertTrue(xml.contains("<endEvent id=\"e1\"/>"), "END → endEvent");

@@ -78,13 +78,15 @@ public final class FlowTranspiler {
             switch (n.type()) {
                 case "START" -> xml.append("    <startEvent id=\"").append(escape(n.id())).append("\"/>\n");
                 case "APPROVAL" -> {
-                    // assignee 留空：TaskListener 在 create 事件按三模式实时解析（05BE §3）
+                    // ⚠️ 必须用 delegateExpression 而非 class：
+                    //    class="..." 由引擎反射 new 实例，拿不到 Spring 依赖
+                    //    （实测报 couldn't instantiate class → 发起直接失败）。
+                    //    approverTaskListener 是 Spring bean 名（ApproverTaskListener @Component）
                     xml.append("    <userTask id=\"").append(escape(n.id()))
                        .append("\" name=\"").append(escape(nameOf(n))).append("\">\n")
                        .append("      <extensionElements>\n")
                        .append("        <flowable:taskListener event=\"create\" ")
-                       .append("class=\"").append("com.schema.flow.application.ApproverTaskListener")
-                       .append("\"/>\n")
+                       .append("delegateExpression=\"${approverTaskListener}\"/>\n")
                        .append("      </extensionElements>\n")
                        .append("    </userTask>\n");
                 }

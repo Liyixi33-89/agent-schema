@@ -16,17 +16,17 @@ import java.util.Set;
  * <pre>
  *   USER                    → userIds 逐个解析
  *   DEPT_ROLE               → 发起人所在部门 × roleKeys 匹配成员
- *   INITIATOR_SUPERVISOR    → 发起人直属上级；缺失时用 fallbackUserIds
+ *   INITIATOR_SUPERVISOR    → 本部门负责人 → 上级部门负责人 → fallbackUserIds
  * </pre>
  *
- * ⚠️ 能力边界（实现时核实，必须如实记录）：
- * 本系统 sys_dept 只有 (parent_id, path)，**没有「部门负责人」字段**。
- * 因此 INITIATOR_SUPERVISOR 的语义落在「发起人所在部门的上一级部门成员」，
- * 且仅当显式配置了 fallbackUserIds 才能兜底；若上级部门也无成员 →
- * 返回空集，由调用方按 BLOCK 策略挂起实例。
+ * ⚠️ INITIATOR_SUPERVISOR 的语义演进（2026-11-24 确认后修正）：
+ * V3 建 sys_dept 时只有 (parent_id, path)，无负责人概念，最初实现只能退化为
+ * 「上一级部门全体成员」——多人时全部成为候选人，与「直属上级单人审批」不符。
+ * V19 补了 sys_dept.leader_id 后改为**单人优先级链**：
+ *   ① 本部门 leader → ② 上级部门 leader → ③ 流程配置的 fallbackUserIds → ④ 空(BLOCK)
  *
- * 不臆造「leader 字段」——宁可解析为空触发 BLOCK（可见、可告警），
- * 也不要用一个不存在的概念假装解析成功（会导致流程静默走进死路）。
+ * 刻意**不**回落到「上级部门全体成员」：那会让「负责人未配置」这个组织数据问题
+ * 被静默掩盖成「多人会签」。宁可 BLOCK 挂起（可见、可告警、可修复）。
  */
 public final class ApproverResolver {
 
@@ -47,6 +47,12 @@ public final class ApproverResolver {
 
         /** 部门全体成员 id。 */
         List<Long> findUsersInDept(long tenantId, long deptId);
+
+        /**
+         * 部门负责人 id（sys_dept.leader_id，V19）；未设置返回 null。
+         * 「直属上级审批」的首选解析目标——单人，而非整个上级部门。
+         */
+        Long findDeptLeaderId(long tenantId, long deptId);
     }
 
     /**
@@ -73,15 +79,23 @@ public final class ApproverResolver {
         if (rule instanceof InitiatorSupervisorApprover s) {
             Long deptId = org.findPrimaryDeptId(tenantId, initiatorId);
             if (deptId != null) {
+                // ① 本部门负责人（sys_dept.leader_id，V19）——语义最贴近「直属上级」
+                Long leader = org.findDeptLeaderId(tenantId, deptId);
+                if (leader != null && leader != initiatorId) {
+                    return List.of(leader);
+                }
+                // ② 上级部门负责人（发起人自己就是本部门负责人时的自然上一级）
                 Long parentDeptId = org.findParentDeptId(tenantId, deptId);
                 if (parentDeptId != null) {
-                    List<Long> supervisors = dedup(org.findUsersInDept(tenantId, parentDeptId));
-                    if (!supervisors.isEmpty()) {
-                        return supervisors;
+                    Long parentLeader = org.findDeptLeaderId(tenantId, parentDeptId);
+                    if (parentLeader != null && parentLeader != initiatorId) {
+                        return List.of(parentLeader);
                     }
                 }
             }
-            // 上级部门解析不到 → 用配置的兜底人（可为空 → BLOCK）
+            // ③ 配置的兜底人（可为空 → BLOCK）
+            //    ⚠️ 不回落到「上级部门全体成员」：那样多人时全成候选人，
+            //       与「直属上级单人审批」预期不符，且会掩盖「负责人未配置」这一组织数据问题。
             return parseUserIds(s.fallbackUserIds());
         }
         return List.of();

@@ -95,44 +95,78 @@ class ApproverResolverTest {
         assertTrue(out.isEmpty(), "发起人无部门 → BLOCK，不能猜测");
     }
 
-    // ---------- INITIATOR_SUPERVISOR 模式 ----------
+    // ---------- INITIATOR_SUPERVISOR 模式（V19 负责人语义）----------
 
+    /** ① 本部门负责人优先——单人审批，不是整个上级部门。 */
     @Test
-    void resolvesSupervisorFromParentDept() {
+    void resolvesOwnDeptLeader() {
         FakeOrg org = new FakeOrg();
         org.primaryDept.put(INITIATOR, 12L);
+        org.deptLeader.put(12L, 300L);
+        // 上级部门也有成员——必须优先用本部门负责人，不能被上级成员覆盖
         org.parentDept.put(12L, 5L);
-        org.deptMembers.put(5L, List.of(300L));
-
-        List<Long> out = ApproverResolver.resolve(
-                new InitiatorSupervisorApprover(List.of()), TENANT, INITIATOR, org);
-
-        assertEquals(List.of(300L), out);
-    }
-
-    @Test
-    void fallsBackWhenParentDeptHasNoMember() {
-        FakeOrg org = new FakeOrg();
-        org.primaryDept.put(INITIATOR, 12L);
-        org.parentDept.put(12L, 5L);
-        // 上级部门没人
+        org.deptMembers.put(5L, List.of(301L, 302L));
 
         List<Long> out = ApproverResolver.resolve(
                 new InitiatorSupervisorApprover(List.of("99")), TENANT, INITIATOR, org);
 
-        assertEquals(List.of(99L), out, "上级解析不到时用 fallbackUserIds");
+        assertEquals(List.of(300L), out, "本部门负责人单人审批");
+        assertEquals(1, out.size(), "不得把整个上级部门都变成候选人");
     }
 
+    /** ② 发起人自己就是本部门负责人 → 走上级部门负责人。 */
     @Test
-    void blocksWhenNoSupervisorAndNoFallback() {
+    void fallsToParentLeaderWhenInitiatorIsOwnLeader() {
         FakeOrg org = new FakeOrg();
         org.primaryDept.put(INITIATOR, 12L);
-        // 顶层部门（无 parent）+ 无 fallback
+        org.deptLeader.put(12L, INITIATOR);   // 自己是负责人
+        org.parentDept.put(12L, 5L);
+        org.deptLeader.put(5L, 400L);
 
         List<Long> out = ApproverResolver.resolve(
                 new InitiatorSupervisorApprover(List.of()), TENANT, INITIATOR, org);
 
-        assertTrue(out.isEmpty(), "无上级且无兜底 → BLOCK");
+        assertEquals(List.of(400L), out, "自己不能审自己 → 用上级负责人");
+    }
+
+    /** ③ 本部门与上级部门都无负责人 → fallbackUserIds。 */
+    @Test
+    void fallsBackWhenNoLeaderConfigured() {
+        FakeOrg org = new FakeOrg();
+        org.primaryDept.put(INITIATOR, 12L);
+        org.parentDept.put(12L, 5L);
+        // 两级的 leader_id 都是 NULL
+        org.deptMembers.put(5L, List.of(301L, 302L)); // 上级有人，但不应被采用
+
+        List<Long> out = ApproverResolver.resolve(
+                new InitiatorSupervisorApprover(List.of("99")), TENANT, INITIATOR, org);
+
+        assertEquals(List.of(99L), out, "无负责人 → fallbackUserIds");
+    }
+
+    /** ④ 全部落空 → 空集（BLOCK）。 */
+    @Test
+    void blocksWhenNoLeaderAndNoFallback() {
+        FakeOrg org = new FakeOrg();
+        org.primaryDept.put(INITIATOR, 12L);
+        org.parentDept.put(12L, 5L);
+        org.deptMembers.put(5L, List.of(301L, 302L));
+
+        List<Long> out = ApproverResolver.resolve(
+                new InitiatorSupervisorApprover(List.of()), TENANT, INITIATOR, org);
+
+        assertTrue(out.isEmpty(),
+                "无负责人且无兜底 → BLOCK；不得退化为「上级部门全体成员」掩盖组织数据问题");
+    }
+
+    @Test
+    void blocksWhenInitiatorHasNoDept() {
+        FakeOrg org = new FakeOrg();
+
+        List<Long> out = ApproverResolver.resolve(
+                new InitiatorSupervisorApprover(List.of()), TENANT, INITIATOR, org);
+
+        assertTrue(out.isEmpty());
     }
 
     @Test
@@ -145,6 +179,7 @@ class ApproverResolverTest {
     private static class FakeOrg implements OrgQueryPort {
         final Map<Long, Long> primaryDept = new HashMap<>();
         final Map<Long, Long> parentDept = new HashMap<>();
+        final Map<Long, Long> deptLeader = new HashMap<>();
         final Map<String, List<Long>> deptRoleMembers = new HashMap<>();
         final Map<Long, List<Long>> deptMembers = new HashMap<>();
 
@@ -170,6 +205,11 @@ class ApproverResolverTest {
         @Override
         public List<Long> findUsersInDept(long tenantId, long deptId) {
             return deptMembers.getOrDefault(deptId, List.of());
+        }
+
+        @Override
+        public Long findDeptLeaderId(long tenantId, long deptId) {
+            return deptLeader.get(deptId);
         }
     }
 }

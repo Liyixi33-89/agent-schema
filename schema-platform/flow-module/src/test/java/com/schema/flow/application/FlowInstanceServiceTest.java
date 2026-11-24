@@ -592,5 +592,10 @@ class FlowInstanceServiceTest {
         public List<Long> findUsersInDept(long tenantId, long deptId) {
             return List.of();
         }
+
+        @Override
+        public Long findDeptLeaderId(long tenantId, long deptId) {
+            return null;
+        }
     }
 }

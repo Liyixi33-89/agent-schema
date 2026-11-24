@@ -75,4 +75,23 @@ public class JdbcOrgQueryPort implements ApproverResolver.OrgQueryPort {
                 ORDER BY id
                 """, Long.class, tenantId, deptId);
     }
+
+    /**
+     * 部门负责人（V19 新增列）。
+     *
+     * ⚠️ 用 to_regclass/列存在性容错：V19 未执行的环境（如尚未迁移的旧库）
+     * 不应因「列不存在」让整个流程发起失败——返回 null 走 fallback/BLOCK 即可。
+     */
+    @Override
+    public Long findDeptLeaderId(long tenantId, long deptId) {
+        try {
+            List<Long> rows = jdbc.queryForList(
+                    "SELECT leader_id FROM sys_dept WHERE tenant_id = ? AND id = ?",
+                    Long.class, tenantId, deptId);
+            return rows.isEmpty() ? null : rows.get(0);
+        } catch (org.springframework.jdbc.BadSqlGrammarException e) {
+            // 旧库尚未应用 V19（leader_id 列不存在）：降级为空，不阻断业务
+            return null;
+        }
+    }
 }
