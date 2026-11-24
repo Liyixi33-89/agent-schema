@@ -220,12 +220,16 @@ def make_manifest(workdir: Path):
 
 
 def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
-    """验收面发布：静态产物 + 后端 jar 原子切换 + 版本注入 + 验证。
+    """验收面发布：走 sudo 白名单通道（与生产面同构）。
 
-    与生产面的差异（有意为之）：
-    - 后端是裸 java 进程（非 systemd），切换 = 停旧进程 → 起新进程；
-    - 静态目录 /opt/schema/staging/accept/{designer,runtime,admin} 按版本目录软链；
-    - 版本注入走 -D 系统属性（探针读 build-source.txt 或 APP_VERSION/GIT_COMMIT 环境）。
+    ⚠️ 为什么不能直接 ssh 执行 rm/mkdir：
+    /opt/schema/staging/accept 属主是 root:root 755，deploy 用户**只读**。
+    此前直接用 ssh 执行会 Permission denied；现统一走
+    `sudo -n bash /opt/schema/schema-release-accept.sh`（白名单仅限该脚本，
+    保持最小权限：CI 不持有任意 root 命令）。
+
+    服务器脚本负责：MANIFEST 校验 → 原子入库 → 切链 → **按端口**重启 →
+    探针+三入口+commit 一致性验证 → 失败自动回滚到上一版本。
     """
     print("== 验收面：上传产物 ==")
     tar_path = work / "accept-bundle.tar.gz"
@@ -234,78 +238,21 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
             tar.add(work / name, arcname=name)
     print(f"== 打包完成 {tar_path.stat().st_size // 1024} KiB ==")
 
-    remote_stage = f"{ACCEPT_ROOT}/.incoming-{head[:12]}"
-    ssh(f"rm -rf {remote_stage} && mkdir -p {remote_stage}")
+    # upload：stdin 传 tar 流，服务器侧校验 MANIFEST 后原子入库（版本不可覆盖）
     with open(tar_path, "rb") as f:
         proc = subprocess.Popen(
-            ["ssh", "-o", "BatchMode=yes", SERVER, f"tar -xzf - -C {remote_stage}"],
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", SERVER,
+             f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh upload {head}"],
             stdin=f, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    out, _ = proc.communicate(timeout=600)
-    if out.strip():
-        print(out)
+    out, _ = proc.communicate(timeout=900)
+    print(out)
     if proc.returncode != 0:
         raise SystemExit(f"验收面上传失败 exit={proc.returncode}")
 
-    print("== 验收面：MANIFEST 校验 ==")
-    ssh(f"cd {remote_stage} && sha256sum -c MANIFEST.sha256 --quiet")
+    print("== 验收面：切换版本（备份 → 切链 → 重启 → 验证 → 失败回滚）==")
+    ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh switch {head}", timeout=600)
 
-    print("== 验收面：原子切换 + 重启后端 ==")
-    # 版本目录：/opt/schema/staging/accept/releases/<commit>，current 软链指向它
-    ssh(
-        f"set -e; "
-        f"mkdir -p {ACCEPT_ROOT}/releases; "
-        f"rm -rf {ACCEPT_ROOT}/releases/{head}; "
-        f"mv {remote_stage} {ACCEPT_ROOT}/releases/{head}; "
-        f"ln -sfn {ACCEPT_ROOT}/releases/{head} {ACCEPT_ROOT}/current; "
-        # 静态目录按应用软链（nginx alias 直指这三个路径）
-        f"for app in designer runtime admin; do "
-        f"  rm -rf {ACCEPT_ROOT}/$app; "
-        f"  ln -sfn {ACCEPT_ROOT}/current/web/$app {ACCEPT_ROOT}/$app; "
-        f"done; "
-        # 后端重启：停旧进程 → 起新进程（版本经环境变量注入，探针可追溯）
-        # ⚠️ DeploymentProbeFilter 读 System.getenv(APP_VERSION/GIT_COMMIT) 或 Spring 属性
-        #    app.version/git.commit——用环境变量前缀最直接（-D 是 JVM 属性，Spring 需 --app.version 形式）
-        # ⚠️ 停止进程按**端口**定位，不能按 jar 名：实际启动命令是 `java -jar schema-platform.jar
-        #    --server.port=18081`，没有 "schema-platform-accept.jar" 字样，
-        #    旧写法 pkill -f 'schema-platform-accept.jar' 匹配 0 个进程 →
-        #    旧进程不停 → 新进程撞端口启动失败，但脚本仍继续（假成功）。
-        f"for pid in $(ss -lntp 2>/dev/null | grep ':{ACCEPT_BACKEND_PORT} ' | grep -oP 'pid=\\\\K[0-9]+' | sort -u); do "
-        f"  kill $pid 2>/dev/null || true; "
-        f"done; "
-        f"for i in $(seq 1 20); do "
-        f"  ss -lntp 2>/dev/null | grep -q ':{ACCEPT_BACKEND_PORT} ' || break; sleep 1; "
-        f"done; "
-        f"ss -lntp 2>/dev/null | grep -q ':{ACCEPT_BACKEND_PORT} ' && {{ "
-        f"  for pid in $(ss -lntp 2>/dev/null | grep ':{ACCEPT_BACKEND_PORT} ' | grep -oP 'pid=\\\\K[0-9]+' | sort -u); do kill -9 $pid 2>/dev/null || true; done; "
-        f"  sleep 2; "
-        f"}}; "
-        f"cd {ACCEPT_ROOT}/current && "
-        f"APP_VERSION={head} GIT_COMMIT={head} nohup {ACCEPT_JAVA} -jar schema-platform.jar "
-        f"  --server.port={ACCEPT_BACKEND_PORT} "
-        f"  --spring.datasource.url=jdbc:postgresql://127.0.0.1:5432/schema_acceptance "
-        f"  --spring.datasource.username=schema_accept "
-        f"  --spring.datasource.password=schema_accept_only_2026 "
-        f"  > {ACCEPT_ROOT}/backend.log 2>&1 & "
-        f"echo started"
-    )
-
-    print("== 验收面：验证（探针 + 入口）==")
-    deadline = time.time() + 180
-    probe = {}
-    while time.time() < deadline:
-        r = ssh(f"curl -sf -m 5 {ACCEPT_PROBE}", check=False)
-        if r.returncode == 0 and r.stdout.strip():
-            try:
-                probe = json.loads(r.stdout)
-                if probe.get("status") == "UP":
-                    break
-            except json.JSONDecodeError:
-                pass
-        time.sleep(5)
-    print(f"  probe -> {probe}")
-    if probe.get("status") != "UP":
-        raise SystemExit("验收面后端未就绪（探针非 UP）")
-
+    print("== 验收面：独立复验（不信任服务器脚本自身结论）==")
     for name, path in ACCEPT_ENTRIES.items():
         r = ssh(f"curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1{path}", check=False)
         code = r.stdout.strip()
@@ -313,9 +260,17 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
         if code != "200":
             raise SystemExit(f"验收面入口验证失败: {name} -> {code}")
 
+    probe = json.loads(ssh(f"curl -s {ACCEPT_PROBE}").stdout)
+    print(f"  probe -> {probe}")
+    if probe.get("status") != "UP":
+        raise SystemExit("验收面后端未就绪（探针非 UP）")
+    # 探针 commit 必须与目标一致（head 是完整 sha，取前 12 位比对）
+    if not str(probe.get("commit", "")).startswith(head[:12]):
+        raise SystemExit(f"探针 commit={probe.get('commit')} 与目标 {head[:12]} 不一致")
+
     print(f"\n验收面发布成功: {head[:12]}")
     print(f"  探针: {ACCEPT_PROBE}")
-    print(f"  入口: http://{SERVER.split('@')[-1]}/accept/designer/ , /accept/runtime/")
+    print("  入口: /accept/designer/ , /accept/runtime/ , /accept/admin/")
 
 
 def main():
