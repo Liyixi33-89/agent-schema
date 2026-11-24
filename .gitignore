@@ -40,3 +40,9 @@ scripts/acceptance/out/
 schema-frontend/e2e-report.xml
 schema-frontend/e2e-results/
 
+
+# CI 验证产物的运行时目录（verify.ps1 跑完会留下，导致 deploy.py 的 clean-head 检查失败）
+schema-platform/bootstrap/data/
+scripts/__pycache__/
+**/__pycache__/
+
