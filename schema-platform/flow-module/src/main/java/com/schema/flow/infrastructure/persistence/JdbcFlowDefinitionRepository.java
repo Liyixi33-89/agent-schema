@@ -34,16 +34,31 @@ public class JdbcFlowDefinitionRepository implements FlowDefinitionRepository {
 
     @Override
     public Optional<Map<String, Object>> findById(long tenantId, long id) {
+        // ⚠️ flow_schema::text 是必须的：直接 SELECT * 时 jsonb 列返回 PGobject 实例，
+        //    经 Jackson 序列化会变成 {"type":"jsonb","value":"..."} 泄漏到接口层
+        //    （实测前端拿到「值是字符串的对象」无法解析）。在 SQL 层转文本最干净，
+        //    应用层无需判断驱动类型。
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT * FROM flow_definition WHERE tenant_id = ? AND id = ?", tenantId, id);
+                SELECT_WITH_TEXT, tenantId, id);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    /** 统一列清单：flow_schema 转 text，避免 PGobject 泄漏。 */
+    private static final String SELECT_WITH_TEXT = """
+            SELECT id, tenant_id, app_id, flow_key, name, status, version,
+                   flow_schema::text AS flow_schema, deployment_id, created_by, created_at, updated_at
+            FROM flow_definition
+            WHERE tenant_id = ? AND id = ?
+            """;
+
     @Override
     public Optional<Map<String, Object>> findByKey(long tenantId, long appId, String flowKey) {
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT * FROM flow_definition WHERE tenant_id = ? AND app_id = ? AND flow_key = ?",
-                tenantId, appId, flowKey);
+        // 同 findById：flow_schema 转 text，避免 PGobject 泄漏
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT id, tenant_id, app_id, flow_key, name, status, version,
+                       flow_schema::text AS flow_schema, deployment_id, created_by, created_at, updated_at
+                FROM flow_definition WHERE tenant_id = ? AND app_id = ? AND flow_key = ?
+                """, tenantId, appId, flowKey);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 

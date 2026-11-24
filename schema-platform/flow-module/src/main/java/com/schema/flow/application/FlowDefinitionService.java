@@ -167,9 +167,59 @@ public class FlowDefinitionService {
         out.put("status", row.get("status"));
         out.put("version", row.get("version"));
         // flowSchema 按 JSON 对象返回（不返回字符串——前端直接消费结构）
-        Object raw = row.get("flow_schema");
-        out.put("flowSchema", raw instanceof String s ? Json.readMap(s) : raw);
+        out.put("flowSchema", normalizeJsonb(row.get("flow_schema")));
         return out;
+    }
+
+    /**
+     * JSONB 列归一化。
+     *
+     * ⚠️ 实测踩坑：JDBC 读 jsonb 有时会返回 PGobject 的包装
+     * {@code {"type":"jsonb","value":"<真实JSON字符串>"}}，
+     * 直接透传会让前端拿到「值为字符串的对象」，无法解析。
+     * 这里统一解包成 Map。
+     */
+    @SuppressWarnings("unchecked")
+    private Object normalizeJsonb(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        // ① 驱动原始类型（PGobject）：getValue() 即真实 JSON 文本。
+        //    用反射而非 import org.postgresql——应用层不依赖具体驱动（分层约束），
+        //    同时 SQL 层已用 ::text 规避，这里是第二道保险。
+        if (raw.getClass().getName().startsWith("org.postgresql.util.PGobject")) {
+            try {
+                Object v = raw.getClass().getMethod("getValue").invoke(raw);
+                if (v instanceof String s) {
+                    return safeReadMap(s);
+                }
+            } catch (ReflectiveOperationException e) {
+                log.warn("PGobject.getValue() 调用失败，按原值处理");
+            }
+        }
+        // ② 已被序列化成 {type: jsonb, value: "..."} 的形态（防御）
+        if (raw instanceof Map<?, ?> m) {
+            Object value = m.get("value");
+            Object type = m.get("type");
+            if (value instanceof String s && type != null) {
+                return safeReadMap(s);
+            }
+            return m;
+        }
+        if (raw instanceof String s) {
+            return safeReadMap(s);
+        }
+        return raw;
+    }
+
+    private Object safeReadMap(String json) {
+        try {
+            return Json.readMap(json);
+        } catch (RuntimeException e) {
+            // 兜底：解不动就返回空对象，避免详情接口整体 500
+            log.warn("flow_schema 反序列化失败，返回空结构");
+            return Map.of();
+        }
     }
 
     /** 转办等未实现能力统一 501（§3.2 transfer 契约占位）。 */

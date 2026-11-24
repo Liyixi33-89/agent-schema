@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -188,6 +189,64 @@ class FlowDefinitionServiceTest {
     void detailOfMissingDefinitionIs404Code() {
         BizException e = assertThrows(BizException.class, () -> service.detail(9999));
         assertEquals(FlowErrors.FLOW_DEF_NOT_FOUND, e.code());
+    }
+
+    /**
+     * 回归：JDBC 读 jsonb 列返回驱动原始类型 PGobject（既不是 Map 也不是 String），
+     * 若只判断这两类会原样透传，被 Jackson 序列化成 {type, value}——
+     * 前端拿到「值是字符串的对象」无法解析（线上实测踩到）。
+     *
+     * 测试用反射构造 PGobject，避免测试代码依赖驱动（与生产同约束）；
+     * 若类不在 classpath 则跳过（其他环境不强制）。
+     */
+    @Test
+    void detailUnwrapsPgObject() throws Exception {
+        Object pg;
+        try {
+            Class<?> cls = Class.forName("org.postgresql.util.PGobject");
+            pg = cls.getDeclaredConstructor().newInstance();
+            cls.getMethod("setType", String.class).invoke(pg, "jsonb");
+        } catch (ClassNotFoundException e) {
+            return; // 无驱动依赖：跳过（SQL 层 ::text 已规避，此测试是第二道保险）
+        }
+        long id = idOf(service.create(1L, "请假流程", linear()));
+        String realJson = String.valueOf(repo.store.get(id).get("flow_schema"));
+        pg.getClass().getMethod("setValue", String.class).invoke(pg, realJson);
+        repo.store.get(id).put("flow_schema", pg);
+
+        Map<String, Object> detail = service.detail(id);
+
+        Object schema = detail.get("flowSchema");
+        assertTrue(schema instanceof Map, "必须解包成 Map");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> m = (Map<String, Object>) schema;
+        assertEquals("leave", m.get("flowKey"), "解包后应是真实 FlowSchema 内容");
+        assertFalse(m.containsKey("value"), "不得残留 {type,value} 包装");
+    }
+
+    /** 防御：即便上游已经把 PGobject 序列化成 Map，也要能解包。 */
+    @Test
+    void detailUnwrapsSerializedJsonbWrapper() {
+        long id = idOf(service.create(1L, "请假流程", linear()));
+        String realJson = String.valueOf(repo.store.get(id).get("flow_schema"));
+        repo.store.get(id).put("flow_schema", Map.of("type", "jsonb", "value", realJson));
+
+        Map<String, Object> detail = service.detail(id);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> m = (Map<String, Object>) detail.get("flowSchema");
+        assertEquals("leave", m.get("flowKey"));
+    }
+
+    @Test
+    void detailHandlesBrokenJsonGracefully() {
+        long id = idOf(service.create(1L, "请假流程", linear()));
+        repo.store.get(id).put("flow_schema", "{broken json");
+
+        Map<String, Object> detail = service.detail(id);
+
+        // 解不动返回空对象，不整体 500
+        assertTrue(detail.get("flowSchema") instanceof Map);
     }
 
     @Test
