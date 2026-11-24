@@ -296,8 +296,6 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
             f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh ingest {head} {remote_tar}; "
             f"rc=$?; rm -f {remote_tar}; exit $rc", timeout=900)
     print(r.stdout)
-    if proc.returncode != 0:
-        raise SystemExit(f"验收面上传失败 exit={proc.returncode}")
 
     print("== 验收面：切换版本（备份 → 切链 → 重启 → 验证 → 失败回滚）==")
     ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh switch {head}", timeout=600)
