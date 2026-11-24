@@ -416,6 +416,69 @@ class FlowIT {
         assertEquals(FlowErrors.SCHEMA_INVALID, e.code(), "空 userIds 应在保存期拒绝");
     }
 
+    // ---------- A6 版本演进 ----------
+
+    /**
+     * A6：新版本发布后，**在途实例继续按旧 deployment 执行完毕**，新发起走新版本。
+     *
+     * 这是 Flowable 的版本化语义：实例创建时绑定 procdef（含版本），
+     * 后续部署不会改变已有实例的执行路径。
+     * 本用例的价值是把这条「引擎天然保证」钉成回归测试——
+     * 若将来有人在发布时「顺手终止旧实例」或「强制迁移」，会立刻红。
+     */
+    @Test
+    void A6_新版本发布后在途实例仍按旧版本完成() {
+        long defId = publishFlow("it_flow_a6");
+
+        // ① 旧版本下发起实例（记录其 procdef 版本）
+        String oldInstance = String.valueOf(TenantContext.with(asOp(),
+                () -> instService.start(1L, 7010L, defId)).get("instanceId"));
+        String oldProcDefId = jdbc.queryForObject(
+                "SELECT PROC_DEF_ID_ FROM act_ru_execution WHERE PROC_INST_ID_ = ? AND IS_SCOPE_ = true",
+                String.class, oldInstance);
+        Integer oldVersion = jdbc.queryForObject(
+                "SELECT VERSION_ FROM act_re_procdef WHERE ID_ = ?", Integer.class, oldProcDefId);
+        assertNotNull(oldVersion, "旧实例应绑定具体 procdef 版本");
+
+        // ② 修改定义并重新发布（产生新版本）
+        FlowSchema v2 = new FlowSchema("it_flow_a6", "IT流程v2", null, 1,
+                List.of(new FlowNode("s1", "START", "开始", null, null),
+                        new FlowNode("a1", "APPROVAL", "主管审批v2",
+                                new UserApprover(List.of(String.valueOf(OPERATOR + 1))), null),
+                        new FlowNode("e1", "END", "结束", null, null)),
+                List.of(new FlowEdge("f1", "s1", "a1", null),
+                        new FlowEdge("f2", "a1", "e1", null)));
+        TenantContext.with(asOp(), () -> defService.saveDraft(defId, v2, 2));
+        TenantContext.with(asOp(), () -> defService.publish(defId));
+
+        Integer newVersion = jdbc.queryForObject(
+                "SELECT max(VERSION_) FROM act_re_procdef WHERE KEY_ = 'it_flow_a6'", Integer.class);
+        assertTrue(newVersion > oldVersion,
+                "重新发布应产生更高版本: old=" + oldVersion + " new=" + newVersion);
+
+        // ③ 关键断言：在途实例仍绑定旧 procdef（未被迁移）
+        assertEquals(oldProcDefId, jdbc.queryForObject(
+                "SELECT PROC_DEF_ID_ FROM act_ru_execution "
+                + "WHERE PROC_INST_ID_ = ? AND IS_SCOPE_ = true", String.class, oldInstance),
+                "在途实例不得被迁移到新版本");
+
+        // ④ 旧实例可正常完成（不被新部署打断）
+        String oldTask = jdbc.queryForObject(
+                "SELECT ID_ FROM act_ru_task WHERE PROC_INST_ID_ = ?", String.class, oldInstance);
+        Map<String, Object> done = TenantContext.with(asApprover(),
+                () -> instService.complete(oldTask, true, "旧版本完成"));
+        assertEquals("FINISHED", done.get("instanceState"), "在途实例应能按旧版本正常结束");
+
+        // ⑤ 新发起走新版本
+        String newInstance = String.valueOf(TenantContext.with(asOp(),
+                () -> instService.start(1L, 7011L, defId)).get("instanceId"));
+        Integer newInstanceVersion = jdbc.queryForObject(
+                "SELECT p.VERSION_ FROM act_ru_execution e JOIN act_re_procdef p ON p.ID_ = e.PROC_DEF_ID_ "
+                + "WHERE e.PROC_INST_ID_ = ? AND e.IS_SCOPE_ = true",
+                Integer.class, newInstance);
+        assertEquals(newVersion, newInstanceVersion, "新发起应走最新版本");
+    }
+
     // ---------- A11 / A12 ----------
 
     @Test
