@@ -140,12 +140,34 @@ jobs:
           DEPLOY_HOST: ${{ secrets.SCHEMA_DEPLOY_HOST }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          # deploy.py 走 SCHEMA_DEPLOY_HOST 环境变量
+          chmod 700 ~/.ssh
+          # ⚠️ 用 Python 精确写入：bash 的 printf/cat <<< 都会额外附加换行，
+          #    secret 本身已含尾随换行时会变成空行，OpenSSH 解析私钥失败
+          #    → Permission denied (publickey)。这里 strip 后补单个换行。
+          python3 - <<'PY'
+          import os, pathlib
+          home = pathlib.Path(os.path.expanduser("~")) / ".ssh"
+          home.mkdir(parents=True, exist_ok=True)
+          os.chmod(home, 0o700)
+
+          key = os.environ["SSH_KEY"].strip()
+          kh = os.environ["KNOWN_HOSTS"].strip()
+
+          (home / "id_ed25519").write_text(key + "\n", encoding="utf-8")
+          os.chmod(home / "id_ed25519", 0o600)
+          (home / "known_hosts").write_text(kh + "\n", encoding="utf-8")
+          os.chmod(home / "known_hosts", 0o644)
+
+          # 自检：格式无效立刻失败，避免等到 ssh 阶段才报 publickey
+          if "BEGIN" not in key or "PRIVATE KEY" not in key:
+              raise SystemExit("::error::SCHEMA_DEPLOY_SSH_KEY 不是有效私钥（缺 BEGIN 标记）")
+          if "END" not in key or "PRIVATE KEY" not in key:
+              raise SystemExit("::error::SCHEMA_DEPLOY_SSH_KEY 被截断（缺 END 标记）")
+          print(f"✅ 私钥已写入，行数={len(key.splitlines())}，known_hosts 行数={len(kh.splitlines())}")
+          PY
+          # 连通性自检：部署前必须能认证，避免构建 10 分钟后才发现认证失败
+          ssh -o BatchMode=yes -o ConnectTimeout=15 "$DEPLOY_HOST" "echo 认证成功: \$(whoami)"
           echo "SCHEMA_DEPLOY_HOST=$DEPLOY_HOST" >> "$GITHUB_ENV"
-          # 明确使用 deploy 账号（sudo 白名单仅限 schema-release.sh）
           echo "SCHEMA_DEPLOY_ROLE=deploy" >> "$GITHUB_ENV"
 
       - name: Deploy to acceptance
