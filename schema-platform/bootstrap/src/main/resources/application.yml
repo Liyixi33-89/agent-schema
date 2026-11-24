@@ -9,3 +9,25 @@ spring:
     password: ${DB_PASSWORD:schema_local_only}
   flyway:
     enabled: true
+
+# Flowable 流程引擎（spec 021 §8 授权第 3 条）
+# ⚠️ 默认全部关闭：生产/验收库**不得**被自动建 ACT_* 表（30+ 张表 + 独立事务语义，
+#    必须走独立评审节奏）。仅流程执行相关环境（IT 库）显式开启。
+#    验证方式见 bootstrap/test/.../FlowableDisabledProbeTest
+flowable:
+  process:
+    enabled: ${FLOWABLE_ENABLED:false}
+  idm:
+    enabled: false
+  dmn:
+    enabled: false
+  cmmn:
+    enabled: false
+  eventregistry:
+    enabled: false
+  app:
+    enabled: false
+  rest-api:
+    enabled: false
+  actuator:
+    enabled: false
