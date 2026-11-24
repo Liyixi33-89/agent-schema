@@ -239,12 +239,32 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
     print(f"== 打包完成 {tar_path.stat().st_size // 1024} KiB ==")
 
     # upload：stdin 传 tar 流，服务器侧校验 MANIFEST 后原子入库（版本不可覆盖）
+    # ⚠️ 三个坑（实测踩到）：
+    # 1) ssh 必须加 `-T`（禁用 tty）——有 tty 时 stdin 会被当终端输入，
+    #    二进制 tar 流无法通过，远端起 tar -xzf - 会一直等不到数据（CI 900s 超时真因）。
+    # 2) ssh 必须 `-o StrictHostKeyChecking=accept-new` 之外的显式 known_hosts——
+    #    否则首次连接会因 host key 提示挂住。
+    # 3) 明确打印连接目标：CI 日志里 SCHEMA_DEPLOY_HOST 被脱敏成 ***，
+    #    出问题时无法判断连的是谁（曾因此排查多轮）。
+    print(f"== 连接目标: {SERVER}（role={ROLE}）==")
+    if "@" not in SERVER:
+        raise SystemExit(f"SCHEMA_DEPLOY_HOST 缺少用户名前缀（应为 user@host）: {SERVER}")
     with open(tar_path, "rb") as f:
         proc = subprocess.Popen(
-            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", SERVER,
+            ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
+             "-o", "NumberOfPasswordPrompts=1", SERVER,
              f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh upload {head}"],
             stdin=f, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    out, _ = proc.communicate(timeout=900)
+    try:
+        out, _ = proc.communicate(timeout=600)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise SystemExit(
+            "上传超时（600s）——常见原因：\n"
+            "  1) SCHEMA_DEPLOY_HOST 缺 user@ 前缀 → ssh 以当前用户连接并等待密码\n"
+            "  2) 服务器 sudo 要求密码（检查 /etc/sudoers.d/schema-deploy 的 NOPASSWD）\n"
+            "  3) known_hosts 未包含服务器 host key → 等待交互确认\n"
+            "  4) 目标脚本不存在 → 排查 /opt/schema/schema-release-accept.sh")
     print(out)
     if proc.returncode != 0:
         raise SystemExit(f"验收面上传失败 exit={proc.returncode}")
