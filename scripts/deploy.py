@@ -48,6 +48,7 @@ ACCEPT_BACKEND_PORT = 18081
 ACCEPT_ENTRIES = {  # 验收面入口（nginx accept-loopback.conf 的 alias 路径）
     "designer": "/accept/designer/",
     "runtime": "/accept/runtime/",
+    "admin": "/accept/admin/",  # nginx schema.conf:49 已配置，部署必须一并验证
 }
 ACCEPT_PROBE = f"http://127.0.0.1:{ACCEPT_BACKEND_PORT}/internal/health/readiness"
 # ⚠️ 服务器默认 java 是 JDK 17（class 61），而 jar 由 JDK 21 编译（class 65）——
@@ -264,7 +265,20 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
         # 后端重启：停旧进程 → 起新进程（版本经环境变量注入，探针可追溯）
         # ⚠️ DeploymentProbeFilter 读 System.getenv(APP_VERSION/GIT_COMMIT) 或 Spring 属性
         #    app.version/git.commit——用环境变量前缀最直接（-D 是 JVM 属性，Spring 需 --app.version 形式）
-        f"pkill -f 'schema-platform-accept.jar' || true; sleep 2; "
+        # ⚠️ 停止进程按**端口**定位，不能按 jar 名：实际启动命令是 `java -jar schema-platform.jar
+        #    --server.port=18081`，没有 "schema-platform-accept.jar" 字样，
+        #    旧写法 pkill -f 'schema-platform-accept.jar' 匹配 0 个进程 →
+        #    旧进程不停 → 新进程撞端口启动失败，但脚本仍继续（假成功）。
+        f"for pid in $(ss -lntp 2>/dev/null | grep ':{ACCEPT_BACKEND_PORT} ' | grep -oP 'pid=\\\\K[0-9]+' | sort -u); do "
+        f"  kill $pid 2>/dev/null || true; "
+        f"done; "
+        f"for i in $(seq 1 20); do "
+        f"  ss -lntp 2>/dev/null | grep -q ':{ACCEPT_BACKEND_PORT} ' || break; sleep 1; "
+        f"done; "
+        f"ss -lntp 2>/dev/null | grep -q ':{ACCEPT_BACKEND_PORT} ' && {{ "
+        f"  for pid in $(ss -lntp 2>/dev/null | grep ':{ACCEPT_BACKEND_PORT} ' | grep -oP 'pid=\\\\K[0-9]+' | sort -u); do kill -9 $pid 2>/dev/null || true; done; "
+        f"  sleep 2; "
+        f"}}; "
         f"cd {ACCEPT_ROOT}/current && "
         f"APP_VERSION={head} GIT_COMMIT={head} nohup {ACCEPT_JAVA} -jar schema-platform.jar "
         f"  --server.port={ACCEPT_BACKEND_PORT} "

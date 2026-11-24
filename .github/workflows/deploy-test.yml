@@ -1,0 +1,191 @@
+name: deploy-test
+
+# 验收环境自动部署（test 分支）
+#
+# 分支模型：
+#   feature/spec-* --PR--> test --PR--> master
+#   · 合并到 test  → 自动部署到**验收面**（18081，schema_acceptance）
+#   · 合并到 master → 生产发布仍走 deploy.yml（人工 workflow_dispatch + Environment 审批）
+#
+# 为什么 master 不自动发生产：
+#   生产库与用户数据不可回滚到「随便一次 push」的程度；人工确认窗口是必要成本。
+#   验收面是隔离库 + 隔离端口，自动部署风险可控，因此放开自动触发。
+#
+# 前置 Secrets（与本仓库 deploy.yml 相同，缺一即失败）：
+#   SCHEMA_DEPLOY_SSH_KEY  deploy 账号私钥
+#   SCHEMA_DEPLOY_HOST     deploy@111.231.57.177
+#   SCHEMA_KNOWN_HOSTS     ssh-keyscan 输出
+#
+# ⚠️ 本工作流不做「静默跳过」：Secrets 缺失直接失败并给出配置指引，
+#    不出现「绿了但没部署」的假成功。
+
+on:
+  push:
+    branches: [test]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '要部署的提交（留空 = 当前 test HEAD）'
+        required: false
+        default: ''
+
+concurrency:
+  group: deploy-test
+  cancel-in-progress: false   # 验收面串行——避免两次部署交叉
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.chk.outputs.ready }}
+    steps:
+      - name: Check required secrets
+        id: chk
+        env:
+          KEY: ${{ secrets.SCHEMA_DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.SCHEMA_DEPLOY_HOST }}
+          KNOWN: ${{ secrets.SCHEMA_KNOWN_HOSTS }}
+        run: |
+          missing=""
+          [ -z "$KEY" ]   && missing="$missing SCHEMA_DEPLOY_SSH_KEY"
+          [ -z "$HOST" ]  && missing="$missing SCHEMA_DEPLOY_HOST"
+          [ -z "$KNOWN" ] && missing="$missing SCHEMA_KNOWN_HOSTS"
+          if [ -n "$missing" ]; then
+            echo "::error::缺少 Secrets:$missing"
+            echo "配置方式（仓库 Settings → Secrets and variables → Actions）："
+            echo "  SCHEMA_DEPLOY_SSH_KEY = deploy 账号私钥内容（ssh-keygen -t ed25519 生成）"
+            echo "  SCHEMA_DEPLOY_HOST    = deploy@111.231.57.177"
+            echo "  SCHEMA_KNOWN_HOSTS    = ssh-keyscan 111.231.57.177 的输出"
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "ready=yes" >> "$GITHUB_OUTPUT"
+          echo "✅ Secrets 齐备"
+
+  deploy-accept:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: acceptance   # 不设 Required reviewers（验收面可自动）
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.sha }}
+          fetch-depth: 0
+
+      - name: Resolve target commit
+        id: ver
+        run: |
+          SHA=$(git rev-parse HEAD)
+          SHORT=$(git rev-parse --short HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT" >> "$GITHUB_OUTPUT"
+          echo "部署目标: $SHA"
+          # 记录触发来源，便于追溯（自动 vs 手动）
+          echo "触发事件: ${{ github.event_name }}  分支: ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup toolchain
+        uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.33.0 }
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+
+      - name: Install frontend dependencies
+        working-directory: schema-frontend
+        run: pnpm install --frozen-lockfile
+
+      # 与人工发布同一条验证链：commit 级全绿才允许部署
+      - name: Verify (commit level)
+        shell: pwsh
+        run: ./scripts/verify.ps1 -Level commit
+
+      - name: Install deploy SSH key
+        env:
+          SSH_KEY: ${{ secrets.SCHEMA_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.SCHEMA_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.SCHEMA_DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # deploy.py 走 SCHEMA_DEPLOY_HOST 环境变量
+          echo "SCHEMA_DEPLOY_HOST=$DEPLOY_HOST" >> "$GITHUB_ENV"
+          # 明确使用 deploy 账号（sudo 白名单仅限 schema-release.sh）
+          echo "SCHEMA_DEPLOY_ROLE=deploy" >> "$GITHUB_ENV"
+
+      - name: Deploy to acceptance
+        run: |
+          python scripts/deploy.py \
+            --version "${{ steps.ver.outputs.short }}" \
+            --target accept \
+            --skip-verify
+        # --skip-verify：上一步已跑过，避免重复 3 分钟
+
+      # 部署后独立复验（不信任部署脚本自身的结论）
+      - name: Post-deploy verification
+        env:
+          HOST: ${{ secrets.SCHEMA_DEPLOY_HOST }}
+        run: |
+          set -u
+          SSH_HOST="${HOST#*@}"
+          echo "=== 三入口（经 nginx，真实用户路径）==="
+          FAIL=0
+          for p in /accept/designer/ /accept/runtime/ /accept/admin/; do
+            code=$(ssh -o BatchMode=yes "$HOST" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1$p")
+            echo "  $p -> $code"
+            [ "$code" = "200" ] || FAIL=1
+          done
+
+          echo "=== 就绪探针 commit 一致性 ==="
+          PROBE=$(ssh -o BatchMode=yes "$HOST" "curl -s http://127.0.0.1:18081/internal/health/readiness")
+          echo "  $PROBE"
+          COMMIT=$(printf '%s' "$PROBE" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || echo "")
+          TARGET="${{ steps.ver.outputs.sha }}"
+          if [ "$COMMIT" != "$TARGET" ]; then
+            echo "::error::探针 commit=$COMMIT 与目标 $TARGET 不一致"
+            FAIL=1
+          fi
+
+          echo "=== 版本元数据一致性（VERSION.txt vs 实际 jar）==="
+          ssh -o BatchMode=yes "$HOST" '
+            R=$(readlink -f /opt/schema/staging/accept/current)
+            A=$(sha256sum "$R/schema-platform.jar" | cut -d" " -f1)
+            V=$(grep "^jarSha256=" "$R/VERSION.txt" 2>/dev/null | cut -d= -f2)
+            C=$(grep "^commit=" "$R/VERSION.txt" 2>/dev/null | cut -d= -f2)
+            echo "  版本目录: $R"
+            echo "  实际 jar: $A"
+            echo "  VERSION : $V (commit=$C)"
+            if [ "$A" != "$V" ]; then echo "METADATA_MISMATCH"; fi
+          ' | tee /tmp/meta.txt
+          grep -q METADATA_MISMATCH /tmp/meta.txt && { echo "::error::VERSION.txt 与 jar 不一致"; FAIL=1; }
+
+          if [ "$FAIL" -ne 0 ]; then
+            echo "::error::部署后验证失败"
+            exit 1
+          fi
+          echo "✅ 验收面部署验证通过"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## 验收面部署结果"
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 结果 | ${{ job.status }} |"
+            echo "| commit | \`${{ steps.ver.outputs.sha }}\` |"
+            echo "| 触发 | ${{ github.event_name }} (\`${{ github.ref_name }}\`) |"
+            echo "| 操作人 | ${{ github.actor }} |"
+            echo "| 入口 | /accept/designer/ · /accept/runtime/ · /accept/admin/ |"
+          } >> "$GITHUB_STEP_SUMMARY"
