@@ -51,6 +51,7 @@ ACCEPT_ENTRIES = {  # 验收面入口（nginx accept-loopback.conf 的 alias 路
     "admin": "/accept/admin/",  # nginx schema.conf:49 已配置，部署必须一并验证
 }
 ACCEPT_PROBE = f"http://127.0.0.1:{ACCEPT_BACKEND_PORT}/internal/health/readiness"
+RELEASES_PATH = f"{ACCEPT_ROOT}/releases"
 # ⚠️ 服务器默认 java 是 JDK 17（class 61），而 jar 由 JDK 21 编译（class 65）——
 #    必须用 JDK 21 全路径启动，否则 UnsupportedClassVersionError。
 ACCEPT_JAVA = os.environ.get("SCHEMA_ACCEPT_JAVA", "/usr/lib/jvm/jre-21-konajdk/bin/java")
@@ -64,14 +65,24 @@ def run(cmd, cwd=None, check=True, capture=False):
         capture_output=capture, text=True)
 
 
-def _ssh_base():
-    """统一的 ssh 参数。显式指定密钥文件，避免依赖默认路径（CI 与本地路径不同）。"""
-    base = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
+def _key_args():
+    """统一密钥/主机参数（CI 与本地路径不同，显式指定避免歧义）。"""
+    args = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
             "-o", "NumberOfPasswordPrompts=1"]
     key = os.environ.get("SCHEMA_DEPLOY_KEY_PATH")
     if key and Path(key).exists():
-        base += ["-i", key]
-    return base
+        args += ["-i", key]
+    return args
+
+
+def _ssh_base():
+    """ssh 参数：额外禁 tty（远端非交互）。"""
+    return ["ssh", "-T"] + _key_args()
+
+
+def _scp_base():
+    """scp 参数：不传 -T（scp 无该选项）。"""
+    return ["scp"] + _key_args()
 
 
 def ssh(remote_cmd, check=True, timeout=300):
@@ -264,22 +275,27 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
     print(f"== 连接目标: {SERVER}（role={ROLE}）==")
     if "@" not in SERVER:
         raise SystemExit(f"SCHEMA_DEPLOY_HOST 缺少用户名前缀（应为 user@host）: {SERVER}")
-    with open(tar_path, "rb") as f:
-        proc = subprocess.Popen(
-            _ssh_base() + [SERVER,
-                           f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh upload {head}"],
-            stdin=f, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    try:
-        out, _ = proc.communicate(timeout=600)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        raise SystemExit(
-            "上传超时（600s）——常见原因：\n"
-            "  1) SCHEMA_DEPLOY_HOST 缺 user@ 前缀 → ssh 以当前用户连接并等待密码\n"
-            "  2) 服务器 sudo 要求密码（检查 /etc/sudoers.d/schema-deploy 的 NOPASSWD）\n"
-            "  3) known_hosts 未包含服务器 host key → 等待交互确认\n"
-            "  4) 目标脚本不存在 → 排查 /opt/schema/schema-release-accept.sh")
-    print(out)
+
+    # ⚠️ 改用「先 scp 上传到 /tmp，再远端脚本读文件」两步走：
+    #    原先用 ssh + stdin 管道传 33MB tar，在公网链路上实测会挂住
+    #    （本地同写法 7.8s 完成，CI 却 600s 超时——典型的大块 stdin 管道问题）。
+    #    scp 走独立的数据通道，且有天然进度/重传语义，比管道可靠。
+    remote_tar = f"/tmp/schema-accept-{head[:12]}.tar.gz"
+    print(f"== scp 上传产物 -> {remote_tar} ==")
+    r = subprocess.run(
+        _scp_base() + [str(tar_path), f"{SERVER}:{remote_tar}"],
+        capture_output=True, text=True, timeout=300)
+    if r.returncode != 0:
+        print(r.stdout)
+        print(r.stderr, file=sys.stderr)
+        raise SystemExit(f"scp 上传失败 exit={r.returncode}")
+    print(f"   上传完成（{tar_path.stat().st_size // 1024} KiB）")
+
+    print("== 验收面：远端入库（校验 MANIFEST + 原子切换）==")
+    r = ssh(f"rm -rf {RELEASES_PATH}/{head} && "
+            f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh ingest {head} {remote_tar}; "
+            f"rc=$?; rm -f {remote_tar}; exit $rc", timeout=900)
+    print(r.stdout)
     if proc.returncode != 0:
         raise SystemExit(f"验收面上传失败 exit={proc.returncode}")
 

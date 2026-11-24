@@ -168,16 +168,38 @@ cmd_upload() {
     local version="${1:?version required}"
     require_root
     acquire_lock
+    ingest_from_stream "$version" -
+}
+
+# 从文件入库（供 CI 用 scp 先上传的场景：避免大块 stdin 管道在公网挂住）
+# 用法：ingest <version> <tar-file>
+cmd_ingest() {
+    local version="${1:?version required}"
+    local tarball="${2:?tar file required}"
+    require_root
+    acquire_lock
+    [ -f "$tarball" ] || die "tar 文件不存在: $tarball"
+    ingest_from_stream "$version" "$tarball"
+}
+
+# 共用入库逻辑：$2 是 tar 路径（- 表示 stdin）
+ingest_from_stream() {
+    local version="$1"
+    local source="$2"
     local dest="$RELEASES/$version"
     if [ -e "$dest" ]; then
         die "版本已存在: $dest（不可覆盖——请用新版本号，或人工确认后先删）"
     fi
     mkdir -p "$STAGING" "$RELEASES"
-    local tmp="$STAGING/$version.$$"
+    local tmp="$STAGING/$version.$"
     rm -rf "$tmp"; mkdir -p "$tmp"
     log "接收产物流 -> $tmp"
-    if ! tar -xzf - -C "$tmp"; then
-        rm -rf "$tmp"; die "产物解包失败"
+
+    if [ "$source" = "-" ]; then
+        tar -xzf - -C "$tmp" || { rm -rf "$tmp"; die "产物解包失败"; }
+    else
+        log "从文件解包: $source ($(du -h "$source" | cut -f1))"
+        tar -xzf "$source" -C "$tmp" || { rm -rf "$tmp"; die "产物解包失败"; }
     fi
     if [ ! -f "$tmp/$MANIFEST" ]; then
         rm -rf "$tmp"; die "产物缺 $MANIFEST——拒绝入库"
@@ -247,6 +269,7 @@ cmd_status() {
 
 case "${1:-}" in
     upload) shift; cmd_upload "$@" ;;
+    ingest) shift; cmd_ingest "$@" ;;
     switch) shift; cmd_switch "$@" ;;
     status) cmd_status ;;
     *) sed -n '2,20p' "$0"; exit 2 ;;
