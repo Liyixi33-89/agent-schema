@@ -64,10 +64,25 @@ def run(cmd, cwd=None, check=True, capture=False):
         capture_output=capture, text=True)
 
 
+def _ssh_base():
+    """统一的 ssh 参数。显式指定密钥文件，避免依赖默认路径（CI 与本地路径不同）。"""
+    base = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
+            "-o", "NumberOfPasswordPrompts=1"]
+    key = os.environ.get("SCHEMA_DEPLOY_KEY_PATH")
+    if key and Path(key).exists():
+        base += ["-i", key]
+    return base
+
+
 def ssh(remote_cmd, check=True, timeout=300):
-    full = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", SERVER, remote_cmd]
+    full = _ssh_base() + [SERVER, remote_cmd]
     print(f"> ssh {remote_cmd}")
-    r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+    try:
+        r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise SystemExit(
+            f"ssh 超时（{timeout}s）: {remote_cmd}\n"
+            "  排查：连接目标可达性 / 密钥路径(SCHEMA_DEPLOY_KEY_PATH) / known_hosts / sudo 白名单")
     if check and r.returncode != 0:
         print(r.stdout)
         print(r.stderr, file=sys.stderr)
@@ -251,9 +266,8 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
         raise SystemExit(f"SCHEMA_DEPLOY_HOST 缺少用户名前缀（应为 user@host）: {SERVER}")
     with open(tar_path, "rb") as f:
         proc = subprocess.Popen(
-            ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
-             "-o", "NumberOfPasswordPrompts=1", SERVER,
-             f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh upload {head}"],
+            _ssh_base() + [SERVER,
+                           f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh upload {head}"],
             stdin=f, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:
         out, _ = proc.communicate(timeout=600)

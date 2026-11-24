@@ -188,6 +188,8 @@ jobs:
           ssh -o BatchMode=yes -o ConnectTimeout=15 "$DEPLOY_HOST" "echo 认证成功: \$(whoami)"
           echo "SCHEMA_DEPLOY_HOST=$DEPLOY_HOST" >> "$GITHUB_ENV"
           echo "SCHEMA_DEPLOY_ROLE=deploy" >> "$GITHUB_ENV"
+          # deploy.py 的 ssh 显式读取该路径（不依赖默认 ~/.ssh 路径差异）
+          echo "SCHEMA_DEPLOY_KEY_PATH=$HOME/.ssh/id_ed25519" >> "$GITHUB_ENV"
 
       - name: Deploy to acceptance
         run: |
