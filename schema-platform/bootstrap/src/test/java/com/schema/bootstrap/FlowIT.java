@@ -353,7 +353,8 @@ class FlowIT {
     @Test
     void A9_审批人运行时解析为空时实例挂起并告警() {
         // 让发起人属于一个「有部门但没人有该角色」的部门
-        // （部门已在 setUp/tearDown 统一清理，此处直接插入即可）
+        // V20 起 sys_dept 有 (tenant_id, path) 唯一约束，insert 语义确定；
+        // 部门本身仍在 purgeFlowData 里统一清理
         jdbc.update("INSERT INTO sys_dept (tenant_id, path, name) VALUES (?, '/921/', 'IT流程部')",
                 TENANT);
         Long deptId = jdbc.queryForObject(
