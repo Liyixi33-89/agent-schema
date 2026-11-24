@@ -104,6 +104,14 @@ jobs:
         working-directory: schema-frontend
         run: pnpm install --frozen-lockfile
 
+      # ⚠️ 必须与 verify.yml 保持一致：RedlineVectorTest 会调 build-module/node 的
+      #    NodeBuildWorker 执行共享向量，缺这一步会报
+      #    「编译进程异常退出 code=1: node:internal/modules/package_json_reader」
+      #    （package.json 不存在 → esbuild 解析失败 → 4 个向量测试全红）。
+      - name: Install build-worker dependencies
+        working-directory: schema-platform/build-module/node
+        run: pnpm install --frozen-lockfile
+
       # 与人工发布同一条验证链：commit 级全绿才允许部署
       - name: Verify (commit level)
         shell: pwsh
