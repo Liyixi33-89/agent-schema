@@ -1,0 +1,63 @@
+name: ssh-diag
+
+# 临时诊断工作流：验证 GitHub runner 到服务器的 SSH 连通性
+# 用完即删（不长期保留）
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install key
+        env:
+          SSH_KEY: ${{ secrets.SCHEMA_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.SCHEMA_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.SCHEMA_DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          python3 - <<'PY'
+          import os, pathlib
+          h = pathlib.Path(os.path.expanduser("~")) / ".ssh"
+          (h / "id_ed25519").write_text(os.environ["SSH_KEY"].strip() + "\n", encoding="utf-8")
+          os.chmod(h / "id_ed25519", 0o600)
+          (h / "known_hosts").write_text(os.environ["KNOWN_HOSTS"].strip() + "\n", encoding="utf-8")
+          print("key installed")
+          PY
+          echo "HOST_FORMAT_CHECK: $(echo "$DEPLOY_HOST" | sed 's/@.*/@<redacted>/')"
+
+      - name: Test TCP reachability
+        env:
+          DEPLOY_HOST: ${{ secrets.SCHEMA_DEPLOY_HOST }}
+        run: |
+          HOST="${DEPLOY_HOST#*@}"
+          echo "=== TCP 连通性（$HOST:22）==="
+          timeout 15 bash -c "cat < /dev/null > /dev/tcp/$HOST/22" && echo "  ✅ TCP 可达" || echo "  ❌ TCP 不可达（安全组/防火墙）"
+          echo "=== DNS/路由 ==="
+          getent hosts "$HOST" || echo "  解析失败"
+
+      - name: Test SSH auth
+        env:
+          DEPLOY_HOST: ${{ secrets.SCHEMA_DEPLOY_HOST }}
+        run: |
+          echo "=== SSH 认证（30s 超时）==="
+          timeout 30 ssh -T -o BatchMode=yes -o ConnectTimeout=15 -o NumberOfPasswordPrompts=1 \
+            "$DEPLOY_HOST" "echo AUTH_OK: \$(whoami)@\$(hostname)" || echo "  ❌ 认证失败 rc=$?"
+
+      - name: Test sudo
+        env:
+          DEPLOY_HOST: ${{ secrets.SCHEMA_DEPLOY_HOST }}
+        run: |
+          echo "=== sudo 白名单（30s 超时）==="
+          timeout 30 ssh -T -o BatchMode=yes -o ConnectTimeout=15 \
+            "$DEPLOY_HOST" "sudo -n bash /opt/schema/schema-release-accept.sh status 2>&1 | head -8" || echo "  ❌ sudo 失败 rc=$?"
+
+      - name: Test upload channel (small tar)
+        env:
+          DEPLOY_HOST: ${{ secrets.SCHEMA_DEPLOY_HOST }}
+        run: |
+          echo "=== stdin 通道（小 tar，60s 超时）==="
+          mkdir -p /tmp/probe && echo hello > /tmp/probe/a.txt
+          tar -czf /tmp/probe.tar.gz -C /tmp/probe a.txt
+          timeout 60 bash -c "cat /tmp/probe.tar.gz | ssh -T -o BatchMode=yes -o ConnectTimeout=15 '$DEPLOY_HOST' 'sudo -n bash /opt/schema/schema-release-accept.sh upload 0.0.0-diag'" || echo "  ❌ 通道阻塞 rc=$?"
