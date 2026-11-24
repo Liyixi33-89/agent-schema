@@ -69,6 +69,21 @@ jobs:
     timeout-minutes: 45
     environment: acceptance   # 不设 Required reviewers（验收面可自动）
 
+    # ⚠️ verify.ps1 -Level commit 的 backend-it 步骤要求真实 PG（门禁不可跳过）。
+    #    缺这一步会报「PG 未就绪（localhost:5432）——集成测试门禁不可跳过」。
+    #    与 verify.yml / smoke.yml 的服务定义保持一致。
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: schema_dev
+          POSTGRES_USER: schema_dev
+          POSTGRES_PASSWORD: schema_local_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U schema_dev -d schema_dev"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
