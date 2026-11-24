@@ -111,9 +111,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with: { python-version: '3.12' }
+      # ⚠️ 不要加 actions/setup-python：ubuntu-latest 自带 python3，
+      #    setup-python 会改写 PATH/JAVA_HOME 相关环境，实测导致
+      #    `[FAIL] backend-compile: mvn 退出码 1`（同一 commit 在 verify.yml 能过）。
+      #    deploy.py 只要求 python3 可用，系统自带即可。
 
       - name: Install frontend dependencies
         working-directory: schema-frontend
@@ -129,9 +130,27 @@ jobs:
         run: npm ci --no-fund --no-audit
 
       # 与人工发布同一条验证链：commit 级全绿才允许部署
+      # 失败时把日志落到 artifact 并打印尾部，避免 `-q` 吞掉错误导致无法排查
       - name: Verify (commit level)
         shell: pwsh
-        run: ./scripts/verify.ps1 -Level commit
+        run: |
+          try {
+            ./scripts/verify.ps1 -Level commit 2>&1 | Tee-Object -FilePath verify.log
+            if ($LASTEXITCODE -ne 0) { throw "verify 退出码 $LASTEXITCODE" }
+          } catch {
+            Write-Host "===== verify 失败，日志尾部 ====="
+            if (Test-Path verify.log) { Get-Content verify.log -Tail 80 }
+            throw
+          }
+
+      - name: Archive verify log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-test-verify-log
+          path: verify.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Install deploy SSH key
         env:
