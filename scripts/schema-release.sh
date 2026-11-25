@@ -239,6 +239,12 @@ cmd_switch() {
     acquire_lock
     [ -d "$RELEASES/$version" ] || die "版本不存在: $RELEASES/$version"
     local prev; prev=$(read_state current)
+    # ⚠️ 重复 switch 同一版本时 prev 会等于 version，写回后 previous 变成自己，
+    #    回滚直接失效（2026-11-25 生产实测踩到）。此时保留原有的 previous。
+    if [ "$prev" = "$version" ]; then
+        prev=$(read_state previous)
+        log "重复切换同一版本 $version —— 保留上一版本指针 ${prev:-<无>}"
+    fi
     backup_db
     log "切换版本 ${prev:-<首次>} -> $version"
     switch_to "$version"

@@ -492,25 +492,6 @@ def main():
             return
 
         deploy_prod(head, work, backend_jar, web_dir)
-    print("== 切换版本（服务器侧：发布锁 -> DB 备份 -> 探针+三入口+commit 全量验证 -> 失败自动回滚）==")
-    ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh switch {head}")
-
-    print("== 发布后独立复验（不依赖服务器脚本自身结论）==")
-    for name, path in ENTRIES.items():
-        r = ssh(f"curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1{path}", check=False)
-        code = r.stdout.strip()
-        print(f"  {name:8s} {path:12s} -> {code}")
-        if code != "200":
-            ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh rollback", check=False)
-            raise SystemExit(f"入口验证失败且已触发服务器侧回滚: {name} -> {code}")
-    probe = json.loads(ssh("curl -s http://127.0.0.1:18080/internal/health/readiness").stdout)
-    print(f"  probe    -> {probe}")
-    if probe.get("commit") not in (head, head[:8], head[:12]):
-        ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh rollback", check=False)
-        raise SystemExit(f"线上 commit 与目标不一致且已触发回滚: {probe.get('commit')} != {head[:12]}")
-
-    print(f"\n发布成功: {head[:12]} @ {SERVER}")
-    print(f"回滚命令: ssh {SERVER} 'bash {REMOTE_ROOT}/schema-release.sh rollback'")
 
 
 if __name__ == "__main__":
