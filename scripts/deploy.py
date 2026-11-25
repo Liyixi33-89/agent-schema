@@ -222,11 +222,13 @@ def build(backend_jar: Path, web_dir: Path, accept: bool = False):
 def make_version_file(version: str, workdir: Path, backend_jar: Path, web_dir: Path):
     """版本清单：commit、构建时间、jar 哈希——线上可回答『跑的是哪个提交』。"""
     digest = hashlib.sha256(backend_jar.read_bytes()).hexdigest()
+    # newline="\n" 强制 LF：Windows 默认 CRLF 会让服务器侧 grep 结果带 \r，
+    # 导致「两个哈希看起来相同却不相等」的诡异失败（实测踩到）
     (workdir / "VERSION.txt").write_text(
         f"commit={version}\n"
         f"builtAt={time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n"
         f"jarSha256={digest}\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
 
 def make_manifest(workdir: Path):

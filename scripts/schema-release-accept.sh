@@ -242,10 +242,13 @@ cmd_ingest() {
     # ④ 独立校验 jar（VERSION.txt 里记录了 jarSha256）
     if [ -f "$tmp/VERSION.txt" ]; then
         local expect actual
-        expect=$(grep '^jarSha256=' "$tmp/VERSION.txt" | cut -d= -f2)
-        actual=$(sha256sum "$tmp/schema-platform.jar" | cut -d' ' -f1)
+        # tr -d '[:space:]' 清理 CR/LF/空格：Windows 侧生成的文件可能带 \r，
+        # 直接比较会得到「两个哈希看起来一样却不相等」的诡异现象（实测踩到）
+        expect=$(grep '^jarSha256=' "$tmp/VERSION.txt" | head -1 | cut -d= -f2 | tr -d '[:space:]')
+        actual=$(sha256sum "$tmp/schema-platform.jar" | cut -d' ' -f1 | tr -d '[:space:]')
         if [ -n "$expect" ] && [ "$expect" != "$actual" ]; then
-            rm -rf "$tmp"; die "jar 哈希不匹配: VERSION=$expect 实际=$actual"
+            rm -rf "$tmp"
+            die "jar 哈希不匹配: VERSION=[$expect] 实际=[$actual]"
         fi
         log "jar 哈希校验通过: ${actual:0:16}..."
     fi
