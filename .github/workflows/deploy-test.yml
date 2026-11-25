@@ -68,6 +68,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: acceptance   # 不设 Required reviewers（验收面可自动）
+    permissions:
+      contents: read
+      actions: read
 
     # ⚠️ verify.ps1 -Level commit 的 backend-it 步骤要求真实 PG（门禁不可跳过）。
     #    缺这一步会报「PG 未就绪（localhost:5432）——集成测试门禁不可跳过」。
@@ -152,6 +155,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Require verify and smoke for target SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.ver.outputs.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/test_gate.py ci --repo "$REPOSITORY" --sha "$TARGET_SHA" --timeout 1200
+
       - name: Install deploy SSH key
         env:
           SSH_KEY: ${{ secrets.SCHEMA_DEPLOY_SSH_KEY }}
@@ -191,9 +201,65 @@ jobs:
           # deploy.py 的 ssh 显式读取该路径（不依赖默认 ~/.ssh 路径差异）
           echo "SCHEMA_DEPLOY_KEY_PATH=$HOME/.ssh/id_ed25519" >> "$GITHUB_ENV"
 
+      # ---------------------------------------------------------------
+      # 部署（方案 B：前端自动 / 后端人工）
+      #
+      # 实测数据（决定这个策略）：
+      #   · CI runner → 服务器：约 10 KB/s
+      #   · 服务器 → 境内镜像：113 MB/s（快）
+      #   · 服务器 → GitHub：40 KB/s（慢）
+      # 即：**境外↔服务器这段链路是硬瓶颈**，任何协议都无法突破
+      #   （scp / rsync / 管道 / GitHub artifact 拉取均已实测）。
+      #
+      # 传输量算账（按 10 KB/s）：
+      #   · web.tar.gz    1.87 MB → 约 3 分钟   ✅ 可行
+      #   · backend.tar  34.5 MB → 约 57 分钟  ❌ 超 job 上限
+      #
+      # 因此：
+      #   · 只改前端 → 自动部署 web（复用服务器现有 jar）
+      #   · 改了后端 → 明确失败并给出人工部署命令（不静默跳过、不假成功）
+      # ---------------------------------------------------------------
+      - name: Detect backend changes
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: |
+          set -u
+          # 判断本次是否动了后端/共享协议（会影响 jar 的路径）
+          if [ -z "${BASE_SHA:-}" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "无法比较基线（首次推送/手动触发）→ 保守视为后端有变更"
+            echo "backend=yes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$BASE_SHA" HEAD 2>/dev/null || echo "")
+          echo "变更文件数: $(printf '%s\n' "$CHANGED" | grep -c . || echo 0)"
+          if printf '%s\n' "$CHANGED" | grep -qE '^schema-platform/|^pom\.xml$|^schema-frontend/packages/schema-protocol/'; then
+            echo "backend=yes" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "$CHANGED" | grep -E '^schema-platform/|^pom\.xml$|^schema-frontend/packages/schema-protocol/' | head -5 | sed 's/^/  后端相关: /'
+          else
+            echo "backend=no" >> "$GITHUB_OUTPUT"
+            echo "  仅前端变更 → 只需部署 web"
+          fi
+
       - name: Deploy to acceptance
         run: |
-          python scripts/deploy.py \
+          set -u
+          if [ "${{ steps.scope.outputs.backend }}" = "yes" ]; then
+            echo "::error title=后端变更需人工部署::本次提交改了 schema-platform / pom.xml / schema-protocol"
+            echo ""
+            echo "CI 无法自动部署后端（实测 CI→服务器仅 10 KB/s，34.5MB jar 需约 57 分钟，超 job 上限）。"
+            echo ""
+            echo "请在有服务器直连的机器上执行（实测 6 秒完成）："
+            echo "  export SCHEMA_DEPLOY_HOST=deploy@111.231.57.177"
+            echo "  export SCHEMA_DEPLOY_ROLE=deploy"
+            echo "  export SCHEMA_DEPLOY_KEY_PATH=~/.ssh/id_ed25519"
+            echo "  python scripts/deploy.py --version ${{ steps.ver.outputs.short }} --target accept --skip-verify"
+            echo ""
+            echo "前端产物已在本次 CI 构建完成，人工部署会一并发布前后端。"
+            exit 1
+          fi
+          # 仅前端：复用服务器现有 jar
+          SCHEMA_SKIP_BACKEND=1 python scripts/deploy.py \
             --version "${{ steps.ver.outputs.short }}" \
             --target accept \
             --skip-verify
