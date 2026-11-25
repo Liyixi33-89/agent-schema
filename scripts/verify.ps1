@@ -404,11 +404,15 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
             if ((Get-Item $xml).LastWriteTimeUtc -lt $itStartedAt) { $missing += "$it(旧报告)"; continue }
             [xml]$report = Get-Content $xml -Raw -Encoding UTF8
             $suite = $report.DocumentElement
+            # ⚠️ Surefire 的根节点名是**测试类全名**（如 com.schema.bootstrap.XxxIT），
+            #    不是 'testsuite'——不能按字面量比对，否则每个 IT 都被判成零用例。
+            #    这里只校验根节点带 tests/failures/errors/skipped 四属性即可。
+            if ($null -eq $suite.GetAttribute('tests')) { $missing += "$it(报告结构异常)"; continue }
             $tests = [int]$suite.GetAttribute('tests')
             $failures = [int]$suite.GetAttribute('failures')
             $errors = [int]$suite.GetAttribute('errors')
             $skipped = [int]$suite.GetAttribute('skipped')
-            if ($suite.Name -ne 'testsuite' -or $tests -le 0 -or $tests -le $skipped) { $zero += $it }
+            if ($tests -le 0 -or $tests -le $skipped) { $zero += $it }
             if ($failures -gt 0 -or $errors -gt 0 -or $skipped -gt 0) { $missing += "$it(失败或跳过)" }
         }
         if ($missing.Count -gt 0 -or $zero.Count -gt 0) {
