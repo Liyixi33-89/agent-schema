@@ -51,6 +51,7 @@ ACCEPT_ENTRIES = {  # 验收面入口（nginx accept-loopback.conf 的 alias 路
     "admin": "/accept/admin/",  # nginx schema.conf:49 已配置，部署必须一并验证
 }
 ACCEPT_PROBE = f"http://127.0.0.1:{ACCEPT_BACKEND_PORT}/internal/health/readiness"
+PROD_PROBE = "http://127.0.0.1:18080/internal/health/readiness"
 RELEASES_PATH = f"{ACCEPT_ROOT}/releases"
 # ⚠️ 服务器默认 java 是 JDK 17（class 61），而 jar 由 JDK 21 编译（class 65）——
 #    必须用 JDK 21 全路径启动，否则 UnsupportedClassVersionError。
@@ -386,6 +387,79 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
     print("  入口: /accept/designer/ , /accept/runtime/ , /accept/admin/")
 
 
+def deploy_prod(head: str, work: Path, backend_jar: Path, web_dir: Path):
+    """生产面发布：分离打包 -> scp 上传 -> 远端 ingest -> 切链 -> 独立复验。
+
+    与验收面共用「分离传输」通道（stdin 管道传 30MB+ 在公网会挂住）。
+    生产脚本 schema-release.sh 的 ingest 支持三态：
+      ingest <ver> <web> <backend>   双包
+      ingest <ver> <web> -           复用上一版本 jar
+      ingest <ver> <web>             单包（jar 在 web 包内，兼容旧形式）
+    """
+    # 生产面同样走「分离打包 + scp 上传 + 远端 ingest」，
+    # 与验收面共用一套可靠通道（stdin 管道在公网实测会挂住，已废弃）。
+    backend_tar = work / "prod-backend.tar"
+    web_tar = work / "prod-web.tar.gz"
+    _pack_tar([(backend_jar, "schema-platform.jar")], backend_tar)
+    # ⚠️ 生产 web/ 是**合并结构**（build(accept=False) 产出）：
+    #    web/           ← runtime 的 index.html + assets/
+    #    web/designer/  ← designer
+    #    web/admin/     ← admin-console
+    #    不能按验收面的 web/{designer,runtime,admin} 三个子目录去拷——
+    #    那样会漏掉根目录 index.html 与统一 assets/，nginx 直接 404。
+    web_items = [(work / "VERSION.txt", "VERSION.txt"),
+                 (work / "MANIFEST.sha256", "MANIFEST.sha256"),
+                 (web_dir, "web")]
+    _pack_tar(web_items, web_tar, compresslevel=6)
+    print(f"== 打包完成 backend {backend_tar.stat().st_size // 1024} KiB / "
+          f"web {web_tar.stat().st_size // 1024} KiB ==")
+
+    print("== 上传（scp -> 远端 ingest，超时 1800s 给慢链路留余量）==")
+    remote_backend = f"/tmp/schema-prod-{head[:12]}-backend.tar"
+    remote_web = f"/tmp/schema-prod-{head[:12]}-web.tar.gz"
+    for local, remote in ((backend_tar, remote_backend), (web_tar, remote_web)):
+        r = subprocess.run(_scp_base() + [str(local), f"{SERVER}:{remote}"],
+                           capture_output=True, text=True, timeout=1800)
+        if r.returncode != 0:
+            print(r.stdout); print(r.stderr, file=sys.stderr)
+            raise SystemExit(f"上传失败: {local.name} exit={r.returncode}")
+        print(f"   {local.name} -> {remote} 完成")
+
+    # 远端入库（生产脚本需支持双包形式；deploy 用户走 sudo 白名单）
+    ingest = ssh(
+        f"sudo -n bash {REMOTE_ROOT}/schema-release.sh ingest {head} {remote_web} {remote_backend}; "
+        f"rc=$?; rm -f {remote_web} {remote_backend}; exit $rc", timeout=900)
+    print(ingest.stdout)
+
+
+    print("== 切换版本（服务器侧：发布锁 -> DB 备份 -> 探针+三入口+commit 全量验证 -> 失败自动回滚）==")
+    ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh switch {head}")
+
+    print("== 发布后独立复验（不依赖服务器脚本自身结论）==")
+    for name, path in ENTRIES.items():
+        r = ssh(f"curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1{path}", check=False)
+        code = r.stdout.strip()
+        print(f"  {name:8s} {path:12s} -> {code}")
+        if code != "200":
+            ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh rollback", check=False)
+            raise SystemExit(f"入口验证失败且已触发服务器侧回滚: {name} -> {code}")
+
+    probe = json.loads(ssh(f"curl -s {PROD_PROBE}").stdout)
+    print(f"  probe    -> {probe}")
+    if probe.get("status") != "UP":
+        ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh rollback", check=False)
+        raise SystemExit("生产后端未就绪（探针非 UP）且已触发回滚")
+    # 完整 hash 精确匹配（不用 startswith——见 deploy_accept 同处说明）
+    actual_commit = str(probe.get("commit", ""))
+    if actual_commit != head:
+        ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh rollback", check=False)
+        raise SystemExit(f"线上 commit={actual_commit} 与目标 {head} 不一致且已触发回滚")
+
+    print(f"\n发布成功: {head[:12]} @ {SERVER}")
+    print(f"回滚命令: ssh {SERVER} 'sudo -n bash {REMOTE_ROOT}/schema-release.sh rollback'")
+
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", required=True, help="git commit（完整或短 hash）")
@@ -417,43 +491,7 @@ def main():
             deploy_accept(head, work, backend_jar, web_dir)
             return
 
-        tar_path = work / "bundle.tar.gz"
-        with tarfile.open(tar_path, "w:gz") as tar:
-            for name in ("schema-platform.jar", "web", "VERSION.txt", "MANIFEST.sha256"):
-                tar.add(work / name, arcname=name)
-        print(f"== 打包完成 {tar_path.stat().st_size // 1024} KiB ==")
-
-        print("== 上传 ==")
-        # 上传与切换统一走 sudo 白名单通道：deploy 用户可执行 schema-release.sh（root 权限内收口在该脚本）
-        with open(tar_path, "rb") as f:
-            proc = subprocess.Popen(
-                ["ssh", "-o", "BatchMode=yes", SERVER,
-                 f"sudo -n bash {REMOTE_ROOT}/schema-release.sh upload {head}"],
-                stdin=f, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        out, _ = proc.communicate(timeout=600)
-        print(out)
-        if proc.returncode != 0:
-            raise SystemExit(f"上传失败 exit={proc.returncode}")
-
-    print("== 切换版本（服务器侧：发布锁 -> DB 备份 -> 探针+三入口+commit 全量验证 -> 失败自动回滚）==")
-    ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh switch {head}")
-
-    print("== 发布后独立复验（不依赖服务器脚本自身结论）==")
-    for name, path in ENTRIES.items():
-        r = ssh(f"curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1{path}", check=False)
-        code = r.stdout.strip()
-        print(f"  {name:8s} {path:12s} -> {code}")
-        if code != "200":
-            ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh rollback", check=False)
-            raise SystemExit(f"入口验证失败且已触发服务器侧回滚: {name} -> {code}")
-    probe = json.loads(ssh("curl -s http://127.0.0.1:18080/internal/health/readiness").stdout)
-    print(f"  probe    -> {probe}")
-    if probe.get("commit") not in (head, head[:8], head[:12]):
-        ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release.sh rollback", check=False)
-        raise SystemExit(f"线上 commit 与目标不一致且已触发回滚: {probe.get('commit')} != {head[:12]}")
-
-    print(f"\n发布成功: {head[:12]} @ {SERVER}")
-    print(f"回滚命令: ssh {SERVER} 'bash {REMOTE_ROOT}/schema-release.sh rollback'")
+        deploy_prod(head, work, backend_jar, web_dir)
 
 
 if __name__ == "__main__":

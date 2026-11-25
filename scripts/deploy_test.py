@@ -86,6 +86,58 @@ class DeployTest(unittest.TestCase):
                         for entry, call in zip(deploy.ACCEPT_ENTRIES.values(), ssh.call_args_list[2:5]):
                             self.assertIn(entry, call.args[0])
 
+    def test_prod_web_bundle_preserves_merged_layout(self):
+        """生产 web/ 是合并结构：根 index.html+assets/ 加 designer/、admin/ 子目录。
+
+        回归 2026-11-25 修正的缺陷：生产打包曾按验收面的 web/{designer,runtime,admin}
+        三子目录去拷，会漏掉根目录 index.html 与统一 assets/，nginx 直接 404。
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            jar = root / 'schema-platform.jar'
+            jar.write_bytes(b'synthetic-jar')
+            web = root / 'web'
+            web.mkdir()
+            (web / 'index.html').write_text('<html>runtime</html>')
+            (web / 'assets').mkdir()
+            (web / 'assets' / 'app.js').write_text('console.log(1)')
+            for sub in ('designer', 'admin'):
+                (web / sub).mkdir()
+                (web / sub / 'index.html').write_text(f'<html>{sub}</html>')
+            deploy.make_version_file(self.head, root, jar, web)
+            deploy.make_manifest(root)
+
+            captured = {}
+
+            def fake_run(cmd, *a, **kw):
+                # 拦截 scp：记录上传的本地 tar 路径
+                captured.setdefault('scp', []).append(cmd[-2])
+                return subprocess.CompletedProcess(cmd, 0, '', '')
+
+            with patch('deploy.subprocess.run', side_effect=fake_run):
+                # ssh 桩按调用顺序返回：ingest 输出 / switch / 三入口 200 / 探针
+                responses = [
+                    subprocess.CompletedProcess([], 0, 'ingested', ''),
+                    subprocess.CompletedProcess([], 0, 'switched', ''),
+                    subprocess.CompletedProcess([], 0, '200', ''),
+                    subprocess.CompletedProcess([], 0, '200', ''),
+                    subprocess.CompletedProcess([], 0, '200', ''),
+                    subprocess.CompletedProcess(
+                        [], 0, json.dumps({'status': 'UP', 'commit': self.head}), ''),
+                ]
+                with patch('deploy.ssh', side_effect=responses):
+                    deploy.deploy_prod(self.head, root, jar, web)
+
+            # 解包上传的 web tar，确认顶层结构是 web/（含根 index.html 与 assets/）
+            import tarfile
+            web_tar = next(Path(p) for p in captured['scp'] if str(p).endswith('.tar.gz'))
+            with tarfile.open(web_tar) as tf:
+                names = tf.getnames()
+            self.assertIn('web/index.html', names)
+            self.assertIn('web/assets/app.js', names)
+            self.assertIn('web/designer/index.html', names)
+            self.assertIn('web/admin/index.html', names)
+
     def test_ssh_errors_and_timeout_fail(self):
         with patch('deploy.subprocess.run', return_value=subprocess.CompletedProcess([], 1, '', 'failure')):
             with self.assertRaises(SystemExit):

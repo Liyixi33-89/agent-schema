@@ -3,9 +3,13 @@
 #
 # 用法：
 #   schema-release.sh upload    <version>          # stdin 收 tar 流 -> 校验 MANIFEST -> 原子入库
+#   schema-release.sh ingest    <version> <web-tar> <backend-tar|->  # 从文件入库（分离包，推荐）
 #   schema-release.sh switch    <version>          # 发布锁 -> 全量验证（探针+三入口+版本一致）-> 失败自动回滚
 #   schema-release.sh rollback  [version]          # 回滚（跨迁移边界拒绝，见 DB_FLOOR）
 #   schema-release.sh status                       # 版本/探针/锁状态
+#
+# ⚠️ upload（stdin 管道）传 30MB+ 大文件在公网会挂住——本地 7.8s、CI 600s 超时。
+#    CI 与本地部署统一走 ingest：先 scp 上传到 /tmp，再由本脚本从文件解包。
 #
 # 五缺口收口（2026-11-03 二轮）：
 #   1) 发布锁：flock /run/lock/schema-release.lock——手工与 CI 并发发布互斥；
@@ -111,38 +115,114 @@ cmd_upload() {
     local version="${1:?version required}"
     require_root
     acquire_lock
-    local dest="$RELEASES/$version"
-    [ -e "$dest" ] && die "版本已存在: $dest（不可覆盖——请用新版本号）"
-    mkdir -p "$STAGING" "$RELEASES"
-    local tmp="$STAGING/$version.$$"
-    rm -rf "$tmp"; mkdir -p "$tmp"
+    local tmp
+    tmp=$(prepare_staging "$version")
     log "接收产物流 -> $tmp"
     if ! tar -xzf - -C "$tmp"; then
         rm -rf "$tmp"; die "产物解包失败"
     fi
-    # 完整性闸：MANIFEST 必须存在且逐条 sha256 比对（jar + web 全量文件）
-    if [ ! -f "$tmp/$MANIFEST" ]; then
-        rm -rf "$tmp"; die "产物缺 $MANIFEST——拒绝入库（完整性无法验证）"
+    finalize_release "$version" "$tmp"
+}
+
+# 从文件入库（scp 先上传的场景：避免大块 stdin 管道在公网挂住）
+#
+# 用法：
+#   ingest <version> <web-tar> <backend-tar>   # 分离双包（web 含 MANIFEST/VERSION）
+#   ingest <version> <web-tar> -               # 分离包，复用上一版本 jar（纯前端改动）
+#
+# 为什么要有这条通道：stdin 管道传 30MB+ 在公网实测会挂住（本地 7.8s、
+# CI 600s 超时）。scp 走独立数据通道，有天然进度/重传语义，可靠得多。
+cmd_ingest() {
+    local version="${1:?version required}"
+    local web_tar="${2:?web tar required}"
+    local backend_tar="${3:-}"
+
+    require_root
+    acquire_lock
+    [ -f "$web_tar" ] || die "web tar 不存在: $web_tar"
+
+    local tmp
+    tmp=$(prepare_staging "$version")
+
+    # ① web 包（含 web/ + VERSION.txt + MANIFEST.sha256）
+    log "解包 web 包: $web_tar ($(du -h "$web_tar" | cut -f1))"
+    tar -xzf "$web_tar" -C "$tmp" || { rm -rf "$tmp"; die "web 包解包失败"; }
+
+    # ② jar 三态
+    if [ -z "$backend_tar" ]; then
+        [ -f "$tmp/schema-platform.jar" ] || {
+            rm -rf "$tmp"; die "单包模式但缺 schema-platform.jar"; }
+        log "单包模式：jar 来自 web 包"
+    elif [ "$backend_tar" = "-" ]; then
+        local prev; prev=$(read_state current)
+        [ -n "$prev" ] || { rm -rf "$tmp"; die "无上一版本可供复用 jar"; }
+        [ -f "$RELEASES/$prev/schema-platform.jar" ] || {
+            rm -rf "$tmp"; die "上一版本 $prev 无 jar 可复用"; }
+        cp -f "$RELEASES/$prev/schema-platform.jar" "$tmp/schema-platform.jar"
+        log "复用上一版本 jar: $prev"
+    else
+        [ -f "$backend_tar" ] || { rm -rf "$tmp"; die "backend tar 不存在: $backend_tar"; }
+        log "解包 backend 包: $backend_tar ($(du -h "$backend_tar" | cut -f1))"
+        tar -xf "$backend_tar" -C "$tmp" || { rm -rf "$tmp"; die "backend 包解包失败"; }
+        [ -f "$tmp/schema-platform.jar" ] || { rm -rf "$tmp"; die "backend 包缺 schema-platform.jar"; }
     fi
+
+    # ③ MANIFEST 只覆盖 web 包内文件（jar 由 ④ 单独校验）——
+    #    分离传输下「复用上一版本 jar」时 MANIFEST 不含 jar 才对得上。
+    [ -f "$tmp/$MANIFEST" ] || { rm -rf "$tmp"; die "产物缺 $MANIFEST"; }
     (cd "$tmp" && sha256sum -c "$MANIFEST" --quiet) || {
-        rm -rf "$tmp"; die "MANIFEST 校验失败——产物传输损坏，拒绝入库"
-    }
+        rm -rf "$tmp"; die "MANIFEST 校验失败——web 产物损坏或缺文件"; }
+    log "MANIFEST 校验通过（$(wc -l < "$tmp/$MANIFEST") 个文件）"
+
+    # ④ jar 校验：仅当本次真的传了 jar 才比对（复用时 VERSION.txt 记的是
+    #    本次构建哈希，与实际复用的旧 jar 必然不同，不能比）。
+    if [ "$backend_tar" != "-" ] && [ -f "$tmp/VERSION.txt" ]; then
+        local expect actual
+        expect=$(grep '^jarSha256=' "$tmp/VERSION.txt" | head -1 | cut -d= -f2 | tr -d '[:space:]')
+        actual=$(sha256sum "$tmp/schema-platform.jar" | cut -d' ' -f1 | tr -d '[:space:]')
+        if [ -n "$expect" ] && [ "$expect" != "$actual" ]; then
+            rm -rf "$tmp"; die "jar 哈希不匹配: VERSION=[$expect] 实际=[$actual]"
+        fi
+        log "jar 哈希校验通过: ${actual:0:16}..."
+    elif [ "$backend_tar" = "-" ]; then
+        log "复用上一版本 jar：跳过 jarSha256 比对（该版本入库时已校验）"
+    fi
+
+    finalize_release "$version" "$tmp"
+}
+
+# 建 staging 目录并做「版本不可覆盖」检查（upload / ingest 共用）
+prepare_staging() {
+    local version="$1"
+    local dest="$RELEASES/$version"
+    [ -e "$dest" ] && die "版本已存在: $dest（不可覆盖——请用新版本号）"
+    mkdir -p "$STAGING" "$RELEASES"
+    local tmp="$STAGING/$version.$"
+    rm -rf "$tmp"; mkdir -p "$tmp"
+    printf '%s' "$tmp"
+}
+
+# 完整性兜底 + 迁移水位 + 权限模型 + 原子入库（upload / ingest 共用）
+finalize_release() {
+    local version="$1"
+    local tmp="$2"
     [ -f "$tmp/schema-platform.jar" ] || { rm -rf "$tmp"; die "产物缺 schema-platform.jar"; }
     [ -d "$tmp/web" ] || { rm -rf "$tmp"; die "产物缺 web/"; }
     # 迁移水位入库（回滚边界判定依据）
-    unzip -p "$tmp/schema-platform.jar" BOOT-INF/classes/db/migration 2>/dev/null | head -c0 || true
     local highest=0 v
     for v in $(unzip -l "$tmp/schema-platform.jar" | grep -o 'db/migration/V[0-9]*__' | grep -o 'V[0-9]*' | tr -d 'V' | sort -n); do
         highest=$v
     done
     echo "$highest" > "$tmp/dbBaseline"
     # 原子入库 + 权限模型（目录可穿越、jar 收紧、web 全局可读）
+    # ⚠️ 生产服务以 schema 用户运行，jar 必须 schema:schema 且 640——
+    #    与验收面（root + 644）不同，不要照搬。
     chown -R schema:schema "$tmp"
     chmod 755 "$tmp"; chmod 640 "$tmp/schema-platform.jar"
     find "$tmp/web" -type d -exec chmod 755 {} +
     find "$tmp/web" -type f -exec chmod 644 {} +
-    mv "$tmp" "$dest"
-    log "上传入库完成: $version ($(du -sh "$dest" | cut -f1)) dbBaseline=$highest"
+    mv "$tmp" "$RELEASES/$version"
+    log "入库完成: $version ($(du -sh "$RELEASES/$version" | cut -f1)) dbBaseline=$highest"
 }
 
 switch_to() { # version —— 纯切链+重启，不含验证（内部复用）
@@ -159,6 +239,12 @@ cmd_switch() {
     acquire_lock
     [ -d "$RELEASES/$version" ] || die "版本不存在: $RELEASES/$version"
     local prev; prev=$(read_state current)
+    # ⚠️ 重复 switch 同一版本时 prev 会等于 version，写回后 previous 变成自己，
+    #    回滚直接失效（2026-11-25 生产实测踩到）。此时保留原有的 previous。
+    if [ "$prev" = "$version" ]; then
+        prev=$(read_state previous)
+        log "重复切换同一版本 $version —— 保留上一版本指针 ${prev:-<无>}"
+    fi
     backup_db
     log "切换版本 ${prev:-<首次>} -> $version"
     switch_to "$version"
@@ -220,6 +306,7 @@ cmd_status() {
 
 case "${1:-}" in
     upload)   shift; cmd_upload "$@" ;;
+    ingest)   shift; cmd_ingest "$@" ;;
     switch)   shift; cmd_switch "$@" ;;
     rollback) shift; cmd_rollback "$@" ;;
     status)   cmd_status ;;
