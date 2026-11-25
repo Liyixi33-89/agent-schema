@@ -227,17 +227,13 @@ cmd_ingest() {
         [ -f "$tmp/schema-platform.jar" ] || { rm -rf "$tmp"; die "backend 包缺 schema-platform.jar"; }
     fi
 
-    # ③ MANIFEST 校验（web 包内的清单；jar 单独校验见下）
-    if [ -f "$tmp/$MANIFEST" ]; then
-        (cd "$tmp" && sha256sum -c "$MANIFEST" --quiet 2>/dev/null) || {
-            # jar 在分离模式下不在 MANIFEST 中，逐条校验允许"缺失"仅限 jar
-            log "MANIFEST 含 jar 条目时的严格校验："
-            (cd "$tmp" && sha256sum -c "$MANIFEST" --quiet) || {
-                rm -rf "$tmp"; die "MANIFEST 校验失败——产物损坏"; }
-        }
-    else
-        rm -rf "$tmp"; die "产物缺 $MANIFEST"
+    # ③ MANIFEST 校验（只覆盖 web 包内文件；jar 由 ④ 单独校验）
+    #    —— 分离传输下「复用上一版本 jar」时，MANIFEST 不含 jar 才对得上
+    [ -f "$tmp/$MANIFEST" ] || { rm -rf "$tmp"; die "产物缺 $MANIFEST"; }
+    if ! (cd "$tmp" && sha256sum -c "$MANIFEST" --quiet); then
+        rm -rf "$tmp"; die "MANIFEST 校验失败——web 产物损坏或缺文件"
     fi
+    log "MANIFEST 校验通过（$(wc -l < "$tmp/$MANIFEST") 个文件）"
 
     # ④ 独立校验 jar（VERSION.txt 里记录了 jarSha256）
     if [ -f "$tmp/VERSION.txt" ]; then

@@ -232,19 +232,30 @@ def make_version_file(version: str, workdir: Path, backend_jar: Path, web_dir: P
 
 
 def make_manifest(workdir: Path):
-    """产物完整性清单（MANIFEST.sha256）：jar + web 全量文件哈希。
+    """产物完整性清单（MANIFEST.sha256）：仅覆盖 **web 包内** 的文件。
 
-    服务器端 upload 逐条 sha256sum -c 比对——传输损坏/缺文件在上传阶段即拒绝入库，
-    不再等到运行时发现。格式与 sha256sum -c 兼容（相对路径 + 两空格 + 哈希）。
+    ## 为什么排除 jar（方案 1 分离传输后必需）
+    分离传输时，纯前端改动会复用上一版本的 jar（SCHEMA_SKIP_BACKEND=1）。
+    若 MANIFEST 仍含 jar 哈希，复用场景下必然对不上 → 误判「产物损坏」。
+    jar 的完整性由 VERSION.txt 的 jarSha256 独立校验（服务器脚本 ④ 步），
+    两道校验各管各的，互不干扰。
+
+    格式与 sha256sum -c 兼容（相对路径 + 两空格 + 哈希）。
     """
     lines = []
     for path in sorted(workdir.rglob("*")):
-        if path.is_file() and path.name != "MANIFEST.sha256":
-            rel = path.relative_to(workdir).as_posix()
-            lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {rel}")
+        if not path.is_file():
+            continue
+        if path.name == "MANIFEST.sha256":
+            continue
+        rel = path.relative_to(workdir).as_posix()
+        # 排除 jar：随 backend 包单独传输，由 VERSION.txt 校验
+        if rel == "schema-platform.jar":
+            continue
+        lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {rel}")
     manifest = "\n".join(lines) + "\n"
     (workdir / "MANIFEST.sha256").write_text(manifest, encoding="utf-8", newline="\n")
-    print(f"== MANIFEST 生成: {len(lines)} 个文件 ==")
+    print(f"== MANIFEST 生成: {len(lines)} 个文件（不含 jar，jar 由 VERSION.txt 单独校验）==")
 
 
 def _pack_tar(paths, out_path, *, compresslevel=None):
