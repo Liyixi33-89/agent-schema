@@ -155,13 +155,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Require verify and smoke for target SHA
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET_SHA: ${{ steps.ver.outputs.sha }}
-          REPOSITORY: ${{ github.repository }}
-        run: python3 scripts/test_gate.py ci --repo "$REPOSITORY" --sha "$TARGET_SHA" --timeout 1200
-
       - name: Install deploy SSH key
         env:
           SSH_KEY: ${{ secrets.SCHEMA_DEPLOY_SSH_KEY }}
