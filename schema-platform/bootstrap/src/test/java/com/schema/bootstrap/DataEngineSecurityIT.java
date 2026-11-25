@@ -84,6 +84,17 @@ class DataEngineSecurityIT {
         jdbc.update("DELETE FROM sys_role WHERE code LIKE 'it_%'");
         jdbc.update("DELETE FROM sys_user WHERE account LIKE 'it_%'");
         jdbc.update("DELETE FROM sys_dept WHERE path LIKE '/3%' OR path LIKE '/4%'");
+        // ⚠️ 重置自增序列：仅删数据不重置会导致 id 复用冲突。
+        //    实测（V20 唯一约束引入后暴露）：全量跑 IT 时本类插入 /400/401/ 撞
+        //    「duplicate key value violates unique constraint "sys_dept_pkey"」
+        //    （Key (id)=(11) already exists）——因为序列下一个值恰好与残留行冲突。
+        //    单独跑该测试类则正常，属跨类数据干扰。
+        //    用 setval 同步到当前最大值，保证后续 INSERT 从安全位置开始。
+        jdbc.execute("""
+                SELECT setval('sys_dept_id_seq',
+                              coalesce((SELECT max(id) FROM sys_dept), 0) + 1,
+                              false)
+                """);
         // 种子角色自愈（历史测试库可能已被旧版 warmup 清掉——幂等重建 userId=1 的 ALL 范围）
         jdbc.update("""
                 INSERT INTO sys_role (tenant_id, app_id, code, name, role_type)

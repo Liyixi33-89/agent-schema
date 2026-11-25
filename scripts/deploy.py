@@ -48,8 +48,10 @@ ACCEPT_BACKEND_PORT = 18081
 ACCEPT_ENTRIES = {  # 验收面入口（nginx accept-loopback.conf 的 alias 路径）
     "designer": "/accept/designer/",
     "runtime": "/accept/runtime/",
+    "admin": "/accept/admin/",  # nginx schema.conf:49 已配置，部署必须一并验证
 }
 ACCEPT_PROBE = f"http://127.0.0.1:{ACCEPT_BACKEND_PORT}/internal/health/readiness"
+RELEASES_PATH = f"{ACCEPT_ROOT}/releases"
 # ⚠️ 服务器默认 java 是 JDK 17（class 61），而 jar 由 JDK 21 编译（class 65）——
 #    必须用 JDK 21 全路径启动，否则 UnsupportedClassVersionError。
 ACCEPT_JAVA = os.environ.get("SCHEMA_ACCEPT_JAVA", "/usr/lib/jvm/jre-21-konajdk/bin/java")
@@ -63,10 +65,35 @@ def run(cmd, cwd=None, check=True, capture=False):
         capture_output=capture, text=True)
 
 
+def _key_args():
+    """统一密钥/主机参数（CI 与本地路径不同，显式指定避免歧义）。"""
+    args = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20",
+            "-o", "NumberOfPasswordPrompts=1"]
+    key = os.environ.get("SCHEMA_DEPLOY_KEY_PATH")
+    if key and Path(key).exists():
+        args += ["-i", key]
+    return args
+
+
+def _ssh_base():
+    """ssh 参数：额外禁 tty（远端非交互）。"""
+    return ["ssh", "-T"] + _key_args()
+
+
+def _scp_base():
+    """scp 参数：不传 -T（scp 无该选项）。"""
+    return ["scp"] + _key_args()
+
+
 def ssh(remote_cmd, check=True, timeout=300):
-    full = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", SERVER, remote_cmd]
+    full = _ssh_base() + [SERVER, remote_cmd]
     print(f"> ssh {remote_cmd}")
-    r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+    try:
+        r = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise SystemExit(
+            f"ssh 超时（{timeout}s）: {remote_cmd}\n"
+            "  排查：连接目标可达性 / 密钥路径(SCHEMA_DEPLOY_KEY_PATH) / known_hosts / sudo 白名单")
     if check and r.returncode != 0:
         print(r.stdout)
         print(r.stderr, file=sys.stderr)
@@ -195,103 +222,145 @@ def build(backend_jar: Path, web_dir: Path, accept: bool = False):
 def make_version_file(version: str, workdir: Path, backend_jar: Path, web_dir: Path):
     """版本清单：commit、构建时间、jar 哈希——线上可回答『跑的是哪个提交』。"""
     digest = hashlib.sha256(backend_jar.read_bytes()).hexdigest()
+    # newline="\n" 强制 LF：Windows 默认 CRLF 会让服务器侧 grep 结果带 \r，
+    # 导致「两个哈希看起来相同却不相等」的诡异失败（实测踩到）
     (workdir / "VERSION.txt").write_text(
         f"commit={version}\n"
         f"builtAt={time.strftime('%Y-%m-%dT%H:%M:%S%z')}\n"
         f"jarSha256={digest}\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
 
 
 def make_manifest(workdir: Path):
-    """产物完整性清单（MANIFEST.sha256）：jar + web 全量文件哈希。
+    """产物完整性清单（MANIFEST.sha256）：仅覆盖 **web 包内** 的文件。
 
-    服务器端 upload 逐条 sha256sum -c 比对——传输损坏/缺文件在上传阶段即拒绝入库，
-    不再等到运行时发现。格式与 sha256sum -c 兼容（相对路径 + 两空格 + 哈希）。
+    ## 为什么排除 jar（方案 1 分离传输后必需）
+    分离传输时，纯前端改动会复用上一版本的 jar（SCHEMA_SKIP_BACKEND=1）。
+    若 MANIFEST 仍含 jar 哈希，复用场景下必然对不上 → 误判「产物损坏」。
+    jar 的完整性由 VERSION.txt 的 jarSha256 独立校验（服务器脚本 ④ 步），
+    两道校验各管各的，互不干扰。
+
+    格式与 sha256sum -c 兼容（相对路径 + 两空格 + 哈希）。
     """
     lines = []
     for path in sorted(workdir.rglob("*")):
-        if path.is_file() and path.name != "MANIFEST.sha256":
-            rel = path.relative_to(workdir).as_posix()
-            lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {rel}")
+        if not path.is_file():
+            continue
+        if path.name == "MANIFEST.sha256":
+            continue
+        rel = path.relative_to(workdir).as_posix()
+        # 排除 jar：随 backend 包单独传输，由 VERSION.txt 校验
+        if rel == "schema-platform.jar":
+            continue
+        lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {rel}")
     manifest = "\n".join(lines) + "\n"
     (workdir / "MANIFEST.sha256").write_text(manifest, encoding="utf-8", newline="\n")
-    print(f"== MANIFEST 生成: {len(lines)} 个文件 ==")
+    print(f"== MANIFEST 生成: {len(lines)} 个文件（不含 jar，jar 由 VERSION.txt 单独校验）==")
+
+
+def _pack_tar(paths, out_path, *, compresslevel=None):
+    """打包为 tar（可选 gzip 级别）。
+
+    compresslevel=None 表示**不压缩**（tar 裸包）——用于 jar：
+    它本身已是 zip，再 gzip 只省 11%，纯属浪费 CPU。
+    """
+    mode = "w:gz" if compresslevel is not None else "w"
+    kwargs = {"compresslevel": compresslevel} if compresslevel is not None else {}
+    with tarfile.open(out_path, mode, **kwargs) as tar:
+        for src_path, arcname in paths:
+            if src_path.exists():
+                tar.add(src_path, arcname=arcname)
 
 
 def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
-    """验收面发布：静态产物 + 后端 jar 原子切换 + 版本注入 + 验证。
+    """验收面发布：分离传输（backend / web 独立）+ sudo 白名单通道。
 
-    与生产面的差异（有意为之）：
-    - 后端是裸 java 进程（非 systemd），切换 = 停旧进程 → 起新进程；
-    - 静态目录 /opt/schema/staging/accept/{designer,runtime,admin} 按版本目录软链；
-    - 版本注入走 -D 系统属性（探针读 build-source.txt 或 APP_VERSION/GIT_COMMIT 环境）。
+    ⚠️ 为什么不能直接 ssh 执行 rm/mkdir：
+    /opt/schema/staging/accept 属主是 root:root 755，deploy 用户只读。
+    统一走 `sudo -n bash /opt/schema/schema-release-accept.sh`（白名单仅限该脚本）。
+
+    ## 分离传输的由来（实测数据）
+    | 产物 | 原始 | gzip |
+    |---|---|---|
+    | jar  | 34.5 MB | 30.9 MB（仅省 11%——jar 已是 zip）|
+    | web  | 5.0 MB  | 1.86 MB（省 63%——JS/CSS 是文本）|
+
+    全量 33MB 在 CI→服务器（境外链路 33KB/s）需 15 分钟以上，超时。
+    分离后：
+    - 纯前端改动 → 只传 web 1.86MB → 秒级
+    - 后端改动   → 传 jar 30.9MB → 约 15 分钟（超时上限 1800s）
+
+    ## 版本完整性
+    即使分离传输，服务器端仍按 MANIFEST.sha256 逐文件校验；
+    MANIFEST 与 VERSION.txt 随 web 包一起传（体积可忽略），
+    确保任何单包损坏都能在上传阶段发现。
     """
-    print("== 验收面：上传产物 ==")
-    tar_path = work / "accept-bundle.tar.gz"
-    with tarfile.open(tar_path, "w:gz") as tar:
-        for name in ("schema-platform.jar", "web", "VERSION.txt", "MANIFEST.sha256"):
-            tar.add(work / name, arcname=name)
-    print(f"== 打包完成 {tar_path.stat().st_size // 1024} KiB ==")
+    print("== 验收面：打包（分离传输）==")
+    print(f"== 连接目标: {SERVER}（role={ROLE}）==")
+    if "@" not in SERVER:
+        raise SystemExit(f"SCHEMA_DEPLOY_HOST 缺少用户名前缀（应为 user@host）: {SERVER}")
 
-    remote_stage = f"{ACCEPT_ROOT}/.incoming-{head[:12]}"
-    ssh(f"rm -rf {remote_stage} && mkdir -p {remote_stage}")
-    with open(tar_path, "rb") as f:
-        proc = subprocess.Popen(
-            ["ssh", "-o", "BatchMode=yes", SERVER, f"tar -xzf - -C {remote_stage}"],
-            stdin=f, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    out, _ = proc.communicate(timeout=600)
-    if out.strip():
-        print(out)
-    if proc.returncode != 0:
-        raise SystemExit(f"验收面上传失败 exit={proc.returncode}")
+    backend_tar = work / "accept-backend.tar"
+    web_tar = work / "accept-web.tar.gz"
 
-    print("== 验收面：MANIFEST 校验 ==")
-    ssh(f"cd {remote_stage} && sha256sum -c MANIFEST.sha256 --quiet")
+    t0 = time.time()
+    _pack_tar([(backend_jar, "schema-platform.jar")], backend_tar)  # 不压缩
+    print(f"   backend.tar  {backend_tar.stat().st_size / 1024 / 1024:.1f} MB  ({time.time()-t0:.1f}s)")
 
-    print("== 验收面：原子切换 + 重启后端 ==")
-    # 版本目录：/opt/schema/staging/accept/releases/<commit>，current 软链指向它
-    ssh(
-        f"set -e; "
-        f"mkdir -p {ACCEPT_ROOT}/releases; "
-        f"rm -rf {ACCEPT_ROOT}/releases/{head}; "
-        f"mv {remote_stage} {ACCEPT_ROOT}/releases/{head}; "
-        f"ln -sfn {ACCEPT_ROOT}/releases/{head} {ACCEPT_ROOT}/current; "
-        # 静态目录按应用软链（nginx alias 直指这三个路径）
-        f"for app in designer runtime admin; do "
-        f"  rm -rf {ACCEPT_ROOT}/$app; "
-        f"  ln -sfn {ACCEPT_ROOT}/current/web/$app {ACCEPT_ROOT}/$app; "
-        f"done; "
-        # 后端重启：停旧进程 → 起新进程（版本经环境变量注入，探针可追溯）
-        # ⚠️ DeploymentProbeFilter 读 System.getenv(APP_VERSION/GIT_COMMIT) 或 Spring 属性
-        #    app.version/git.commit——用环境变量前缀最直接（-D 是 JVM 属性，Spring 需 --app.version 形式）
-        f"pkill -f 'schema-platform-accept.jar' || true; sleep 2; "
-        f"cd {ACCEPT_ROOT}/current && "
-        f"APP_VERSION={head} GIT_COMMIT={head} nohup {ACCEPT_JAVA} -jar schema-platform.jar "
-        f"  --server.port={ACCEPT_BACKEND_PORT} "
-        f"  --spring.datasource.url=jdbc:postgresql://127.0.0.1:5432/schema_acceptance "
-        f"  --spring.datasource.username=schema_accept "
-        f"  --spring.datasource.password=schema_accept_only_2026 "
-        f"  > {ACCEPT_ROOT}/backend.log 2>&1 & "
-        f"echo started"
-    )
+    t0 = time.time()
+    web_items = [(work / "VERSION.txt", "VERSION.txt"),
+                 (work / "MANIFEST.sha256", "MANIFEST.sha256")]
+    for app in ("designer", "runtime", "admin"):
+        web_items.append((web_dir / app, f"web/{app}"))
+    _pack_tar(web_items, web_tar, compresslevel=6)
+    print(f"   web.tar.gz   {web_tar.stat().st_size / 1024 / 1024:.2f} MB  ({time.time()-t0:.1f}s)")
 
-    print("== 验收面：验证（探针 + 入口）==")
-    deadline = time.time() + 180
-    probe = {}
-    while time.time() < deadline:
-        r = ssh(f"curl -sf -m 5 {ACCEPT_PROBE}", check=False)
-        if r.returncode == 0 and r.stdout.strip():
-            try:
-                probe = json.loads(r.stdout)
-                if probe.get("status") == "UP":
-                    break
-            except json.JSONDecodeError:
-                pass
-        time.sleep(5)
-    print(f"  probe -> {probe}")
-    if probe.get("status") != "UP":
-        raise SystemExit("验收面后端未就绪（探针非 UP）")
+    # 是否跳过 backend（纯前端改动）——由 --skip-backend 控制
+    skip_backend = os.environ.get("SCHEMA_SKIP_BACKEND") == "1"
 
+    remote_base = f"/tmp/schema-accept-{head[:12]}"
+
+    if not skip_backend:
+        remote_backend = remote_base + "-backend.tar"
+        print(f"== scp 上传 backend -> {remote_backend} ==")
+        t0 = time.time()
+        r = subprocess.run(_scp_base() + [str(backend_tar), f"{SERVER}:{remote_backend}"],
+                           capture_output=True, text=True, timeout=1800)
+        if r.returncode != 0:
+            print(r.stdout); print(r.stderr, file=sys.stderr)
+            raise SystemExit(f"backend 上传失败 exit={r.returncode}")
+        print(f"   完成 {backend_tar.stat().st_size/1024/1024:.1f} MB ({time.time()-t0:.1f}s)")
+    else:
+        remote_backend = ""
+        print("== 跳过 backend 上传（SCHEMA_SKIP_BACKEND=1，复用服务器现有 jar）==")
+
+    remote_web = remote_base + "-web.tar.gz"
+    print(f"== scp 上传 web -> {remote_web} ==")
+    t0 = time.time()
+    r = subprocess.run(_scp_base() + [str(web_tar), f"{SERVER}:{remote_web}"],
+                       capture_output=True, text=True, timeout=900)
+    if r.returncode != 0:
+        print(r.stdout); print(r.stderr, file=sys.stderr)
+        raise SystemExit(f"web 上传失败 exit={r.returncode}")
+    print(f"   完成 {web_tar.stat().st_size/1024/1024:.2f} MB ({time.time()-t0:.1f}s)")
+
+    print("== 验收面：远端入库（校验 MANIFEST + 原子切换）==")
+    backend_arg = remote_backend if remote_backend else "-"
+    # ⚠️ 不能无条件 rm -rf releases/<head>：跳过 backend 时 head 与当前运行版本相同，
+    #    删掉会让 current 软链指向不存在的目录（服务重启即挂）。
+    #    改为：仅当该版本**不是**当前运行版本时才预清理（支持失败重试）。
+    r = ssh(f"if [ \"$(readlink -f {RELEASES_PATH}/{head} 2>/dev/null)\" != "
+            f"\"$(readlink -f {ACCEPT_ROOT}/current 2>/dev/null)\" ]; then "
+            f"rm -rf {RELEASES_PATH}/{head}; fi; "
+            f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh ingest {head} "
+            f"{remote_web} {backend_arg}; "
+            f"rc=$?; rm -f {remote_web} {remote_backend}; exit $rc", timeout=900)
+    print(r.stdout)
+
+    print("== 验收面：切换版本（备份 → 切链 → 重启 → 验证 → 失败回滚）==")
+    ssh(f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh switch {head}", timeout=600)
+
+    print("== 验收面：独立复验（不信任服务器脚本自身结论）==")
     for name, path in ACCEPT_ENTRIES.items():
         r = ssh(f"curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1{path}", check=False)
         code = r.stdout.strip()
@@ -299,9 +368,16 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
         if code != "200":
             raise SystemExit(f"验收面入口验证失败: {name} -> {code}")
 
+    probe = json.loads(ssh(f"curl -s {ACCEPT_PROBE}").stdout)
+    print(f"  probe -> {probe}")
+    if probe.get("status") != "UP":
+        raise SystemExit("验收面后端未就绪（探针非 UP）")
+    if not str(probe.get("commit", "")).startswith(head[:12]):
+        raise SystemExit(f"探针 commit={probe.get('commit')} 与目标 {head[:12]} 不一致")
+
     print(f"\n验收面发布成功: {head[:12]}")
     print(f"  探针: {ACCEPT_PROBE}")
-    print(f"  入口: http://{SERVER.split('@')[-1]}/accept/designer/ , /accept/runtime/")
+    print("  入口: /accept/designer/ , /accept/runtime/ , /accept/admin/")
 
 
 def main():

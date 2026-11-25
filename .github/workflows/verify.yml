@@ -6,7 +6,7 @@ name: verify
 #   → Require status checks: 勾选本 job 的 check（verify / verify）→ 即升级为事前门禁。
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, test]
   pull_request:
 
 jobs:
