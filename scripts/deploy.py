@@ -372,8 +372,14 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
     print(f"  probe -> {probe}")
     if probe.get("status") != "UP":
         raise SystemExit("验收面后端未就绪（探针非 UP）")
-    if not str(probe.get("commit", "")).startswith(head[:12]):
-        raise SystemExit(f"探针 commit={probe.get('commit')} 与目标 {head[:12]} 不一致")
+    # commit 必须与目标完整 hash 完全一致。
+    # 为什么不用 startswith / 短 hash 前缀匹配：那样 "abc123456789" 加任意后缀
+    # 都能通过，版本校验形同虚设（deploy_test 的 aaaa...bbbb 用例守这条）。
+    # 实际链路里 ingest 与 start_backend 都注入完整 hash（APP_VERSION=$version），
+    # 探针必然返回完整值，因此完整匹配不会误伤。
+    actual_commit = str(probe.get("commit", ""))
+    if actual_commit != head:
+        raise SystemExit(f"探针 commit={actual_commit} 与目标 {head} 不一致")
 
     print(f"\n验收面发布成功: {head[:12]}")
     print(f"  探针: {ACCEPT_PROBE}")
