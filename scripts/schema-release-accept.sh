@@ -235,8 +235,13 @@ cmd_ingest() {
     fi
     log "MANIFEST 校验通过（$(wc -l < "$tmp/$MANIFEST") 个文件）"
 
-    # ④ 独立校验 jar（VERSION.txt 里记录了 jarSha256）
-    if [ -f "$tmp/VERSION.txt" ]; then
+    # ④ 独立校验 jar（仅当本次**真的传了 jar** 时）
+    #
+    # ⚠️ 复用上一版本 jar（backend_arg = "-"）时**不能比对**：
+    #    VERSION.txt 记的是本次构建的 jar 哈希，而复用的是旧 jar，必然不等。
+    #    实测踩到：MANIFEST 已排除 jar 通过校验，但这里仍误报「哈希不匹配」。
+    #    复用场景的完整性由「上一版本本身已通过过校验」保证。
+    if [ "$backend_tar" != "-" ] && [ -f "$tmp/VERSION.txt" ]; then
         local expect actual
         # tr -d '[:space:]' 清理 CR/LF/空格：Windows 侧生成的文件可能带 \r，
         # 直接比较会得到「两个哈希看起来一样却不相等」的诡异现象（实测踩到）
@@ -247,6 +252,8 @@ cmd_ingest() {
             die "jar 哈希不匹配: VERSION=[$expect] 实际=[$actual]"
         fi
         log "jar 哈希校验通过: ${actual:0:16}..."
+    elif [ "$backend_tar" = "-" ]; then
+        log "复用上一版本 jar：跳过 jarSha256 比对（该版本入库时已校验过）"
     fi
 
     [ -d "$tmp/web" ] || { rm -rf "$tmp"; die "产物缺 web/"; }
