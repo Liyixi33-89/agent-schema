@@ -1,6 +1,6 @@
 /** 编辑内核单测（规格 A1/A2/A3 + 表达式校验）。 */
 import { describe, expect, it } from 'vitest';
-import type { PageSchema } from '@schema/schema-protocol';
+import type { PageSchema, LayoutNode } from '@schema/schema-protocol';
 import {
   DesignerStore, collectFieldRefs, findNode, generateDefaultLayout,
   acceptsChildren, validateDropTarget, HISTORY_LIMIT,
@@ -17,7 +17,7 @@ function page(): PageSchema {
 let seq = 0;
 const newId = (): string => `n${++seq}`;
 
-const node = (id: string, componentName = 'TextInput', children?: ReturnType<typeof node>[]) => ({
+const node = (id: string, componentName = 'TextInput', children?: LayoutNode[]): LayoutNode => ({
   id, componentName, props: {} as Record<string, never>, ...(children ? { children } : {}),
 });
 

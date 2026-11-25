@@ -14,6 +14,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    allowOnly: !process.env.CI,
     include: [
       'apps/**/test/**/*.test.{ts,tsx}',
       'apps/**/src/**/*.test.{ts,tsx}',

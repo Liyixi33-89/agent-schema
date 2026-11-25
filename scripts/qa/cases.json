@@ -1,0 +1,8 @@
+[
+  {"id":"TC-DES-001","app":"designer","priority":"P0","requirement":"M12 两段式保存与版本冲突","title":"409 后保留建模草稿","setup":"同一测试模型在两个设计者会话打开","steps":["会话 A 修改并保存字段","会话 B 编辑不同字段并以旧版本保存"],"expected":["B 收到版本冲突提示","B 的未保存编辑仍可见；服务端仅有 A 的变更"],"method":"browser"},
+  {"id":"TC-DES-002","app":"designer","priority":"P0","requirement":"M13 页面发布快照","title":"草稿变化不污染已发布页面","setup":"独立测试页面已发布","steps":["修改标题并仅保存草稿","分别打开设计预览和已发布页面"],"expected":["预览为新标题，发布页为原标题"],"method":"browser"},
+  {"id":"TC-RUN-001","app":"runtime","priority":"P0","requirement":"M16 布局外必填校验","title":"隐含必填项阻止提交并给出反馈","setup":"测试表单的必填字段未配置到布局","steps":["填写可见必填项","点击提交"],"expected":["显示布局外必填字段错误","无创建请求，记录数不变"],"method":"browser"},
+  {"id":"TC-RUN-002","app":"runtime","priority":"P0","requirement":"018 图表取消与节点重试","title":"单节点重试不影响邻居","setup":"测试看板有两个图表，模拟其中一个聚合首次失败","steps":["打开看板","点击失败卡片重试","请求未返回时切换页面"],"expected":["仅失败节点重新请求","离开页面后取消在途请求，迟到响应不更新新页面"],"method":"browser","relatedTest":"schema-frontend/apps/runtime/src/features/page-host/chartLoad.test.ts"},
+  {"id":"TC-ADM-001","app":"admin-console","priority":"P0","requirement":"M16 健康页异常状态","title":"单区域失败后可恢复","setup":"使用管理员账号，模拟吞吐请求首次失败","steps":["打开健康页","确认其他区域正常","重试吞吐请求"],"expected":["故障区域明确报错而非显示为空","重试成功后恢复并清除错误"],"method":"browser"},
+  {"id":"TC-ADM-002","app":"admin-console","priority":"P0","requirement":"M16 SLA 查询身份隔离","title":"月份切换不展示旧月份统计","setup":"两个月有不同 SLA 数据，受控延迟首个月响应","steps":["查询第一个月","立即切换第二个月","先返回第二个月，再返回第一个月"],"expected":["只展示当前月份的数据","迟到结果不覆盖当前结果"],"method":"browser","relatedTest":"schema-frontend/apps/admin-console/test/useAsyncData.test.tsx"}
+]

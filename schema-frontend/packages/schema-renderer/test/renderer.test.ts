@@ -18,7 +18,7 @@ const page = (layout: LayoutNode[]): PageSchema => ({
   layout, actions: [], schemaVersion: 1,
 });
 
-const node = (id: string, componentName: string, props: Record<string, unknown> = {}, children?: LayoutNode[]): LayoutNode => ({
+const node = (id: string, componentName: string, props: LayoutNode['props'] = {}, children?: LayoutNode[]): LayoutNode => ({
   id, componentName, props, ...(children ? { children } : {}),
 });
 

@@ -219,22 +219,50 @@ class SlaBoardIT {
 
     @Test
     void 合规窗口登记成功() throws Exception {
-        // 提前 5 天 + 1 小时窗口 → 创建成功
+        // 清空本租户的维护窗口：PER_CLASS 下测试方法共享数据库，
+        // 上一个用例（或上一次运行遗留）的窗口会让「第一次登记」就撞月度限制。
+        cleanSlate();
+        // ⚠️ 两个硬约束必须同时满足，否则本用例在特定日期会假失败：
+        //    ① start 距今 ≥72h（公告纪律，否则 MAINT_WINDOW_LEAD_TIME）
+        //    ② 两次窗口的 start_at 必须落在**同一个自然月**（月度限制按所在月判定）
+        //
+        //    原实现用 now().plusHours(120) 与 plusHours(130)：
+        //    月末运行时这两个值会跨到下一自然月（如 11/25 + 130h = 12/1），
+        //    第二次就落在 12 月 → 不被「当月已有」拦下 → 返回 200 而非 409。
+        //    （2026-11-25 全量 IT 实测踩到，单跑该用例也复现。）
+        //
+        //    正确做法：以「今天 +72h」为起点，若它与 +4h 同月则直接用；
+        //    否则（临近月末）跳到下月 1 日 10:00 —— 该点必然同月且远超前 72h 线。
+        java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        // ⚠️ 必须留缓冲：锚点会 withSecond(0) 截断，若恰好取 now+72h，
+        //    截断后可能早于 72h 门槛最多 59 秒 → MAINT_WINDOW_LEAD_TIME 409。
+        java.time.LocalDateTime earliest = java.time.LocalDateTime.now(zone).plusHours(73);
+
+        java.time.LocalDateTime anchor;
+        if (earliest.getMonth() == earliest.plusHours(4).getMonth()) {
+            anchor = earliest.withMinute(0).withSecond(0).withNano(0);
+        } else {
+            anchor = earliest.toLocalDate().plusMonths(1).withDayOfMonth(1).atTime(10, 0);
+        }
+
+        String firstStart = anchor.atZone(zone).toOffsetDateTime().toString();
+        String firstEnd = anchor.plusHours(1).atZone(zone).toOffsetDateTime().toString();
+        String secondStart = anchor.plusHours(2).atZone(zone).toOffsetDateTime().toString();
+        String secondEnd = anchor.plusHours(3).atZone(zone).toOffsetDateTime().toString();
+
         mvc.perform(post("/api/ops/sla/maintenance-windows")
                         .header("Authorization", "Bearer " + access(adminId))
                         .contentType("application/json")
-                        .content("{\"title\":\"IT 合规维护\",\"startAt\":\""
-                                + OffsetDateTime.now().plusHours(120) + "\",\"endAt\":\""
-                                + OffsetDateTime.now().plusHours(121) + "\"}"))
+                        .content("{\"title\":\"IT 合规维护\",\"startAt\":\"" + firstStart
+                                + "\",\"endAt\":\"" + firstEnd + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.created").value(true));
         // 同月第二次计划内窗口被拒（每月 ≤1 次）
         mvc.perform(post("/api/ops/sla/maintenance-windows")
                         .header("Authorization", "Bearer " + access(adminId))
                         .contentType("application/json")
-                        .content("{\"title\":\"IT 第二次维护\",\"startAt\":\""
-                                + OffsetDateTime.now().plusHours(130) + "\",\"endAt\":\""
-                                + OffsetDateTime.now().plusHours(131) + "\"}"))
+                        .content("{\"title\":\"IT 第二次维护\",\"startAt\":\"" + secondStart
+                                + "\",\"endAt\":\"" + secondEnd + "\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MAINT_WINDOW_MONTHLY_LIMIT"));
     }

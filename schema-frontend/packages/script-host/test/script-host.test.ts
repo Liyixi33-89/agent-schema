@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { ScriptHost, createMockBridge, createWorkerCtx } from '../src/script-host';
-import type { WorkerLike, MessageBridge } from '../src/script-host';
+import type { WorkerLike, MessageBridge, ScriptHostOptions } from '../src/script-host';
 import type { HookModule, ScriptBinding } from '../src/types';
 
 class FakeWorker implements WorkerLike {
@@ -21,7 +21,8 @@ class FakeWorker implements WorkerLike {
   ) {}
   postMessage(message: unknown): void {
     if (this.terminated) return;
-    const msg = message as { type: string; staticUser?: unknown; staticPage?: unknown; hook?: string; payload?: unknown };
+    const msg = message as { type: string; staticUser?: unknown; staticPage?: unknown; hook?: string; payload?: unknown;
+      id: string; ok: boolean; result?: unknown; err?: string };
     if (msg.type === 'init') {
       this.staticUser = msg.staticUser;
       this.staticPage = msg.staticPage;
@@ -93,7 +94,7 @@ class FakeWorker implements WorkerLike {
   removeEventListener(_type: 'message', listener: (e: { data: unknown }) => void): void { this.listeners.delete(listener); }
 }
 
-function makeHost(mod: HookModule, opts?: { hardMs?: number; bridge?: MessageBridge; silent?: boolean; initDelayMs?: number; staticUser?: unknown; staticPage?: unknown }) {
+function makeHost(mod: HookModule, opts?: { hardMs?: number; bridge?: MessageBridge; silent?: boolean; initDelayMs?: number; staticUser?: ScriptHostOptions['staticUser']; staticPage?: ScriptHostOptions['staticPage'] }) {
   const created: FakeWorker[] = [];
   const host = new ScriptHost({
     hardMs: opts?.hardMs ?? 200,

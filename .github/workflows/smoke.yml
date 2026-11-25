@@ -393,6 +393,7 @@ jobs:
             curl -sf -m 5 "${u%/}/" >/dev/null || { echo "隔离栈入口不可达: $u"; exit 1; }
           done
           # tee 保留完整日志，但不吞退出码
+          echo "PLAYWRIGHT_STARTED_AT=$(python3 -c 'import time; print(time.time())')" >> "$GITHUB_ENV"
           pnpm exec playwright test --config playwright.config.ts 2>&1 | tee /tmp/pw.log
           exit ${PIPESTATUS[0]}
 
@@ -400,42 +401,7 @@ jobs:
       - name: Verify Playwright required scenarios
         if: always()
         run: |
-          set -uo pipefail
-          REPORT="${{ github.workspace }}/schema-frontend/e2e-report.xml"
-          REQUIRED="SMK-DES-01 SMK-RUN-01 SMK-ADM-01"
-          FAIL=0
-
-          if [ ! -f "$REPORT" ]; then
-            echo "MISSING: e2e-report.xml（Playwright 未产出 JUnit 报告）"
-            FAIL=1
-          else
-            for id in $REQUIRED; do
-              if python3 - "$REPORT" "$id" <<'PY'
-          import sys, xml.etree.ElementTree as ET
-          report, target = sys.argv[1], sys.argv[2]
-          root = ET.parse(report).getroot()
-          for tc in root.iter('testcase'):
-              if target in (tc.get('name') or ''):
-                  if tc.find('skipped') is not None:
-                      print('SKIPPED: %s' % target); sys.exit(1)
-                  if tc.find('failure') is not None or tc.find('error') is not None:
-                      print('FAILED: %s' % target); sys.exit(1)
-                  print('PASSED: %s' % target); sys.exit(0)
-          print('NOT-FOUND: %s' % target); sys.exit(1)
-          PY
-              then
-                :
-              else
-                FAIL=1
-              fi
-            done
-          fi
-
-          if [ "$FAIL" -ne 0 ]; then
-            echo "必跑场景核对失败：报告缺失、场景缺失、跳过或失败"
-            exit 1
-          fi
-          echo "Playwright 必跑场景全部通过"
+          python3 scripts/test_gate.py playwright schema-frontend/e2e-report.xml --not-before "${PLAYWRIGHT_STARTED_AT:?Playwright 未开始执行}"
 
       # 服务日志（诊断隔离栈启动问题：后端/预览/数据库都在这一步留痕）。
       # 启动失败时允许没有 JUnit，但 job 本身必然失败（见 Run Playwright 步骤）；

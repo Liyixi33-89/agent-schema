@@ -20,7 +20,7 @@ vi.stubGlobal('localStorage', new LocalStorageStub());
 import {
   buildAddField, buildDraftChanges, buildPatch, effectiveConfirmMode, extractRelationEdges,
   gridLayout, isDuplicateFieldKey, isRollbackNoop, loadLayoutDraft, onSaveError, onPrechecked,
-  saveLayoutDraft, type ChangeOp, type PrecheckResp,
+  saveLayoutDraft, type ChangeOp, type PrecheckResp, type ModelField,
 } from '../src/protocol';
 import { runTwoPhaseRollback, runTwoPhaseSave, type SaveTransport } from '../src/save-flow';
 
@@ -60,6 +60,7 @@ describe('buildPatch 白名单（fieldKey/fieldType 冻结防线）', () => {
   it('buildAddField 冻结 fieldKey 进 field', () => {
     const op = buildAddField('amount', { label: '金额', type: 'number' });
     expect(op.op).toBe('ADD_FIELD');
+    if (op.op !== 'ADD_FIELD') throw new Error('新增字段操作类型错误');
     expect(op.field.fieldKey).toBe('amount');
   });
 });
@@ -208,7 +209,7 @@ describe('关系边提取（画布连线协议）', () => {
 });
 
 describe('buildDraftChanges（草稿 diff 收口）', () => {
-  const active = { fieldKey: 'amount', label: '金额', type: 'number', fieldStatus: 'ACTIVE', required: false, uniqueFlag: false, indexed: false, promoteStatus: null, sortOrder: 1 };
+  const active: ModelField = { fieldKey: 'amount', label: '金额', type: 'number', fieldStatus: 'ACTIVE', required: false, uniqueFlag: false, indexed: false, promoteStatus: null, sortOrder: 1 };
 
   it('本地新增又被标记删除 → 抵消（不发 DELETE_FIELD）', () => {
     const ops = buildDraftChanges([active], [
