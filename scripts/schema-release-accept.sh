@@ -140,6 +140,12 @@ start_backend() { # version
     local version="$1"
     cd "$CURRENT" || die "current 目录不可用"
     # 版本注入：DeploymentProbeFilter 读 APP_VERSION / GIT_COMMIT 环境变量
+    #
+    # ⚠️ 关键：`9>&-` 关闭 fd 9（发布锁）。
+    #    acquire_lock 用 `exec 9>"$LOCK"` 打开锁文件，nohup 启动的后端进程
+    #    **默认继承所有 fd**，于是长期持锁 → 下次发布必报
+    #    「已有发布任务运行中」，且锁永远不释放（因为服务常驻）。
+    #    实测踩到：flock 被健康运行的 java 进程持有，导致后续部署全部失败。
     APP_VERSION="$version" GIT_COMMIT="$version" \
       FLOWABLE_ENABLED=true \
       nohup "$JAVA" -jar schema-platform.jar \
@@ -148,8 +154,8 @@ start_backend() { # version
         --spring.datasource.username="$DB_USER" \
         --spring.datasource.password="$DB_PASS" \
         --flowable.process.enabled=true \
-        > "$ROOT/backend.log" 2>&1 &
-    log "已启动 PID=$!（版本 $version）"
+        > "$ROOT/backend.log" 2>&1 9>&- &
+    log "已启动 PID=$!（版本 $version，已关闭从父进程继承的锁 fd）"
 }
 
 switch_to() { # version
