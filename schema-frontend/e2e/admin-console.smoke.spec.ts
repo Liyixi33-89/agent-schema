@@ -39,12 +39,19 @@ test('SMK-ADM-01 健康页指标与后端响应一致', async ({ page, baseURL }
   expect(typeof body.activeUsersLastHour, 'overview 必须返回 activeUsersLastHour').toBe('number');
 
   // 核心断言：页面指标卡片存在，且数值与响应一致
-  // ⚠️ .filter({ hasText }) 会同时命中「外层 Card」与「内层 Statistic」→ strict mode violation。
-  // 用 .first() 锁定指标卡，再精确读取其数值节点，避免子串匹配误报。
-  const activeCard = page.locator('.ant-card').filter({ hasText: '近 1h 活跃用户' }).first();
-  await expect(activeCard).toBeVisible();
-  await expect.poll(async () => (await activeCard.locator('.ant-statistic-content-value').innerText()).replace(/[\s,]/g, ''),
-    { message: '活跃用户数必须精确匹配本次响应' }).toBe(String(body.activeUsersLastHour));
+  // ⚠️ 两个坑（CI 实测踩到）：
+  //  1) `.filter({ hasText })` 会同时命中「外层 Card」与「内层 Statistic」→ strict violation
+  //  2) 取 `.first()` 拿到的是最外层容器，其内部又嵌套了多个统计卡，
+  //     再 `.locator('.ant-statistic-content-value')` 会解析到 8 个元素 → strict violation
+  // 解法：用 .ant-statistic 作为锚点（一张统计卡 = 一个 .ant-statistic），
+  //       它本身不嵌套，内部只有唯一的值节点。
+  const activeStat = page.locator('.ant-statistic').filter({ hasText: '近 1h 活跃用户' });
+  await expect(activeStat).toHaveCount(1);
+  await expect(activeStat).toBeVisible();
+  await expect.poll(
+    async () => (await activeStat.locator('.ant-statistic-content-value').innerText()).replace(/[\s,]/g, ''),
+    { message: '活跃用户数必须精确匹配本次响应' },
+  ).toBe(String(body.activeUsersLastHour));
 
   const throughput = page.locator('.ant-card').filter({ has: page.getByText('API 吞吐时序（近 60 分钟，分钟粒度）', { exact: true }) });
   await expect(throughput.getByText('冒烟受控失败', { exact: false })).toBeVisible();
