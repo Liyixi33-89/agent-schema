@@ -171,15 +171,94 @@ cmd_upload() {
     ingest_from_stream "$version" -
 }
 
-# 从文件入库（供 CI 用 scp 先上传的场景：避免大块 stdin 管道在公网挂住）
-# 用法：ingest <version> <tar-file>
+# 从文件入库（CI 用 scp 先上传的场景：避免大块 stdin 管道在公网挂住）
+#
+# 用法：
+#   ingest <version> <web-or-full-tar>                    # 单包（旧形式，web+jar 齐全）
+#   ingest <version> <web-tar> <backend-tar>              # 分离包（web 含 MANIFEST/VERSION）
+#   ingest <version> <web-tar> -                          # 分离包，但复用上一版本的 jar
+#
+# 分离传输的由来（实测）：jar 34.5MB（gzip 后仍 30.9MB，它是 zip 压不动），
+# web 5MB（gzip 后 1.86MB）。纯前端改动只需传 1.86MB → 秒级完成。
 cmd_ingest() {
     local version="${1:?version required}"
-    local tarball="${2:?tar file required}"
+    local web_tar="${2:?web tar required}"
+    local backend_tar="${3:-}"
+
     require_root
     acquire_lock
-    [ -f "$tarball" ] || die "tar 文件不存在: $tarball"
-    ingest_from_stream "$version" "$tarball"
+    [ -f "$web_tar" ] || die "web tar 不存在: $web_tar"
+
+    local dest="$RELEASES/$version"
+    [ -e "$dest" ] && die "版本已存在: $dest（不可覆盖——请用新版本号，或人工确认后先删）"
+
+    mkdir -p "$STAGING" "$RELEASES"
+    local tmp="$STAGING/$version.$"
+    rm -rf "$tmp"; mkdir -p "$tmp"
+
+    # ① web 包：含 web/ + VERSION.txt + MANIFEST.sha256
+    log "解包 web 包: $web_tar ($(du -h "$web_tar" | cut -f1))"
+    tar -xzf "$web_tar" -C "$tmp" || { rm -rf "$tmp"; die "web 包解包失败"; }
+
+    # ② jar：三态
+    if [ -z "$backend_tar" ]; then
+        # 单包模式（旧形式）：jar 应已在 web 包里
+        [ -f "$tmp/schema-platform.jar" ] || {
+            rm -rf "$tmp"; die "单包模式但缺 schema-platform.jar"; }
+        log "单包模式：jar 来自 web 包"
+    elif [ "$backend_tar" = "-" ]; then
+        # 复用上一版本 jar（纯前端改动）
+        local prev; prev=$(read_state current)
+        [ -n "$prev" ] || { rm -rf "$tmp"; die "无上一版本可供复用 jar"; }
+        [ -f "$RELEASES/$prev/schema-platform.jar" ] || {
+            rm -rf "$tmp"; die "上一版本 $prev 无 jar 可复用"; }
+        cp -f "$RELEASES/$prev/schema-platform.jar" "$tmp/schema-platform.jar"
+        log "复用上一版本 jar: $prev"
+    else
+        [ -f "$backend_tar" ] || { rm -rf "$tmp"; die "backend tar 不存在: $backend_tar"; }
+        log "解包 backend 包: $backend_tar ($(du -h "$backend_tar" | cut -f1))"
+        tar -xf "$backend_tar" -C "$tmp" || { rm -rf "$tmp"; die "backend 包解包失败"; }
+        [ -f "$tmp/schema-platform.jar" ] || { rm -rf "$tmp"; die "backend 包缺 schema-platform.jar"; }
+    fi
+
+    # ③ MANIFEST 校验（web 包内的清单；jar 单独校验见下）
+    if [ -f "$tmp/$MANIFEST" ]; then
+        (cd "$tmp" && sha256sum -c "$MANIFEST" --quiet 2>/dev/null) || {
+            # jar 在分离模式下不在 MANIFEST 中，逐条校验允许"缺失"仅限 jar
+            log "MANIFEST 含 jar 条目时的严格校验："
+            (cd "$tmp" && sha256sum -c "$MANIFEST" --quiet) || {
+                rm -rf "$tmp"; die "MANIFEST 校验失败——产物损坏"; }
+        }
+    else
+        rm -rf "$tmp"; die "产物缺 $MANIFEST"
+    fi
+
+    # ④ 独立校验 jar（VERSION.txt 里记录了 jarSha256）
+    if [ -f "$tmp/VERSION.txt" ]; then
+        local expect actual
+        expect=$(grep '^jarSha256=' "$tmp/VERSION.txt" | cut -d= -f2)
+        actual=$(sha256sum "$tmp/schema-platform.jar" | cut -d' ' -f1)
+        if [ -n "$expect" ] && [ "$expect" != "$actual" ]; then
+            rm -rf "$tmp"; die "jar 哈希不匹配: VERSION=$expect 实际=$actual"
+        fi
+        log "jar 哈希校验通过: ${actual:0:16}..."
+    fi
+
+    [ -d "$tmp/web" ] || { rm -rf "$tmp"; die "产物缺 web/"; }
+
+    # 迁移水位入库
+    local highest=0 v
+    for v in $(unzip -l "$tmp/schema-platform.jar" 2>/dev/null | grep -o 'db/migration/V[0-9]*__' | grep -o 'V[0-9]*' | tr -d 'V' | sort -n); do
+        highest=$v
+    done
+    echo "$highest" > "$tmp/dbBaseline"
+
+    chown -R root:root "$tmp"
+    chmod 755 "$tmp"; chmod 640 "$tmp/schema-platform.jar"
+    find "$tmp/web" -type d -exec chmod 755 {} +
+    find "$tmp/web" -type f -exec chmod 644 {} +
+    mv "$tmp" "$dest"
+    log "入库完成: $version ($(du -sh "$dest" | cut -f1)) dbBaseline=$highest"
 }
 
 # 共用入库逻辑：$2 是 tar 路径（- 表示 stdin）

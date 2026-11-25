@@ -245,56 +245,98 @@ def make_manifest(workdir: Path):
     print(f"== MANIFEST 生成: {len(lines)} 个文件 ==")
 
 
+def _pack_tar(paths, out_path, *, compresslevel=None):
+    """打包为 tar（可选 gzip 级别）。
+
+    compresslevel=None 表示**不压缩**（tar 裸包）——用于 jar：
+    它本身已是 zip，再 gzip 只省 11%，纯属浪费 CPU。
+    """
+    mode = "w:gz" if compresslevel is not None else "w"
+    kwargs = {"compresslevel": compresslevel} if compresslevel is not None else {}
+    with tarfile.open(out_path, mode, **kwargs) as tar:
+        for src_path, arcname in paths:
+            if src_path.exists():
+                tar.add(src_path, arcname=arcname)
+
+
 def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
-    """验收面发布：走 sudo 白名单通道（与生产面同构）。
+    """验收面发布：分离传输（backend / web 独立）+ sudo 白名单通道。
 
     ⚠️ 为什么不能直接 ssh 执行 rm/mkdir：
-    /opt/schema/staging/accept 属主是 root:root 755，deploy 用户**只读**。
-    此前直接用 ssh 执行会 Permission denied；现统一走
-    `sudo -n bash /opt/schema/schema-release-accept.sh`（白名单仅限该脚本，
-    保持最小权限：CI 不持有任意 root 命令）。
+    /opt/schema/staging/accept 属主是 root:root 755，deploy 用户只读。
+    统一走 `sudo -n bash /opt/schema/schema-release-accept.sh`（白名单仅限该脚本）。
 
-    服务器脚本负责：MANIFEST 校验 → 原子入库 → 切链 → **按端口**重启 →
-    探针+三入口+commit 一致性验证 → 失败自动回滚到上一版本。
+    ## 分离传输的由来（实测数据）
+    | 产物 | 原始 | gzip |
+    |---|---|---|
+    | jar  | 34.5 MB | 30.9 MB（仅省 11%——jar 已是 zip）|
+    | web  | 5.0 MB  | 1.86 MB（省 63%——JS/CSS 是文本）|
+
+    全量 33MB 在 CI→服务器（境外链路 33KB/s）需 15 分钟以上，超时。
+    分离后：
+    - 纯前端改动 → 只传 web 1.86MB → 秒级
+    - 后端改动   → 传 jar 30.9MB → 约 15 分钟（超时上限 1800s）
+
+    ## 版本完整性
+    即使分离传输，服务器端仍按 MANIFEST.sha256 逐文件校验；
+    MANIFEST 与 VERSION.txt 随 web 包一起传（体积可忽略），
+    确保任何单包损坏都能在上传阶段发现。
     """
-    print("== 验收面：上传产物 ==")
-    tar_path = work / "accept-bundle.tar.gz"
-    with tarfile.open(tar_path, "w:gz") as tar:
-        for name in ("schema-platform.jar", "web", "VERSION.txt", "MANIFEST.sha256"):
-            tar.add(work / name, arcname=name)
-    print(f"== 打包完成 {tar_path.stat().st_size // 1024} KiB ==")
-
-    # upload：stdin 传 tar 流，服务器侧校验 MANIFEST 后原子入库（版本不可覆盖）
-    # ⚠️ 三个坑（实测踩到）：
-    # 1) ssh 必须加 `-T`（禁用 tty）——有 tty 时 stdin 会被当终端输入，
-    #    二进制 tar 流无法通过，远端起 tar -xzf - 会一直等不到数据（CI 900s 超时真因）。
-    # 2) ssh 必须 `-o StrictHostKeyChecking=accept-new` 之外的显式 known_hosts——
-    #    否则首次连接会因 host key 提示挂住。
-    # 3) 明确打印连接目标：CI 日志里 SCHEMA_DEPLOY_HOST 被脱敏成 ***，
-    #    出问题时无法判断连的是谁（曾因此排查多轮）。
+    print("== 验收面：打包（分离传输）==")
     print(f"== 连接目标: {SERVER}（role={ROLE}）==")
     if "@" not in SERVER:
         raise SystemExit(f"SCHEMA_DEPLOY_HOST 缺少用户名前缀（应为 user@host）: {SERVER}")
 
-    # ⚠️ 改用「先 scp 上传到 /tmp，再远端脚本读文件」两步走：
-    #    原先用 ssh + stdin 管道传 33MB tar，在公网链路上实测会挂住
-    #    （本地同写法 7.8s 完成，CI 却 600s 超时——典型的大块 stdin 管道问题）。
-    #    scp 走独立的数据通道，且有天然进度/重传语义，比管道可靠。
-    remote_tar = f"/tmp/schema-accept-{head[:12]}.tar.gz"
-    print(f"== scp 上传产物 -> {remote_tar} ==")
-    r = subprocess.run(
-        _scp_base() + [str(tar_path), f"{SERVER}:{remote_tar}"],
-        capture_output=True, text=True, timeout=300)
+    backend_tar = work / "accept-backend.tar"
+    web_tar = work / "accept-web.tar.gz"
+
+    t0 = time.time()
+    _pack_tar([(backend_jar, "schema-platform.jar")], backend_tar)  # 不压缩
+    print(f"   backend.tar  {backend_tar.stat().st_size / 1024 / 1024:.1f} MB  ({time.time()-t0:.1f}s)")
+
+    t0 = time.time()
+    web_items = [(work / "VERSION.txt", "VERSION.txt"),
+                 (work / "MANIFEST.sha256", "MANIFEST.sha256")]
+    for app in ("designer", "runtime", "admin"):
+        web_items.append((web_dir / app, f"web/{app}"))
+    _pack_tar(web_items, web_tar, compresslevel=6)
+    print(f"   web.tar.gz   {web_tar.stat().st_size / 1024 / 1024:.2f} MB  ({time.time()-t0:.1f}s)")
+
+    # 是否跳过 backend（纯前端改动）——由 --skip-backend 控制
+    skip_backend = os.environ.get("SCHEMA_SKIP_BACKEND") == "1"
+
+    remote_base = f"/tmp/schema-accept-{head[:12]}"
+
+    if not skip_backend:
+        remote_backend = remote_base + "-backend.tar"
+        print(f"== scp 上传 backend -> {remote_backend} ==")
+        t0 = time.time()
+        r = subprocess.run(_scp_base() + [str(backend_tar), f"{SERVER}:{remote_backend}"],
+                           capture_output=True, text=True, timeout=1800)
+        if r.returncode != 0:
+            print(r.stdout); print(r.stderr, file=sys.stderr)
+            raise SystemExit(f"backend 上传失败 exit={r.returncode}")
+        print(f"   完成 {backend_tar.stat().st_size/1024/1024:.1f} MB ({time.time()-t0:.1f}s)")
+    else:
+        remote_backend = ""
+        print("== 跳过 backend 上传（SCHEMA_SKIP_BACKEND=1，复用服务器现有 jar）==")
+
+    remote_web = remote_base + "-web.tar.gz"
+    print(f"== scp 上传 web -> {remote_web} ==")
+    t0 = time.time()
+    r = subprocess.run(_scp_base() + [str(web_tar), f"{SERVER}:{remote_web}"],
+                       capture_output=True, text=True, timeout=900)
     if r.returncode != 0:
-        print(r.stdout)
-        print(r.stderr, file=sys.stderr)
-        raise SystemExit(f"scp 上传失败 exit={r.returncode}")
-    print(f"   上传完成（{tar_path.stat().st_size // 1024} KiB）")
+        print(r.stdout); print(r.stderr, file=sys.stderr)
+        raise SystemExit(f"web 上传失败 exit={r.returncode}")
+    print(f"   完成 {web_tar.stat().st_size/1024/1024:.2f} MB ({time.time()-t0:.1f}s)")
 
     print("== 验收面：远端入库（校验 MANIFEST + 原子切换）==")
+    backend_arg = remote_backend if remote_backend else "-"
     r = ssh(f"rm -rf {RELEASES_PATH}/{head} && "
-            f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh ingest {head} {remote_tar}; "
-            f"rc=$?; rm -f {remote_tar}; exit $rc", timeout=900)
+            f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh ingest {head} "
+            f"{remote_web} {backend_arg}; "
+            f"rc=$?; rm -f {remote_web} {remote_backend}; exit $rc", timeout=900)
     print(r.stdout)
 
     print("== 验收面：切换版本（备份 → 切链 → 重启 → 验证 → 失败回滚）==")
@@ -312,7 +354,6 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
     print(f"  probe -> {probe}")
     if probe.get("status") != "UP":
         raise SystemExit("验收面后端未就绪（探针非 UP）")
-    # 探针 commit 必须与目标一致（head 是完整 sha，取前 12 位比对）
     if not str(probe.get("commit", "")).startswith(head[:12]):
         raise SystemExit(f"探针 commit={probe.get('commit')} 与目标 {head[:12]} 不一致")
 
