@@ -262,6 +262,17 @@ if ($toolTests.Count -gt 0) {
     }
 } else { Skip 'tools-selftest' '未发现 *.test.cjs（scripts 下）' }
 
+Step 'python-tools-selftest' {
+    $tests = @(Get-ChildItem (Join-Path $root 'scripts') -Filter '*_test.py' | Where-Object { $_.Name -ne 'workflow_gate_test.py' })
+    if ($tests.Count -eq 0) { throw '未发现 Python 工具回归测试' }
+    foreach ($test in $tests) {
+        $raw = & python -c 'import runpy,sys,os; sys.stderr=sys.stdout; path,name=sys.argv[1:]; sys.argv=[path]; sys.path.insert(0,os.path.dirname(os.path.abspath(path))); runpy.run_path(path,run_name=name)' $test.FullName '__main__'
+        $code = $LASTEXITCODE
+        $raw | ForEach-Object { Write-Host $_ }
+        if ($code -ne 0) { throw "$($test.Name) 自测退出码 $code" }
+    }
+}
+
 # 台账门禁真实测试（临时 Git 仓库 + 真实 CLI）：verify_commit/audit 拒绝路径
 # 注意：python 把进度写 stderr（PowerShell 已知误报源），退出码必须从 $global:LASTEXITCODE 取
 $workflowGateTest = Join-Path $root 'scripts\workflow_gate_test.py'
@@ -286,6 +297,13 @@ if (Test-Path (Join-Path $fe 'package.json')) {
         Push-Location $fe
         try { pnpm build; if ($LASTEXITCODE -ne 0) { throw "build 退出码 $LASTEXITCODE" } }
         finally { Pop-Location }
+    }
+    Step 'frontend-test-types' {
+        Push-Location $fe
+        try {
+            pnpm exec tsc -p tsconfig.tests.json
+            if ($LASTEXITCODE -ne 0) { throw "测试代码类型检查退出码 $LASTEXITCODE" }
+        } finally { Pop-Location }
     }
     Step 'frontend-test' {
         Push-Location $fe
@@ -354,6 +372,7 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         if ($itFiles.Count -eq 0) { throw "未发现任何 *IT.java（目录: $itDir)" }
         $itList = ($itFiles -join ',')
 
+        $itStartedAt = (Get-Date).ToUniversalTime()
         Push-Location $be
         try {
             # -am 连带构建依赖模块；-Dsurefire.failIfNoSpecifiedTests=false：依赖模块（platform-common 等）
@@ -382,10 +401,15 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         foreach ($it in $itFiles) {
             $xml = Join-Path $reportDir ("TEST-com.schema.bootstrap.{0}.xml" -f $it)
             if (-not (Test-Path $xml)) { $missing += $it; continue }
-            $c = Get-Content $xml -Raw -Encoding UTF8
-            if ($c -match '<testsuite[^>]*tests="(\d+)"') {
-                if ([int]$Matches[1] -eq 0) { $zero += $it }
-            } else { $missing += $it }
+            if ((Get-Item $xml).LastWriteTimeUtc -lt $itStartedAt) { $missing += "$it(旧报告)"; continue }
+            [xml]$report = Get-Content $xml -Raw -Encoding UTF8
+            $suite = $report.DocumentElement
+            $tests = [int]$suite.GetAttribute('tests')
+            $failures = [int]$suite.GetAttribute('failures')
+            $errors = [int]$suite.GetAttribute('errors')
+            $skipped = [int]$suite.GetAttribute('skipped')
+            if ($suite.Name -ne 'testsuite' -or $tests -le 0 -or $tests -le $skipped) { $zero += $it }
+            if ($failures -gt 0 -or $errors -gt 0 -or $skipped -gt 0) { $missing += "$it(失败或跳过)" }
         }
         if ($missing.Count -gt 0 -or $zero.Count -gt 0) {
             $detail = @()
@@ -451,6 +475,7 @@ if (Test-Path $pwConfig) {
         Push-Location $fe
         try {
             $env:CI = 'true'
+            $playwrightStartedAt = ((Get-Date).ToUniversalTime() - [datetime]'1970-01-01').TotalSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)
             pnpm exec playwright test --config playwright.config.ts
             if ($LASTEXITCODE -ne 0) { throw "Playwright 退出码 $LASTEXITCODE" }
         }
@@ -459,21 +484,8 @@ if (Test-Path $pwConfig) {
         # 必跑场景核对（与 CI 同口径：缺报告/缺场景/跳过/失败 一律失败）
         $report = Join-Path $fe 'e2e-report.xml'
         if (-not (Test-Path $report)) { throw "Playwright 报告缺失: $report" }
-        $doc = New-Object System.Xml.XmlDocument
-        $doc.Load($report)
-        $required = @('SMK-DES-01', 'SMK-RUN-01', 'SMK-ADM-01')
-        $missing = @()
-        foreach ($id in $required) {
-            $hit = $null
-            foreach ($tc in $doc.SelectNodes('//testcase')) {
-                if ($tc.GetAttribute('name') -like "*$id*") { $hit = $tc; break }
-            }
-            if ($null -eq $hit) { $missing += "$id(缺失)"; continue }
-            if ($hit.SelectSingleNode('skipped')) { $missing += "$id(跳过)"; continue }
-            if ($hit.SelectSingleNode('failure') -or $hit.SelectSingleNode('error')) { $missing += "$id(失败)"; continue }
-            Write-Host "  PASSED: $id"
-        }
-        if ($missing.Count -gt 0) { throw ("必跑场景未通过: " + ($missing -join ', ')) }
+        python (Join-Path $root 'scripts\test_gate.py') playwright $report --not-before $playwrightStartedAt
+        if ($LASTEXITCODE -ne 0) { throw 'Playwright 报告核对失败' }
     }
 } else { Skip 'frontend-smoke' 'playwright.config.ts 不存在' }
 

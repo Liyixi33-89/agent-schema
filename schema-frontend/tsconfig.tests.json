@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": []
+  },
+  "files": ["apps/admin-console/node_modules/vite/client.d.ts"],
+  "include": [
+    "apps/**/test/**/*.test.ts",
+    "apps/**/test/**/*.test.tsx",
+    "apps/**/src/**/*.test.ts",
+    "apps/**/src/**/*.test.tsx",
+    "packages/**/test/**/*.test.ts",
+    "packages/**/test/**/*.test.tsx",
+    "packages/**/src/**/*.test.ts",
+    "packages/**/src/**/*.test.tsx",
+    "tests/**/*.test.ts",
+    "tests/**/*.test.tsx",
+    "e2e/**/*.ts",
+    "playwright.config.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["**/node_modules/**", "**/dist/**", "**/dist-accept/**"]
+}

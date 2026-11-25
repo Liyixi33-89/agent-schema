@@ -7,15 +7,21 @@
  * createElement 捕获调用序列，验证最终传给物料的 props 合并结果。
  */
 import { describe, expect, it, vi } from 'vitest';
+import type { Dispatch, FunctionComponent, SetStateAction } from 'react';
 import type { PageSchema, FieldSchema, LayoutNode } from '@schema/schema-protocol';
 import { RenderScope, materialRegistry } from '../src/index';
-import { bindSchemaRenderer, type ReactPrimitives } from '../src/bindings';
+import { bindSchemaRenderer, type ReactPrimitives, type SchemaRendererProps } from '../src/bindings';
+
+function stateStub<S>(initialState?: S | (() => S)): [S, Dispatch<SetStateAction<S>>] {
+  const value = typeof initialState === 'function' ? (initialState as () => S)() : initialState as S;
+  return [value, () => {}];
+}
 
 const field = (key: string): FieldSchema => ({
   key, label: key, type: 'file', fieldStatus: 'ACTIVE', sortOrder: 1,
 });
 
-const node = (id: string, componentName: string, props: Record<string, unknown> = {}, children?: LayoutNode[]): LayoutNode => ({
+const node = (id: string, componentName: string, props: LayoutNode['props'] = {}, children?: LayoutNode[]): LayoutNode => ({
   id, componentName, props, ...(children ? { children } : {}),
 });
 
@@ -53,10 +59,10 @@ describe('hostProps 宿主能力注入（05FE §5 能力位合并）', () => {
       // createElement 桩（宿主语义）：函数组件立即执行捕获 props；宿主元素返回 null
       createElement: ((type: unknown, props: unknown) =>
         typeof type === 'function' ? (type as (p: unknown) => unknown)(props) : null) as never,
-      useState: (init: unknown) => [init, () => {}],
+      useState: stateStub,
       useEffect: () => {},
     };
-    const SchemaRenderer = bindSchemaRenderer(react);
+    const SchemaRenderer = bindSchemaRenderer(react) as FunctionComponent<SchemaRendererProps>;
 
     const uploader = vi.fn();
     const downloader = vi.fn();
@@ -95,10 +101,10 @@ describe('hostProps 宿主能力注入（05FE §5 能力位合并）', () => {
     const react: ReactPrimitives = {
       createElement: ((type: unknown, props: unknown) =>
         typeof type === 'function' ? (type as (p: unknown) => unknown)(props) : null) as never,
-      useState: (init: unknown) => [init, () => {}],
+      useState: stateStub,
       useEffect: () => {},
     };
-    const SchemaRenderer = bindSchemaRenderer(react);
+    const SchemaRenderer = bindSchemaRenderer(react) as FunctionComponent<SchemaRendererProps>;
     SchemaRenderer({
       page: page([node('n1', 'TextInput', { label: '事由' })]),
       scope,
