@@ -266,7 +266,11 @@ cmd_ingest() {
     echo "$highest" > "$tmp/dbBaseline"
 
     chown -R root:root "$tmp"
-    chmod 755 "$tmp"; chmod 640 "$tmp/schema-platform.jar"
+    chmod 755 "$tmp"
+    # jar 权限 644：CI 的部署后复验以 deploy 用户读 jar 算哈希，
+    # 640 root:root 会让它 Permission denied（实测踩到）。
+    # 644 只读不改——篡改仍需 root，release 目录 755 也不允许 deploy 写入。
+    chmod 644 "$tmp/schema-platform.jar"
     find "$tmp/web" -type d -exec chmod 755 {} +
     find "$tmp/web" -type f -exec chmod 644 {} +
     mv "$tmp" "$dest"
@@ -310,7 +314,11 @@ ingest_from_stream() {
 
     # 权限：deploy 无法写入此目录，全部归 root；nginx 需要可读
     chown -R root:root "$tmp"
-    chmod 755 "$tmp"; chmod 640 "$tmp/schema-platform.jar"
+    chmod 755 "$tmp"
+    # jar 权限 644：CI 的部署后复验以 deploy 用户读 jar 算哈希，
+    # 640 root:root 会让它 Permission denied（实测踩到）。
+    # 644 只读不改——篡改仍需 root，release 目录 755 也不允许 deploy 写入。
+    chmod 644 "$tmp/schema-platform.jar"
     find "$tmp/web" -type d -exec chmod 755 {} +
     find "$tmp/web" -type f -exec chmod 644 {} +
     mv "$tmp" "$dest"
