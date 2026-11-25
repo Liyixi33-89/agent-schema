@@ -335,7 +335,12 @@ def deploy_accept(head: str, work: Path, backend_jar: Path, web_dir: Path):
 
     print("== 验收面：远端入库（校验 MANIFEST + 原子切换）==")
     backend_arg = remote_backend if remote_backend else "-"
-    r = ssh(f"rm -rf {RELEASES_PATH}/{head} && "
+    # ⚠️ 不能无条件 rm -rf releases/<head>：跳过 backend 时 head 与当前运行版本相同，
+    #    删掉会让 current 软链指向不存在的目录（服务重启即挂）。
+    #    改为：仅当该版本**不是**当前运行版本时才预清理（支持失败重试）。
+    r = ssh(f"if [ \"$(readlink -f {RELEASES_PATH}/{head} 2>/dev/null)\" != "
+            f"\"$(readlink -f {ACCEPT_ROOT}/current 2>/dev/null)\" ]; then "
+            f"rm -rf {RELEASES_PATH}/{head}; fi; "
             f"sudo -n bash {REMOTE_ROOT}/schema-release-accept.sh ingest {head} "
             f"{remote_web} {backend_arg}; "
             f"rc=$?; rm -f {remote_web} {remote_backend}; exit $rc", timeout=900)
