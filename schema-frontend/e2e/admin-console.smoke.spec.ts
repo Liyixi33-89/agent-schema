@@ -21,12 +21,19 @@ test('SMK-ADM-01 健康页指标与后端响应一致', async ({ page, baseURL }
   await expect(page.getByText('平台管理端')).toBeVisible();
 
   // 对单一区域注入一次可控失败，其他区域仍走真实后端。
-  const throughputPath = '**/api/ops/health/tenant/api-throughput';
+  // ⚠️ 用 pathname 判定而非 glob：真实请求可能带 query（如 ?window=60），
+  //    `**/api/...` 这类模式在带查询串时会漏匹配，导致注入失效。
+  const throughputUrl = (url: URL): boolean =>
+    url.pathname.endsWith('/api/ops/health/tenant/api-throughput');
   let injected = false;
-  await page.route(throughputPath, async route => {
+  await page.route(throughputUrl, async route => {
     if (!injected) {
       injected = true;
-      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: '冒烟受控失败' }) });
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: '冒烟受控失败' }),
+      });
     } else {
       await route.continue();
     }
@@ -53,11 +60,23 @@ test('SMK-ADM-01 健康页指标与后端响应一致', async ({ page, baseURL }
     { message: '活跃用户数必须精确匹配本次响应' },
   ).toBe(String(body.activeUsersLastHour));
 
-  const throughput = page.locator('.ant-card').filter({ has: page.getByText('API 吞吐时序（近 60 分钟，分钟粒度）', { exact: true }) });
-  await expect(throughput.getByText('冒烟受控失败', { exact: false })).toBeVisible();
-  const recovered = page.waitForResponse(response => response.url().endsWith('/api/ops/health/tenant/api-throughput') && response.status() === 200);
-  await throughput.getByRole('button', { name: '重试', exact: true }).click();
+  // 单区域失败必须显式报错（不是显示为空/加载中）
+  // RegionStatusBar 渲染的是 antd Alert：message=「{标题}加载失败」，
+  // description=错误文案，action=重试按钮。
+  const errorAlert = page.getByRole('alert').filter({ hasText: '冒烟受控失败' });
+  await expect(errorAlert).toBeVisible();
+  await expect(page.getByText('API 吞吐时序（近 60 分钟，分钟粒度）加载失败')).toBeVisible();
+
+  // 重试后恢复：错误清空、数据正常
+  // ⚠️ antd 会在**两个汉字的按钮**中间自动插入空格，渲染成「重 试」。
+  //    用 { name: '重试', exact: true } 永远匹配不到 → 点击超时（CI 实测）。
+  //    改用正则容忍空格。
+  const recovered = page.waitForResponse(
+    response => throughputUrl(new URL(response.url())) && response.status() === 200,
+    { timeout: 20_000 },
+  );
+  await errorAlert.getByRole('button', { name: /重\s*试/ }).click();
   await recovered;
-  await expect(throughput.getByText('冒烟受控失败', { exact: false })).toHaveCount(0);
-  await expect(throughput.getByText('API 吞吐时序（近 60 分钟，分钟粒度）加载失败')).toHaveCount(0);
+  await expect(errorAlert).toHaveCount(0);
+  await expect(page.getByText('API 吞吐时序（近 60 分钟，分钟粒度）加载失败')).toHaveCount(0);
 });
