@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { FlowSchema } from '@schema/schema-protocol';
 import {
   EDITABLE_NODE_TYPES, addEdge, addNode, blankSchema, defaultApprover,
-  defaultPositionFor, editorDiagnostics, isEditableType, nextEdgeId, nextNodeId,
+  autoWire, defaultPositionFor, editorDiagnostics, isEditableType, nextEdgeId, nextNodeId,
   normalizeApprover, removeEdge, removeNode, renameNode, setApprover,
 } from '../src/editorState';
 
@@ -60,6 +60,70 @@ describe('addNode', () => {
   it('END 可加多个', () => {
     const after = addNode(blankSchema('k', 'n'), 'END');
     expect(after.nodes.filter((n) => n.type === 'END')).toHaveLength(2);
+  });
+
+  // ===== 自动连线（2026-11-26 修复的真实缺陷）=====
+  // 原实现只加节点不连线 → 新节点孤立 → 保存时后端 422
+  // 「节点不可达（approval_2 — START 出发不可达）」→ 用户「能加不能存」。
+
+  it('加 APPROVAL 自动插入 END 之前（不产生孤立节点）', () => {
+    const before = blankSchema('k', 'n');       // start→approval_1→end
+    const after = addNode(before, 'APPROVAL');
+
+    const newNode = after.nodes[after.nodes.length - 1];
+    expect(newNode.type).toBe('APPROVAL');
+
+    // 新节点必须有入边和出边
+    expect(after.edges.some((e) => e.to === newNode.id), '新节点应有入边').toBe(true);
+    expect(after.edges.some((e) => e.from === newNode.id), '新节点应有出边').toBe(true);
+
+    // 边数 +1（一条被重指，一条新增）
+    expect(after.edges).toHaveLength(before.edges.length + 1);
+  });
+
+  it('自动接线后所有节点从 START 可达（后端连通性校验的等价断言）', () => {
+    const after = addNode(addNode(blankSchema('k', 'n'), 'APPROVAL'), 'APPROVAL');
+
+    const start = after.nodes.find((n) => n.type === 'START')!;
+    const adj = new Map<string, string[]>();
+    for (const e of after.edges) {
+      adj.set(e.from, [...(adj.get(e.from) ?? []), e.to]);
+    }
+    const seen = new Set<string>([start.id]);
+    const queue = [start.id];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      for (const next of adj.get(cur) ?? []) {
+        if (!seen.has(next)) { seen.add(next); queue.push(next); }
+      }
+    }
+    for (const n of after.nodes) {
+      expect(seen.has(n.id), `节点 ${n.id}(${n.type}) 应可达`).toBe(true);
+    }
+  });
+
+  it('END 无入边时接到末端节点', () => {
+    // 只留 start → approval_1，END 孤立
+    const s: FlowSchema = {
+      flowKey: 'k', name: 'n', version: 1, schemaVersion: 1,
+      nodes: [
+        { id: 'start_1', type: 'START' },
+        { id: 'approval_1', type: 'APPROVAL', approver: defaultApprover() },
+        { id: 'end_1', type: 'END' },
+      ],
+      edges: [{ id: 'e1', from: 'start_1', to: 'approval_1' }],
+    };
+    const after = addNode(s, 'APPROVAL');
+    const newNode = after.nodes[after.nodes.length - 1];
+    // 应从末端节点（approval_1）接出
+    expect(after.edges.some((e) => e.from === 'approval_1' && e.to === newNode.id)).toBe(true);
+  });
+
+  it('加 START/END 不自动接线（端点半自动接会破坏语义）', () => {
+    const before = blankSchema('k', 'n');
+    const afterEnd = addNode(before, 'END');
+    // END 不自动接线——边数不变
+    expect(afterEnd.edges).toHaveLength(before.edges.length);
   });
 });
 

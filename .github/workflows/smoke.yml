@@ -84,8 +84,13 @@ jobs:
 
       # 起后端（独立 PG，Flyway 自动建表 + 种子数据）
       - name: Start backend
+        # FLOWABLE_ENABLED=true：流程编辑器 E2E（SMK-FLOW-01）要跑「发布」
+        # 这一步，而后端默认 flowable.process.enabled=false 会让发布直接
+        # 返回 FLOW_DEF_NOT_PUBLISHED（"流程引擎未启用，无法发布部署"）。
+        # 首轮就建 30 张 ACT_* 表（Flyway 之后由 Flowable 自动建）。
         run: |
           cd schema-platform
+          FLOWABLE_ENABLED=true \
           nohup java -jar bootstrap/target/bootstrap-0.1.0-SNAPSHOT.jar \
             --server.port=18080 \
             --spring.datasource.url=jdbc:postgresql://127.0.0.1:5432/schema_dev \

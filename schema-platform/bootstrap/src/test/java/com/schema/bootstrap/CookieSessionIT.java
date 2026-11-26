@@ -159,16 +159,24 @@ class CookieSessionIT {
         assertTrue(joined.contains("schema_rt="), "缺 schema_rt");
         assertTrue(joined.contains("schema_csrf="), "缺 schema_csrf");
         // 属性逐项断言
+        // Secure 属性跟随 COOKIE_INSECURE 开关：默认必须有；显式降级时不得出现。
+        final boolean wantSecure = !SessionCookies.isInsecureCookieMode();
         for (String h : headers) {
             if (h.startsWith("schema_at=")) {
-                assertTrue(h.contains("HttpOnly") && h.contains("Secure")
+                assertTrue(h.contains("HttpOnly")
                         && h.contains("SameSite=Lax") && h.contains("Path=/"));
+                assertEquals(wantSecure, h.contains("Secure"),
+                        "schema_at 的 Secure 应与 COOKIE_INSECURE 一致: " + h);
             } else if (h.startsWith("schema_rt=")) {
-                assertTrue(h.contains("HttpOnly") && h.contains("Secure")
+                assertTrue(h.contains("HttpOnly")
                         && h.contains("SameSite=Strict") && h.contains("Path=/api/auth"));
+                assertEquals(wantSecure, h.contains("Secure"),
+                        "schema_rt 的 Secure 应与 COOKIE_INSECURE 一致: " + h);
             } else if (h.startsWith("schema_csrf=")) {
                 assertTrue(!h.contains("HttpOnly"), "csrf 必须可读（双提交源）");
-                assertTrue(h.contains("Secure") && h.contains("SameSite=Lax") && h.contains("Path=/"));
+                assertTrue(h.contains("SameSite=Lax") && h.contains("Path=/"));
+                assertEquals(wantSecure, h.contains("Secure"),
+                        "schema_csrf 的 Secure 应与 COOKIE_INSECURE 一致: " + h);
             }
         }
         // 三枚均 host-only（不设 Domain）
@@ -299,7 +307,10 @@ class CookieSessionIT {
         String setCookie = cookieHeader(result);
         assertTrue(setCookie != null && setCookie.startsWith("schema_csrf="),
                 "匿名 csrf 必须签发（登录 CSRF 防护）");
-        assertTrue(setCookie.contains("Secure") && !setCookie.contains("HttpOnly"));
+        assertTrue(!setCookie.contains("HttpOnly"), "csrf 必须可读（双提交源）");
+        // Secure 跟随开关（默认有，COOKIE_INSECURE=1 时无）
+        assertEquals(!SessionCookies.isInsecureCookieMode(), setCookie.contains("Secure"),
+                "匿名 csrf 的 Secure 应与 COOKIE_INSECURE 一致: " + setCookie);
     }
 
     // ---------- 登出清 cookie（属性一致） ----------

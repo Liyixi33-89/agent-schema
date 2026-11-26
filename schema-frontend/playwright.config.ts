@@ -65,6 +65,13 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: DESIGNER },
     },
     {
+      // 流程编辑器闭环（spec 022 T1+T2）：验交互而非仅「页面能开」。
+      // 与 designer 冒烟同 baseURL（编辑器在 designer 应用的「流程」页签内）。
+      name: 'flow-editor',
+      testMatch: /flow-editor\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: DESIGNER },
+    },
+    {
       name: 'runtime',
       testMatch: /runtime\.smoke\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: RUNTIME },

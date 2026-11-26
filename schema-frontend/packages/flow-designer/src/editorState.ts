@@ -71,7 +71,27 @@ export function defaultPositionFor(schema: FlowSchema): { x: number; y: number }
   return { x: maxX + 300, y: yOfMax };
 }
 
-/** 加节点（START 全局唯一——已有则拒绝返回原 schema）。 */
+/**
+ * 加节点，并**自动接入现有链路**。
+ *
+ * ## 为什么必须自动连线（真实缺陷修复）
+ * 后端 `validateForSave` 要求「START 出发可达全部节点」。若只加节点不连线，
+ * 新节点孤立 → 保存时 422 `FLOW_SCHEMA_INVALID`（节点不可达）。
+ *
+ * 实测：用户在编辑器点「+ 审批」后必然无法保存草稿，
+ * 因为新节点没有任何边——这是「能加不能存」的死路。
+ *
+ * ## 接入策略
+ * 把新节点插在 **END 之前**（最常见的语义：在结束前追加审批）：
+ * ```
+ * … → X → END      变为      … → X → 新节点 → END
+ * ```
+ * 具体做法：找到指向 END 的那条边，改为 `X → 新节点`，再补 `新节点 → END`。
+ *
+ * 边界：
+ * - 无 END（用户删了）→ 退化为「从最后一个无出边的节点接出」
+ * - 无任何边 → 直接连 START → 新节点（若无 START 则只加节点，让自检提示）
+ */
 export function addNode(
   schema: FlowSchema,
   type: EditableNodeType,
@@ -87,11 +107,67 @@ export function addNode(
     name: defaultNodeName(type),
     ...(type === 'APPROVAL' ? { approver: defaultApprover() } : {}),
   };
-  return {
-    ...schema,
-    nodes: [...schema.nodes, node],
-    // 位置信息由编辑态单独维护（草稿坐标不进 FlowSchema）——这里标记由调用方记录
-  };
+  const withNode: FlowSchema = { ...schema, nodes: [...schema.nodes, node] };
+
+  // START / END 是端点，自动接线会把它们接成中间节点，语义错乱——不自动接。
+  // （END 可多个且本来就应在末端；START 全局唯一且是最前端。）
+  if (type === 'START' || type === 'END') {
+    return withNode;
+  }
+
+  return autoWire(withNode, id);
+}
+
+/**
+ * 把新节点插入到 END 之前（找不到 END 时接到末端）。
+ *
+ * 抽成独立函数便于单测：给定任意（可能不完整的）schema，行为可预测。
+ */
+export function autoWire(schema: FlowSchema, newNodeId: string): FlowSchema {
+  const byId = new Map(schema.nodes.map((n) => [n.id, n]));
+  const endNodes = schema.nodes.filter((n) => n.type === 'END');
+
+  // 策略 1：找指向 END 的边，断开并插入新节点
+  for (const end of endNodes) {
+    const intoEnd = schema.edges.find((e) => e.to === end.id);
+    if (intoEnd) {
+      const rewired = schema.edges.map((e) =>
+        e.id === intoEnd.id ? { ...e, to: newNodeId } : e);
+      const linkToEnd: FlowEdge = {
+        id: nextEdgeId({ ...schema, edges: rewired }),
+        from: newNodeId,
+        to: end.id,
+      };
+      return { ...schema, edges: [...rewired, linkToEnd] };
+    }
+  }
+
+  // 策略 2：END 无入边（如用户先删了审批）→ 找「末端节点」接出
+  const hasOut = new Set(schema.edges.map((e) => e.from));
+  const terminal = schema.nodes.find(
+    (n) => n.id !== newNodeId && !hasOut.has(n.id) && n.type !== 'END');
+  if (terminal) {
+    const link: FlowEdge = {
+      id: nextEdgeId(schema),
+      from: terminal.id,
+      to: newNodeId,
+    };
+    return { ...schema, edges: [...schema.edges, link] };
+  }
+
+  // 策略 3：完全没有边（空流程）→ 从 START 接出
+  const start = schema.nodes.find((n) => n.type === 'START');
+  if (start) {
+    const link: FlowEdge = {
+      id: nextEdgeId(schema),
+      from: start.id,
+      to: newNodeId,
+    };
+    return { ...schema, edges: [...schema.edges, link] };
+  }
+
+  // 兜底：无法安全接线时保持原样（由 editorDiagnostics 提示用户手动连）
+  return schema;
 }
 
 /** 节点默认显示名。 */
