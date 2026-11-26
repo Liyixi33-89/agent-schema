@@ -74,7 +74,7 @@ export default defineConfig({
     {
       // 审批中心（spec 022 T3）：待办/已办/详情/办理
       name: 'approval',
-      testMatch: /(approval|trigger-flow|diag-models)\.spec\.ts/,
+      testMatch: /(approval|trigger-flow)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: RUNTIME },
     },
     {

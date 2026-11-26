@@ -178,13 +178,8 @@ async function createFlow(c: Ctx, name: string): Promise<string> {
 
 /** 打开表单页、填标题、提交。 */
 async function fillAndSubmit(page: Page, base: string, pageId: string, title: string): Promise<void> {
+  // 记录数据面响应，供断言「提交确实成功」用（不依赖 3s 即消失的 toast）
   const log: string[] = [];
-  page.on('request', (r) => {
-    if (r.url().includes('/api/data/') && r.method() === 'POST') {
-      const h = r.headers();
-      log.push(`REQ ${r.url()} csrf=${h['x-csrf-token'] ?? '(无)'} keys=${Object.keys(h).join(',')}`);
-    }
-  });
   page.on('response', async (r) => {
     if (r.url().includes('/api/data/')) {
       let b = '';
@@ -219,19 +214,8 @@ test.describe('TRIGGER_FLOW 动作消费', () => {
 
     await fillAndSubmit(page, c.base, pageId, `报销 ${Date.now()}`);
 
-    // 提交成功提示（TOAST 行为——不跳转，便于观察后续流程发起）
-    try {
-      await expect(page.getByText(/提交成功|已保存|保存成功/)).toBeVisible({ timeout: 20_000 });
-    } catch (e) {
-      const lg = (page as unknown as { __log?: string[] }).__log ?? [];
-      console.log('[DIAG] /api/data 请求:');
-      for (const l of lg) console.log('  ' + l);
-      const alert = await page.locator('.ant-alert').first().textContent().catch(() => null);
-      console.log('[DIAG] 页面 alert =', alert);
-      throw e;
-    }
-
-    // 核心断言：流程实例已创建 → 审批中心待办能看到「主管审批」
+    // 不依赖 toast（antd message 默认 3s 消失，且提交成功后页面可能重置/刷新）——
+    // 直接断言**业务结果**：流程实例已创建 → 审批中心待办出现「主管审批」。
     await page.goto(`${c.base}/#/approval`);
     await expect(page.getByText('审批中心')).toBeVisible({ timeout: 20_000 });
     const todoRow = page.locator('.ant-list-item').filter({ hasText: '主管审批' }).first();
@@ -250,9 +234,20 @@ test.describe('TRIGGER_FLOW 动作消费', () => {
     });
 
     await fillAndSubmit(page, c.base, pageId, `普通 ${Date.now()}`);
-    await expect(page.getByText(/提交成功|已保存|保存成功/)).toBeVisible({ timeout: 20_000 });
 
-    // 零行为证据：不出现任何流程相关提示
+    // A7 零行为断言（三条，都不依赖 3s 即消失的 antd toast）：
+    // ② 创建请求返回 200 —— 用 poll：点击后响应尚未回来
+    const responses = (): string[] =>
+      ((page as unknown as { __log?: string[] }).__log ?? [])
+        .filter((l) => l.includes('POST') && l.includes('/api/data/') && l.includes('::'));
+    await expect.poll(() => responses().length, {
+      timeout: 20_000, message: '应收到创建请求的响应',
+    }).toBeGreaterThan(0);
+    expect(responses().every((l) => l.startsWith('200')),
+      `创建请求应全部成功：${responses().join(' | ')}`).toBe(true);
+    // ① 提交本身成功（无错误提示）
+    await expect(page.locator('.ant-alert')).toHaveCount(0);
+    // ③ 不出现任何流程相关提示（无 TRIGGER_FLOW → 零流程行为）
     await expect(page.getByText(/流程已发起|流程发起失败|流程未发起/)).toHaveCount(0);
   });
 
@@ -270,21 +265,49 @@ test.describe('TRIGGER_FLOW 动作消费', () => {
       ],
     });
 
+    // 记录提交前的既有待办（避免与历史测试残留混淆）
+    const beforeResp = await c.ctx.request.get(`${c.origin}/api/my/tasks`, { headers: c.h });
+    const beforeBody = await beforeResp.json() as { list?: { instanceId: string }[] };
+    const beforeIds = new Set((beforeBody.list ?? []).map((x) => x.instanceId));
+
     // 第一次提交：由前端 TRIGGER_FLOW 正常发起
     await fillAndSubmit(page, c.base, pageId, `重复 ${Date.now()}`);
-    await expect(page.getByText(/提交成功|已保存|保存成功/)).toBeVisible({ timeout: 20_000 });
 
-    // 找到刚建的记录，对同一记录重复发起 → 必须 409 INSTANCE_ALREADY_RUNNING
-    const listResp = await c.ctx.request.post(`${c.origin}/api/data/${modelId}/query`, {
-      headers: c.h, data: { page: 0, size: 1 },
-    });
-    expect(listResp.ok(), '查询记录应成功').toBeTruthy();
-    const list = await listResp.json() as { list?: { id: string | number }[] };
-    const recordId = list.list?.[0]?.id;
-    expect(recordId, '应能查到刚提交的记录').toBeTruthy();
+    // 等创建请求完成（不依赖 toast）
+    await expect.poll(async () => {
+      const lg = (page as unknown as { __log?: string[] }).__log ?? [];
+      return lg.filter((l) => l.includes('POST') && l.includes('/api/data/')).length;
+    }, { timeout: 20_000, message: '应发出创建请求' }).toBeGreaterThan(0);
 
+    // 找到刚发起的实例（经待办反查 recordId）——不用 /query：
+    // 列表查询受权限过滤与字段投影影响，E2E 里拿不到刚建的记录（实测返回空）。
+    interface Todo { taskId: string; instanceId: string }
+    // 取**本次新增**的待办（同账号可能残留历史测试的待办，取第一条会拿错记录）
+    let instanceId = '';
+    let recordId = '';
+    await expect.poll(async () => {
+      const r = await c.ctx.request.get(`${c.origin}/api/my/tasks`, { headers: c.h });
+      if (!r.ok()) return 0;
+      const b = await r.json() as { list?: Todo[] };
+      const fresh = (b.list ?? []).find((x) => !beforeIds.has(x.instanceId));
+      if (!fresh) return 0;
+      instanceId = fresh.instanceId;
+      const d = await c.ctx.request.get(`${c.origin}/api/flow-instances/${fresh.instanceId}`, { headers: c.h });
+      if (!d.ok()) return 0;
+      // detail 的 recordId 可能是 JSON 数字（已丢精度）或字符串——取原始文本更稳：
+      // 这里用 text 再解析，确保 19 位 id 不被 JS Number 截断。
+      const rawText = await d.text();
+      const m = /"recordId"\s*:\s*"?(\d+)"?/.exec(rawText);
+      recordId = m ? m[1] : '';
+      return recordId === '' ? 0 : 1;
+    }, { timeout: 20_000, message: '应能从新增待办反查到业务记录' }).toBe(1);
+    expect(instanceId, '应拿到实例 id').toBeTruthy();
+
+    // ⚠️ recordId 是 19 位雪花 id（如 3693719287260468000），超出 JS 安全整数范围；
+    //    任何 Number 转换都会丢精度 → URL 里成了另一个 id → 后端视为新记录返回 200。
+    //    全程按字符串拼接（detail 接口返回的 recordId 已 String() 化）。
     const dup = await c.ctx.request.post(
-      `${c.origin}/api/records/${modelId}/${recordId}/flow/start`,
+      `${c.origin}/api/records/${modelId}/${encodeURIComponent(recordId)}/flow/start`,
       { headers: c.h, data: { flowDefId: Number(flowId) } },
     );
     expect(dup.status(), '重复发起应被拒绝（409）').toBe(409);
