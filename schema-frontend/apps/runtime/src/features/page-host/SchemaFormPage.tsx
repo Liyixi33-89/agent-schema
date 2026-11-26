@@ -1,10 +1,10 @@
-﻿/**
+/**
  * 已装载表单页渲染 + 提交闭环（渐进重构第四批——自 FormPageHost.tsx 原样抽出，行为不变）：
  * FormStore 构造期破环 / 受控字段包装（EnhancedCache 类型稳定）/ 提交三阶段协议
  * + 服务端错误回填 + 脚本钩子 beforeSubmit·afterSubmit·onActionClick + 错误汇总区。
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Card, Typography } from 'antd';
+import { Alert, Button, Card, Typography, message } from 'antd';
 import {
   FormStore, SubmitGuard, DebouncedUniqueChecker, executeSubmit,
   type SubmitTransport,
@@ -14,6 +14,50 @@ import type { FieldSchema, PageSchema } from '@schema/schema-protocol';
 import { RequestClient } from '../../shared/request';
 import { useScriptHooks } from './useScriptHooks';
 import { SchemaRenderer, fieldRefOf, UnknownWidget } from './hostShared';
+import {
+  parseError, parseStartResponse, pickTriggerFlowActions, planTriggerFlow,
+  summarizeOutcomes, triggerFlowErrorText,
+  type DispatchOutcome,
+} from './actionDispatch';
+
+/**
+ * 执行页面上的 TRIGGER_FLOW 动作（spec 022 T4）。
+ *
+ * 返回 null 表示「不需要提示用户」：
+ * - 页面没有 TRIGGER_FLOW 动作（**无绑定表单的零行为路径**）
+ * - 单个动作成功（提交本身已有成功提示，不再叠加噪音）
+ *
+ * 逐个动作串行发起——数量极少（通常 0~1），并行会让错误提示的顺序不确定。
+ */
+async function runTriggerFlow(args: {
+  client: RequestClient;
+  page: PageSchema;
+  recordId?: string | number;
+  serverResponse?: unknown;
+  submittedData?: Record<string, unknown>;
+}): Promise<{ type: 'success' | 'warning' | 'error'; message: string } | null> {
+  const { client, page, recordId, serverResponse, submittedData } = args;
+  const actions = pickTriggerFlowActions(page.actions as { type: string }[] | undefined);
+  if (actions.length === 0) return null;   // 无绑定：零请求、零提示（A7 回归保证）
+
+  const outcomes: DispatchOutcome[] = [];
+  for (const action of actions) {
+    const plan = planTriggerFlow(action, { modelId: page.modelId, recordId, serverResponse, submittedData });
+    if (plan.kind === 'skip') {
+      outcomes.push({ flowId: String(action.flowId), ok: false, code: plan.reason, message: plan.message });
+      continue;
+    }
+    try {
+      const raw = await client.startFlow(plan.modelId, plan.recordId, plan.flowId);
+      const instanceId = parseStartResponse(raw);
+      outcomes.push({ flowId: plan.flowId, ok: true, ...(instanceId ? { instanceId } : {}) });
+    } catch (e) {
+      const { code, message: msg } = parseError(e);
+      outcomes.push({ flowId: plan.flowId, ok: false, code, message: triggerFlowErrorText(code, msg) });
+    }
+  }
+  return summarizeOutcomes(outcomes);
+}
 
 export default function SchemaFormPage({ client, page, fields, recordId, detailRow, onSubmitted }: {
   client: RequestClient;
@@ -161,6 +205,7 @@ export default function SchemaFormPage({ client, page, fields, recordId, detailR
     try {
       // beforeSubmit 返回 false 阻断提交；超时按「不阻断」放行（08FE §4.3 韧性原则）
       const payload = { record: Object.fromEntries([...store.fields.keys()].map((k) => [k, store.get(k)])) };
+      const submittedData = payload.record;
       const pre = await scripts.beforeSubmit(payload);
       if (pre.ok && pre.value === false) {
         setGlobalError('提交被脚本阻断（beforeSubmit）');
@@ -222,6 +267,18 @@ export default function SchemaFormPage({ client, page, fields, recordId, detailR
         return;
       }
       store.publishErrors({});
+
+      // TRIGGER_FLOW（spec 022 T4）：提交成功后才发起流程。
+      // 顺序要求：必须在 afterSubmit 之前——脚本钩子与流程发起都要看到「记录已落库」；
+      // 且发起结果要能在页面卸载前呈现（onSubmitted 会触发刷新）。
+      const dispatchNote = await runTriggerFlow({
+        client, page, recordId, serverResponse: result.serverResponse, submittedData,
+      });
+      if (dispatchNote != null) {
+        // 失败的提示先落状态：onSubmitted 若立即刷新，用户也已看到错误（message 是全局浮层）
+        message.open({ type: dispatchNote.type, content: dispatchNote.message, duration: 6 });
+      }
+
       // afterSubmit 等待钩子完成再回调宿主（onSubmitted 常触发刷新/跳转——提前回调会卸载
       // 页面中断钩子执行；钩子失败/超时按「不阻断」韧性原则放行成功路径）
       void scripts.afterSubmit({ ...payload, result: { successBehavior: result.successBehavior } })

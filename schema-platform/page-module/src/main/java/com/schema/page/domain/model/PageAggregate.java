@@ -96,7 +96,10 @@ public final class PageAggregate {
     }
 
     private static void assertPageType(String pageType) {
-        if (!java.util.List.of("FORM", "LIST", "DETAIL", "DASHBOARD").contains(pageType)) {
+        // ⚠️ 必须先判 null：`List.of(...).contains(null)` 会抛 NullPointerException
+        // （java.util.ImmutableCollections$ListN.indexOf 对 null 做 equals 调用），
+        // 导致调用方期待 422 PAGE_VALIDATION_FAILED 却拿到 500。
+        if (pageType == null || !java.util.List.of("FORM", "LIST", "DETAIL", "DASHBOARD").contains(pageType)) {
             throw new IllegalArgumentException("非法页面类型: " + pageType);
         }
     }
