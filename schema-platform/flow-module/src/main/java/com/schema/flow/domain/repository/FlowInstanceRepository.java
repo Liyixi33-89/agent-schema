@@ -28,4 +28,12 @@ public interface FlowInstanceRepository {
 
     /** 实例轨迹聚合（详情页数据源）。 */
     List<Map<String, Object>> listTaskLogs(long tenantId, String instanceId);
+
+    /**
+     * 「我办理过的任务」（T5 已办）。
+     *
+     * 只看真实办理动作（COMPLETE / REJECT），排除 AUTO（系统挂起告警）——
+     * 后者 operator_id=0，不属于任何人的已办。
+     */
+    java.util.List<java.util.Map<String, Object>> listTasksByOperator(long tenantId, long operatorId);
 }

@@ -78,4 +78,24 @@ public class JdbcFlowInstanceRepository implements FlowInstanceRepository {
                 ORDER BY operated_at ASC
                 """, tenantId, instanceId);
     }
+
+    /**
+     * 我办理过的任务（T5 已办）。
+     *
+     * 关联 flow_instance_biz 带出业务定位信息（model/record），
+     * 前端「已办列表」需要它才能跳回对应记录。
+     * 排除 action='AUTO'：那是系统挂起告警（operator_id=0），不是人的办理动作。
+     */
+    @Override
+    public List<Map<String, Object>> listTasksByOperator(long tenantId, long operatorId) {
+        return jdbc.queryForList("""
+                SELECT l.task_id, l.instance_id, l.node_id, l.action, l.comment, l.operated_at,
+                       b.model_id, b.record_id, b.flow_def_id, b.started_by, b.status
+                FROM flow_task_log l
+                LEFT JOIN flow_instance_biz b
+                       ON b.instance_id = l.instance_id AND b.tenant_id = l.tenant_id
+                WHERE l.tenant_id = ? AND l.operator_id = ? AND l.action <> 'AUTO'
+                ORDER BY l.operated_at DESC
+                """, tenantId, operatorId);
+    }
 }

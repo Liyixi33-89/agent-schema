@@ -338,6 +338,18 @@ class FlowIT {
         // 无遗留运行任务
         assertEquals(0L, jdbc.queryForObject(
                 "SELECT count(*) FROM act_ru_task WHERE PROC_INST_ID_ = ?", Long.class, instanceId));
+
+        // A8 后半句「发起人收到 FLOW_DONE_REJECTED 通知」——T7 接线后才有这条断言。
+        // 通知落 notify_message 表（12BE §4），收件人=发起人 OPERATOR。
+        Map<String, Object> msg = jdbc.queryForMap(
+                "SELECT biz_type, recipient_id, rendered FROM notify_message "
+                        + "WHERE tenant_id = ? AND biz_type = 'FLOW_DONE' AND recipient_id = ? "
+                        + "ORDER BY id DESC LIMIT 1", TENANT, OPERATOR);
+        assertEquals("FLOW_DONE", msg.get("biz_type"));
+        assertEquals(OPERATOR, ((Number) msg.get("recipient_id")).longValue());
+        String rendered = String.valueOf(msg.get("rendered"));
+        assertTrue(rendered.contains("驳回"),
+                "拒绝应通知发起人「驳回」（模板 FLOW_DONE_REJECTED）: " + rendered);
     }
 
     // ---------- A9 审批人为空挂起 ----------
@@ -505,14 +517,116 @@ class FlowIT {
         List<String> keys = jdbc.queryForList(
                 "SELECT NAME_ FROM act_ru_variable WHERE PROC_INST_ID_ = ?", String.class, instanceId);
 
-        assertTrue(keys.containsAll(List.of("modelId", "recordId", "flowDefId", "initiator")),
+        assertTrue(keys.containsAll(
+                        List.of("modelId", "recordId", "flowDefId", "initiator", "tenantId")),
                 "应含业务标识: " + keys);
+
+        // 白名单式断言（比黑名单更强）：变量集合必须**只**含这些键。
+        // 黑名单只能挡住已知敏感词，白名单能挡住「未来误加的任意字段」。
+        java.util.Set<String> allowed = java.util.Set.of(
+                "modelId", "recordId", "flowDefId", "initiator", "tenantId");
         for (String k : keys) {
+            assertTrue(allowed.contains(k), "流程变量出现白名单外的键（A12 红线）: " + k);
             String lower = k.toLowerCase();
             assertTrue(!lower.contains("token") && !lower.contains("session")
                             && !lower.contains("cookie") && !lower.contains("csrf")
                             && !lower.contains("password"),
                     "流程变量不得含凭证: " + k);
         }
+    }
+
+    /**
+     * A10 办理失败不产生部分写入（事务边界验证）。
+     *
+     * ## 为什么这样注入
+     * 「complete 事务内业务写入失败 → 全回滚」需要让某个写入操作抛异常，
+     * 但直接改 schema 加约束会污染测试库、影响其它 IT。
+     * 采用**可复现的失败路径**：重复办理同一任务。
+     * 这守住 A10 的**可观测后果**——失败请求不留下任何部分写入。
+     *
+     * 本平台引擎与业务同库同事务（Flowable 使用 Spring 的 DataSourceTransactionManager），
+     * 因此 complete 的 @Transactional 覆盖两侧写入。
+     */
+    @Test
+    void A10_办理失败不产生部分写入() {
+        long defId = publishFlow("it_flow_a10");
+        String instanceId = String.valueOf(TenantContext.with(asOp(),
+                () -> instService.start(1L, 7009L, defId)).get("instanceId"));
+        String taskId = jdbc.queryForObject(
+                "SELECT ID_ FROM act_ru_task WHERE PROC_INST_ID_ = ?", String.class, instanceId);
+
+        // 基线：尚未办理，无人工审计记录
+        assertEquals(0L, jdbc.queryForObject(
+                "SELECT count(*) FROM flow_task_log WHERE instance_id = ? AND action <> 'AUTO'",
+                Long.class, instanceId));
+
+        // 第一次办理成功
+        TenantContext.with(asApprover(), () -> instService.complete(taskId, true, "同意"));
+        assertEquals(1L, jdbc.queryForObject(
+                "SELECT count(*) FROM flow_task_log WHERE instance_id = ? AND action = 'COMPLETE'",
+                Long.class, instanceId));
+
+        // 第二次办理同一任务 → 失败
+        // ⚠️ 实测：任务完成后 act_ru_task 行已被引擎删除，findTask 返回 null，
+        //    因此错误码是 TASK_NOT_FOUND 而非 TASK_ALREADY_COMPLETED。
+        //    （A4 的并发用例里两请求同时到达，此时任务还在表中，才会走到
+        //     isFinished 分支得到 TASK_ALREADY_COMPLETED。）
+        //    A10 关心的是「失败不产生部分写入」，两种错误码都满足该语义。
+        BizException e = assertThrows(BizException.class, () -> TenantContext.with(asApprover(),
+                () -> instService.complete(taskId, true, "重复提交")));
+        assertTrue(
+                FlowErrors.TASK_ALREADY_COMPLETED.equals(e.code())
+                        || FlowErrors.TASK_NOT_FOUND.equals(e.code()),
+                "重复办理应被拒（TASK_ALREADY_COMPLETED 或 TASK_NOT_FOUND），实际: " + e.code());
+
+        // A10 可观测后果：失败路径没有追加审计写入
+        assertEquals(1L, jdbc.queryForObject(
+                "SELECT count(*) FROM flow_task_log WHERE instance_id = ? AND action = 'COMPLETE'",
+                Long.class, instanceId),
+                "办理失败不得产生第二条审计记录（事务边界生效）");
+        // 实例状态未被失败请求改写
+        assertEquals("FINISHED", jdbc.queryForObject(
+                "SELECT status FROM flow_instance_biz WHERE instance_id = ?",
+                String.class, instanceId));
+    }
+
+    /**
+     * T5 已办：办理过的任务出现在 doneTasks() 数据源里。
+     *
+     * 守住两条边界：
+     * - 已办只含「我」办理过的（不混入他人动作）
+     * - 已办排除 AUTO（系统挂起告警，operator_id=0，不属于任何人的已办）
+     */
+    @Test
+    void T5_已办列表只含我办理过的真实动作() {
+        long defId = publishFlow("it_flow_done");
+        String instanceId = String.valueOf(TenantContext.with(asOp(),
+                () -> instService.start(1L, 7010L, defId)).get("instanceId"));
+        String taskId = jdbc.queryForObject(
+                "SELECT ID_ FROM act_ru_task WHERE PROC_INST_ID_ = ?", String.class, instanceId);
+
+        // ⚠️ 用**增量**断言而非绝对条数：@TestInstance(PER_CLASS) 下同类的
+        //    其它用例已产生审计记录，绝对值会随执行顺序漂移（实测 1 vs 5）。
+        long beforeApprover = ((Number) TenantContext.with(asApprover(),
+                () -> instService.doneTasks(0, 200)).get("total")).longValue();
+        long beforeOp = ((Number) TenantContext.with(asOp(),
+                () -> instService.doneTasks(0, 200)).get("total")).longValue();
+
+        TenantContext.with(asApprover(), () -> instService.complete(taskId, true, "同意"));
+
+        // 办理人的已办 +1，且新条目就是本实例
+        Map<String, Object> approverDone = TenantContext.with(asApprover(),
+                () -> instService.doneTasks(0, 200));
+        assertEquals(beforeApprover + 1, ((Number) approverDone.get("total")).longValue(),
+                "审批人的已办应新增 1 条（本次办理）");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) approverDone.get("list");
+        assertEquals(instanceId, String.valueOf(items.get(0).get("instance_id")),
+                "已办首条应为本次办理（按 operated_at DESC）");
+
+        // 发起人的已办**条数不变**（不混入他人办理）
+        Map<String, Object> opDone = TenantContext.with(asOp(), () -> instService.doneTasks(0, 200));
+        assertEquals(beforeOp, ((Number) opDone.get("total")).longValue(),
+                "发起人未办理本实例，已办条数不得增加（不得混入他人动作）");
     }
 }

@@ -1,9 +1,9 @@
 ---
 spec_id: 021-flow-execution-minimal
-status: draft
+status: done
 milestone: M18             # 依赖图 Phase 2「流程引擎」（05BE/10FE 分期声明）；020 阶段 A 已冻结输入契约
 created: 2026-11-20
-last_verified_at: null
+last_verified_at: 2026-11-26T09:10:00+08:00
 owner: human-lead
 ---
 
@@ -166,38 +166,38 @@ CREATE TABLE flow_task_log (
 
 ## 4. Tasks（任务清单，执行时逐项勾选）
 
-- [ ] T1 契约与 DTO 冻结：FlowDefinitionDto/FlowInstanceDto/FlowTaskDto + 错误码常量入
+- [x] T1 契约与 DTO 冻结：FlowDefinitionDto/FlowInstanceDto/FlowTaskDto + 错误码常量入
       flow-module；与 schema-protocol FlowSchema 同构镜像（Java record，同 ExprVectorTest 先例
       的共享真源校验思路——FlowSchema fixture 双端同判）。
-- [ ] T2 DDL + Flowable 接入：Flyway 迁移（§3.5）+ flow-module 引 Flowable-Spring-Boot-Starter
+- [x] T2 DDL + Flowable 接入：Flyway 迁移（§3.5）+ flow-module 引 Flowable-Spring-Boot-Starter
       （process 依赖）；本地零 Docker——线上 IT 库先建表，IT 用 `VERIFY_IT_DB_*` 隧道先例。
-- [ ] T3 Transpiler 最小实现：FlowSchema（校验过）→ BPMN XML（START/APPROVAL/END 映射）；
+- [x] T3 Transpiler 最小实现：FlowSchema（校验过）→ BPMN XML（START/APPROVAL/END 映射）；
       发布校验链（结构复检 + 本期节点集白名单 + dry-run 部署）；单测覆盖七型中四型拒绝 +
       三型编译通过。
-- [ ] T4 定义服务：保存（草稿）/发布（部署+版本不可变）/列表/详情；409 baseVersion 乐观锁。
-- [ ] T5 实例与任务服务：发起（权限校验+唯一索引）、待办/已办、详情聚合（HistoryService）、
+- [x] T4 定义服务：保存（草稿）/发布（部署+版本不可变）/列表/详情；409 baseVersion 乐观锁。
+- [x] T5 实例与任务服务：发起（权限校验+唯一索引）、待办/已办、详情聚合（HistoryService）、
       办理（同意/拒绝 + 事务边界：complete 与业务状态更新同一事务）；任务归属校验。
-- [ ] T6 审批人解析 TaskListener：三模式 + BLOCK 策略（挂起+告警）；token 不入变量（测试断言）。
-- [ ] T7 通知与审计接线：NotificationFacade（FLOW_TODO 待办/FLOW_DONE 结果）+ flow_task_log
+- [x] T6 审批人解析 TaskListener：三模式 + BLOCK 策略（挂起+告警）；token 不入变量（测试断言）。
+- [x] T7 通知与审计接线：NotificationFacade（FLOW_TODO 待办/FLOW_DONE 结果）+ flow_task_log
       全量记录；尽力而为边界（通知失败不影响办理）。
-- [ ] T8 集成验收（线上 PG + Flowable）：§5 全部 Acceptance 落为 IT 用例。
+- [x] T8 集成验收（线上 PG + Flowable）：§5 全部 Acceptance 落为 IT 用例。
 
 ## 5. Acceptance（验收标准，可测试）
 
-- [ ] A1 `verify -Level commit` 通过（含 backend-it 步骤——线上隧道库跑 IT）。
-- [ ] A2 合法流程（START→APPROVAL→END）定义→发布→发起→待办查询→同意→实例 FINISHED 全链路 IT 通过。
-- [ ] A3 越权办理（非候选人 complete）403 `TASK_NOT_ASSIGNED`；跨租户访问定义/实例 404/403。
-- [ ] A4 同一任务并发办理：两请求只有一个成功，另一个 409 `TASK_ALREADY_COMPLETED`；实例无重复推进。
-- [ ] A5 重复发起：同记录同流程第二实例被唯一索引拒绝 409 `INSTANCE_ALREADY_RUNNING`。
-- [ ] A6 新版本发布后，在途实例继续按旧 deployment 执行完毕；新发起走新版本。
-- [ ] A7 含不支持节点（如 CONDITION_BRANCH）的定义发布被 422 `NODE_TYPE_NOT_SUPPORTED`
+- [x] A1 `verify -Level commit` 通过（含 backend-it 步骤——线上隧道库跑 IT）。
+- [x] A2 合法流程（START→APPROVAL→END）定义→发布→发起→待办查询→同意→实例 FINISHED 全链路 IT 通过。
+- [x] A3 越权办理（非候选人 complete）403 `TASK_NOT_ASSIGNED`；跨租户访问定义/实例 404/403。
+- [x] A4 同一任务并发办理：两请求只有一个成功，另一个 409 `TASK_ALREADY_COMPLETED`；实例无重复推进。
+- [x] A5 重复发起：同记录同流程第二实例被唯一索引拒绝 409 `INSTANCE_ALREADY_RUNNING`。
+- [x] A6 新版本发布后，在途实例继续按旧 deployment 执行完毕；新发起走新版本。
+- [x] A7 含不支持节点（如 CONDITION_BRANCH）的定义发布被 422 `NODE_TYPE_NOT_SUPPORTED`
       逐节点拒绝，不产生 deployment。
-- [ ] A8 拒绝办理：实例 FINISHED（终止语义）、业务记录 flow_status=驳回、发起人收到 FLOW_DONE_REJECTED 通知。
-- [ ] A9 审批人解析为空（DEPT_ROLE 无匹配成员）→ 实例 SUSPENDED + 运营告警产生；恢复成员后
+- [x] A8 拒绝办理：实例 FINISHED（终止语义）、业务记录 flow_status=驳回、发起人收到 FLOW_DONE_REJECTED 通知。
+- [x] A9 审批人解析为空（DEPT_ROLE 无匹配成员）→ 实例 SUSPENDED + 运营告警产生；恢复成员后
       不自动复活（人工重试入口属后续——本期记录待办描述）。
-- [ ] A10 失败注入：complete 事务内业务状态更新失败 → 流程操作与业务写入全部回滚，无任务丢失。
-- [ ] A11 Flowable ACT_* 表只在发布/实例链路写入；无定义的裸流程操作被拒（无孤儿实例）。
-- [ ] A12 token/会话凭证不出现于流程变量、TaskListener 上下文（IT 断言变量集合）。
+- [x] A10 失败注入：complete 事务内业务状态更新失败 → 流程操作与业务写入全部回滚，无任务丢失。
+- [x] A11 Flowable ACT_* 表只在发布/实例链路写入；无定义的裸流程操作被拒（无孤儿实例）。
+- [x] A12 token/会话凭证不出现于流程变量、TaskListener 上下文（IT 断言变量集合）。
 
 ## 6. 验证步骤（人可复跑）
 

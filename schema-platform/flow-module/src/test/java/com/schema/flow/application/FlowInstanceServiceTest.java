@@ -64,7 +64,8 @@ class FlowInstanceServiceTest {
         instRepo = new FakeInstRepo();
         engine = new FakeEngine();
         org = new FakeOrg();
-        service = new FlowInstanceService(defRepo, instRepo, engine, org);
+        // T7 后构造器改为可选注入通知端口，测试用静态工厂（不关心通知 → NOOP）
+        service = FlowInstanceService.forTest(defRepo, instRepo, engine, org);
     }
 
     @AfterEach
@@ -148,7 +149,8 @@ class FlowInstanceServiceTest {
                     || lower.contains("password"),
                     "流程变量不得含凭证类字段: " + k);
         }
-        assertEquals(List.of("flowDefId", "initiator", "modelId", "recordId"),
+        // T7 后新增 tenantId（供通知适配器取租户）——仍是业务标识，不是凭证。
+        assertEquals(List.of("flowDefId", "initiator", "modelId", "recordId", "tenantId"),
                 captured.keySet().stream().sorted().toList());
     }
 
@@ -506,6 +508,25 @@ class FlowInstanceServiceTest {
         @Override
         public List<Map<String, Object>> listTaskLogs(long tenantId, String instanceId) {
             return new ArrayList<>(logs);
+        }
+
+        /**
+         * 已办（T5）：从记录下来的 taskLog 里按 operatorId 过滤。
+         *
+         * 与真实实现保持同一语义——排除 action='AUTO'（系统挂起告警）。
+         */
+        @Override
+        public List<Map<String, Object>> listTasksByOperator(long tenantId, long operatorId) {
+            List<Map<String, Object>> out = new ArrayList<>();
+            for (Map<String, Object> log : logs) {
+                Object op = log.get("operator_id");
+                Object action = log.get("action");
+                if (op instanceof Number n && n.longValue() == operatorId
+                        && !"AUTO".equals(String.valueOf(action))) {
+                    out.add(log);
+                }
+            }
+            return out;
         }
     }
 
