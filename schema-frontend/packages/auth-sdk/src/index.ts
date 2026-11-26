@@ -65,11 +65,26 @@ export function clearCsrfCookie(baseUrl = ''): void {
 /** 认证请求公共头（Cookie 通道：csrf 双提交 + 租户路由提示）。 */
 export function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const h: Record<string, string> = { ...extra };
+  // ⚠️ 必须先删掉大小写变体再写入（2026-11-26 定位的真实缺陷）：
+  // mergeAuthHeaders 里把 Headers 归一化后得到的键是小写（'x-csrf-token'），
+  // 这里若直接 h['X-CSRF-Token'] = csrf，普通对象里两个键并存，
+  // 传回 fetch 的 Headers 会按大小写不敏感把它们**拼成 "t, t"**，
+  // 后端逐字比对不通过 → 403 CSRF_TOKEN_REJECTED。
+  // 症状极具迷惑性：GET 正常（不校验 CSRF）、手动 fetch 正常，只有封装层的写请求失败。
+  deleteAnyCase(h, 'x-csrf-token');
   const csrf = csrfHeaderValue();
   if (csrf) h['X-CSRF-Token'] = csrf;
+  deleteAnyCase(h, 'x-tenant-id');
   const tenant = localStorage.getItem('schema_tenant');
   if (tenant) h['X-Tenant-Id'] = tenant;
   return h;
+}
+
+/** 删除对象里指定 header 名的所有大小写变体（Headers 语义是大小写不敏感的）。 */
+function deleteAnyCase(h: Record<string, string>, lowerName: string): void {
+  for (const k of Object.keys(h)) {
+    if (k.toLowerCase() === lowerName) delete h[k];
+  }
 }
 
 /** 状态变更请求（非 GET/HEAD）自动注入双提交头。 */

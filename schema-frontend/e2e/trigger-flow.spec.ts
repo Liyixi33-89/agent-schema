@@ -102,22 +102,52 @@ async function createFormPage(
   expect(created.id, '页面创建应返回 id').toBeTruthy();
   const pageId = String(created.id);
 
+  // 先读默认 draft，拿到服务端生成的 schema.id 与服务端期望的字段形态
+  // （modelId 是字符串、schemaVersion 是数字——照抄才能过协议校验）
+  const draftResp = await c.ctx.request.get(`${c.origin}/api/pages/${pageId}/draft`, { headers: c.h });
+  expect(draftResp.ok(), 'draft 读取应成功').toBeTruthy();
+  const draftBody = await draftResp.json() as {
+    schema?: Record<string, unknown>; draftVersion?: number;
+  };
+  const base = draftBody.schema ?? {};
+  const baseDraftVersion = draftBody.draftVersion ?? 1;
+
   const schema = {
-    pageKey, name: opts.name, type: 'FORM', modelId: Number(opts.modelId),
-    schemaVersion: 1, path,
+    ...base,                                  // 保留服务端生成的 id / pageKey / path
+    name: opts.name,
+    type: 'FORM',
+    modelId: opts.modelId,                    // 服务端用字符串（协议 modelId: string）
+    // ⚠️ 必须是整数：服务端默认草稿里是 1.0（JSON 浮点），
+    // 而协议要求 schemaVersion: integer —— 原样回传会被判为结构不符（422）。
+    schemaVersion: 1,
+    // ⚠️ 物料名取自 component-materials 注册表：文本输入是 TextInput（不是 Input），
+    //    用错会渲染成「未知物料」告警占位。
+    //    用 placeholder 定位（渲染器不注入 field.label 到 DOM 的 label 关联）。
     layout: [
-      { id: 'n1', componentName: 'Input', fieldRef: 'title' },
-      { id: 'n2', componentName: 'NumberInput', fieldRef: 'amount' },
+      { id: 'n1', componentName: 'TextInput', props: { placeholder: '请输入标题' }, fieldRef: 'title' },
+      { id: 'n2', componentName: 'NumberInput', props: {}, fieldRef: 'amount' },
     ],
     actions: opts.actions,
   };
   const drafted = await c.ctx.request.put(`${c.origin}/api/pages/${pageId}/draft`, {
-    headers: c.h, data: { schema, baseDraftVersion: 1 },
+    headers: c.h, data: { schema, baseDraftVersion },
   });
-  expect(drafted.ok(), `draft 保存应成功（${drafted.status()}）`).toBeTruthy();
+  if (!drafted.ok()) {
+    // 失败时把服务端原因带进报错（否则只有状态码，排查成本高）
+    const err = await drafted.text();
+    throw new Error(`draft 保存失败 ${drafted.status()}：${err.slice(0, 400)}`);
+  }
 
-  const pub = await c.ctx.request.post(`${c.origin}/api/pages/${pageId}/publish`, { headers: c.h });
-  expect(pub.ok(), `页面发布应成功（${pub.status()}）`).toBeTruthy();
+  // 发布是**应用维度**的（不是单页发布）：
+  // POST /api/apps/{appId}/publish  body: { pageIds: [...], changelog? }
+  const pub = await c.ctx.request.post(`${c.origin}/api/apps/1/publish`, {
+    headers: c.h,
+    data: { pageIds: [Number(pageId)], changelog: 'T4 e2e' },
+  });
+  if (!pub.ok()) {
+    const err = await pub.text();
+    throw new Error(`页面发布失败 ${pub.status()}：${err.slice(0, 400)}`);
+  }
   return pageId;
 }
 
@@ -148,8 +178,25 @@ async function createFlow(c: Ctx, name: string): Promise<string> {
 
 /** 打开表单页、填标题、提交。 */
 async function fillAndSubmit(page: Page, base: string, pageId: string, title: string): Promise<void> {
+  const log: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/api/data/') && r.method() === 'POST') {
+      const h = r.headers();
+      log.push(`REQ ${r.url()} csrf=${h['x-csrf-token'] ?? '(无)'} keys=${Object.keys(h).join(',')}`);
+    }
+  });
+  page.on('response', async (r) => {
+    if (r.url().includes('/api/data/')) {
+      let b = '';
+      try { b = (await r.text()).slice(0, 200); } catch { /* ignore */ }
+      log.push(`${r.status()} ${r.request().method()} ${r.url()} :: ${b}`);
+    }
+  });
+  (page as unknown as { __log: string[] }).__log = log;
   await page.goto(`${base}/#/page/${pageId}`);
-  const titleInput = page.getByLabel('标题');
+  // 用 placeholder 定位：渲染器不把 field.label 关联到 input 的 aria-label，
+  // getByLabel('标题') 找不到元素（实测）。placeholder 由 props 直接透传给 TextInput。
+  const titleInput = page.getByPlaceholder('请输入标题');
   await expect(titleInput).toBeVisible({ timeout: 20_000 });
   await titleInput.fill(title);
   await page.getByRole('button', { name: /提\s*交/ }).click();
@@ -173,7 +220,16 @@ test.describe('TRIGGER_FLOW 动作消费', () => {
     await fillAndSubmit(page, c.base, pageId, `报销 ${Date.now()}`);
 
     // 提交成功提示（TOAST 行为——不跳转，便于观察后续流程发起）
-    await expect(page.getByText(/提交成功|已保存|保存成功/)).toBeVisible({ timeout: 20_000 });
+    try {
+      await expect(page.getByText(/提交成功|已保存|保存成功/)).toBeVisible({ timeout: 20_000 });
+    } catch (e) {
+      const lg = (page as unknown as { __log?: string[] }).__log ?? [];
+      console.log('[DIAG] /api/data 请求:');
+      for (const l of lg) console.log('  ' + l);
+      const alert = await page.locator('.ant-alert').first().textContent().catch(() => null);
+      console.log('[DIAG] 页面 alert =', alert);
+      throw e;
+    }
 
     // 核心断言：流程实例已创建 → 审批中心待办能看到「主管审批」
     await page.goto(`${c.base}/#/approval`);
