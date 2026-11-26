@@ -359,7 +359,8 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         # schema_dev 在服务器上是真实开发库，不能被 IT 清空（2026-11-25 验收库事故后收紧）。
         $pgDb = $env:VERIFY_IT_DB_NAME; if (-not $pgDb) { $pgDb = 'schema_it' }
         $pgUser = $env:VERIFY_IT_DB_USER; if (-not $pgUser) { $pgUser = 'schema_it' }
-        $pgPass = $env:VERIFY_IT_DB_PASS; if (-not $pgPass) { $pgPass = 'schema_local_only' }
+        # 与 schema_it 库角色密码一致（verify.yml 的 postgres service 同值）
+        $pgPass = $env:VERIFY_IT_DB_PASS; if (-not $pgPass) { $pgPass = 'schema_it_only_2026' }
         $pgUp = $false
         try {
             $tcp = New-Object System.Net.Sockets.TcpClient
