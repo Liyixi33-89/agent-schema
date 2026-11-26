@@ -19,9 +19,23 @@ import { test, expect, loginViaForm } from './fixtures';
  */
 const uniq = () => `${Date.now().toString(36)}`;
 
+/**
+ * API 基址。
+ *
+ * 两种部署形态：
+ * - 本地/测试服务器（nginx 同源）：API 与页面同 origin，`SMOKE_API_BASE` 可不设
+ * - CI（vite preview 分端口 5173/5174/5175）：API 在 18080，必须由 `SMOKE_API_BASE` 显式指定
+ */
+function apiBase(pageBase: string): string {
+  const explicit = process.env.SMOKE_API_BASE;
+  if (explicit && explicit.trim() !== '') return explicit.replace(/\/$/, '');
+  return new URL(pageBase).origin;
+}
+
+
 test.describe('审批中心', () => {
   test.beforeEach(async ({ page, baseURL }) => {
-    const origin = new URL(String(baseURL)).origin;
+    const origin = apiBase(String(baseURL));
     const ctx = page.context();
 
     // 先登录（经 API 上下文，cookie 落在同一浏览器上下文）
@@ -43,7 +57,7 @@ test.describe('审批中心', () => {
     // ---------- 1. 造数据：经 API 发布流程 + 发起实例 ----------
     // 用 page.request 复用浏览器上下文（cookie 同源）
     const ctx = page.context();
-    const origin = new URL(base).origin;
+    const origin = apiBase(base);
     const cookies2 = await ctx.cookies();
     const csrf2 = cookies2.find((c) => c.name === 'schema_csrf')?.value ?? '';
     const h = { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': csrf2 };
@@ -148,7 +162,7 @@ test.describe('审批中心', () => {
   test('SMK-APR-02 驳回必须填意见（前端拦截）', async ({ page, baseURL }) => {
     const base = String(baseURL).replace(/\/$/, '');
     const ctx = page.context();
-    const origin = new URL(base).origin;
+    const origin = apiBase(base);
     const csrf2 = (await ctx.cookies()).find((c) => c.name === 'schema_csrf')?.value ?? '';
     const h = { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': csrf2 };
 
