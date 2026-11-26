@@ -65,6 +65,10 @@ class IamServiceIT {
 
     @BeforeAll
     void warmup() {
+        // ⚠️ 防误伤闸（2026-11-26 事故后加）：这些 DELETE 是无条件的，
+        // 一旦 IT 连到有真实数据的库（验收/生产）就会抹掉全部用户与角色。
+        // 2026-11-25 验收库因此丢过 112 个页面。见 ItDbGuard 注释。
+        ItDbGuard.assertDestructiveAllowed(jdbc);
         jdbc.update("DELETE FROM sys_user_role");
         jdbc.update("DELETE FROM sys_role_permission");
         jdbc.update("DELETE FROM sys_role_data_scope");
