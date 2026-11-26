@@ -98,7 +98,7 @@ test.describe('流程编辑器闭环', () => {
     await expect(page.getByText('未保存')).toHaveCount(0);
 
     // ---------- 9. 发布 ----------
-    await page.getByRole('button', { name: /^发布$/ }).click();
+    await page.getByRole('button', { name: /发\s*布/ }).click();
     await expect(page.getByText(/已发布 v\d+/)).toBeVisible({ timeout: 20_000 });
 
     // 回列表核对状态
@@ -133,7 +133,7 @@ test.describe('流程编辑器闭环', () => {
     const panel = deleteBtn.locator('xpath=ancestor::div[.//input or .//select][1]');
     await panel.getByRole('combobox').selectOption('USER');
 
-    await expect(page.getByRole('button', { name: /^发布$/ })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /发\s*布/ })).toBeDisabled();
     await expect(page.getByText('发布前待修正')).toBeVisible();
     await expect(page.getByText(/指定用户为空/)).toBeVisible();
   });
