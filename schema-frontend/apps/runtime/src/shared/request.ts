@@ -131,6 +131,40 @@ export class RequestClient {
     return resp.json();
   }
 
+  /**
+   * 发起流程实例（spec 022 T4 —— TRIGGER_FLOW 动作消费）。
+   *
+   * ⚠️ 走 `authFetch` 而非本类的 `post`：
+   * 实测 `post` 这条封装路径在写请求上缺 `X-CSRF-Token`（→ 403 CSRF_TOKEN_REJECTED），
+   * 而 authFetch 是三个应用共用的唯一认证通道（内部 mergeAuthHeaders 注入双提交头）。
+   * 审批中心办理接口同样因此改用 authFetch。待 post 链路排查清楚后可统一回来。
+   */
+  async startFlow(
+    modelId: string | number,
+    recordId: string | number,
+    flowDefId: string | number,
+  ): Promise<unknown> {
+    const resp = await authFetch({
+      path: `/api/records/${modelId}/${recordId}/flow/start`,
+      baseUrl: this.config.baseUrl,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flowDefId: Number(flowDefId) }),
+    });
+    if (!resp.ok) {
+      let code = 'SERVER_ERROR';
+      let msg = `流程发起失败 (${resp.status})`;
+      try {
+        const b = (await resp.json()) as { code?: string; message?: string };
+        if (b.code) code = b.code;
+        if (b.message) msg = b.message;
+      } catch { /* 非 JSON 错误体 */ }
+      throw new ServerError(code, msg);
+    }
+    const text = await resp.text();
+    return text ? JSON.parse(text) : null;
+  }
+
   /** 新建。 */
   async create(modelId: string | number, data: Record<string, unknown>): Promise<unknown> {
     return this.post(`/api/data/${modelId}`, data);

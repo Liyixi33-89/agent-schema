@@ -30,11 +30,25 @@ export interface SubmitResult {
    * 返回全部错误字段而非仅首个——宿主错误汇总区一次呈现完整原因。
    */
   clientErrors?: { fieldKey: string; message: string }[];
+  /**
+   * 服务端提交响应原文（spec 022 T4）。
+   *
+   * 需要它的原因：TRIGGER_FLOW 动作要用「刚创建的记录 id」发起流程，
+   * 而新建接口的 id 只存在于服务端响应体（`{id: "123"}`）。
+   * 此前 `await transport.submit(...)` 的返回值被丢弃，宿主拿不到 id，
+   * 导致「提交后自动发起流程」无法实现。
+   */
+  serverResponse?: unknown;
 }
 
 /** 提交执行器注入（宿主提供——schema-form 不直接发请求，DIP）。 */
 export interface SubmitTransport {
-  /** 提交载荷 → 服务端响应；失败抛 ServerError（结构化错误体）。 */
+  /**
+   * 提交载荷 → 服务端响应。
+   *
+   * 返回值会原样放进 {@link SubmitResult.serverResponse}：新建场景即
+   * `{id}`，供 TRIGGER_FLOW 定位业务记录。失败抛 ServerError。
+   */
   submit(payload: Record<string, unknown>): Promise<unknown>;
 }
 
@@ -75,12 +89,14 @@ export async function executeSubmit(
   // ③ 序列化提交（草稿全量 / 正常提交剔除卸载字段）
   const payload = action.draft ? store.serializeDraft() : store.serialize();
   try {
-    await transport.submit(payload);
+    const serverResponse = await transport.submit(payload);
     return {
       ok: true,
       fieldErrors: {},
       successBehavior: action.successBehavior,
       redirectTo: action.redirectTo,
+      // 原样回传：新建时含 {id}，TRIGGER_FLOW 靠它定位业务记录（spec 022 T4）
+      serverResponse,
     };
   } catch (e) {
     if (e instanceof ServerError) {

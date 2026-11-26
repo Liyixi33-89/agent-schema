@@ -520,8 +520,15 @@ public class MetadataCommandService {
                     || target.isBlank()) {
                 throw BizException.fieldConfigInvalid("relation.targetModelId 结构非法");
             }
-            if (!List.of("1:1", "1:n", "n:n").contains(rm.get("cardinality"))
-                    || !List.of("FORBID", "SET_NULL", "CASCADE_SOFT_DELETE").contains(rm.get("cascade"))) {
+            // ⚠️ 用 Objects.equals 而非 List.of(...).contains(x)：
+            // x 为 null 时（配置项缺失）ImmutableCollections 会抛 NPE → 500，
+            // 而这里语义应是「取值非法」→ 422 fieldConfigInvalid。
+            Object cardinality = rm.get("cardinality");
+            Object cascade = rm.get("cascade");
+            boolean cardinalityOk = "1:1".equals(cardinality) || "1:n".equals(cardinality) || "n:n".equals(cardinality);
+            boolean cascadeOk = "FORBID".equals(cascade) || "SET_NULL".equals(cascade)
+                    || "CASCADE_SOFT_DELETE".equals(cascade);
+            if (!cardinalityOk || !cascadeOk) {
                 throw BizException.fieldConfigInvalid("relation.{cardinality,cascade} 取值非法");
             }
             long targetId;
@@ -552,7 +559,9 @@ public class MetadataCommandService {
                     throw BizException.fieldConfigInvalid("computed.dependsOn 元素必须为非空字符串");
                 }
             }
-            if (!List.of("READ_TIME", "PERSISTED").contains(cm.get("persistMode"))) {
+            // 同 relation 校验：null 必须先排除，否则 ImmutableList.contains(null) 抛 NPE → 500
+            Object persistMode = cm.get("persistMode");
+            if (!"READ_TIME".equals(persistMode) && !"PERSISTED".equals(persistMode)) {
                 throw BizException.fieldConfigInvalid("computed.persistMode 取值非法");
             }
         }
