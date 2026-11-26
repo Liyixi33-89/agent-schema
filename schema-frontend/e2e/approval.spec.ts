@@ -1,4 +1,4 @@
-import { test, expect, loginViaForm } from './fixtures';
+import { test, expect, smokeCredentials } from './fixtures';
 
 /**
  * 审批中心 E2E（spec 022 T3 / A5）。
@@ -26,6 +26,11 @@ const uniq = () => `${Date.now().toString(36)}`;
  * - 本地/测试服务器（nginx 同源）：API 与页面同 origin，`SMOKE_API_BASE` 可不设
  * - CI（vite preview 分端口 5173/5174/5175）：API 在 18080，必须由 `SMOKE_API_BASE` 显式指定
  */
+/** 登录凭据：CI 注入 accept_admin，本地 smock-meta 环境用 admin——不硬编码。 */
+function creds(): { username: string; password: string } {
+  return smokeCredentials();
+}
+
 function apiBase(pageBase: string): string {
   const explicit = process.env.SMOKE_API_BASE;
   if (explicit && explicit.trim() !== '') return explicit.replace(/\/$/, '');
@@ -43,7 +48,7 @@ test.describe('审批中心', () => {
     const csrf = (await ctx.cookies()).find((c) => c.name === 'schema_csrf')?.value ?? '';
     await ctx.request.post(`${origin}/api/auth/login`, {
       headers: { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': csrf },
-      data: { username: 'admin', password: 'Accept!2026' },
+      data: { username: creds().username, password: creds().password },
     });
 
     // ⚠️ 登录后**再**导航：保证页面启动时 document.cookie 已含 schema_csrf，
@@ -54,10 +59,16 @@ test.describe('审批中心', () => {
   test('SMK-APR-01 发起 → 待办 → 详情 → 办理 → 已办', async ({ page, baseURL, request }) => {
     const base = String(baseURL).replace(/\/$/, '');
 
+
     // ---------- 1. 造数据：经 API 发布流程 + 发起实例 ----------
     // 用 page.request 复用浏览器上下文（cookie 同源）
     const ctx = page.context();
     const origin = apiBase(base);
+
+    // 取当前用户 id（CI 的 accept_admin 与本地 admin 的 id 不同，
+    // USER 模式审批人必须指向真实 id，否则审批人解析为空 → 实例挂起）
+    const me = await (await ctx.request.get(`${origin}/api/me`)).json() as { userId?: number };
+    const myUserId = String(me.userId ?? 1);
     const cookies2 = await ctx.cookies();
     const csrf2 = cookies2.find((c) => c.name === 'schema_csrf')?.value ?? '';
     const h = { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': csrf2 };
@@ -68,7 +79,7 @@ test.describe('审批中心', () => {
       nodes: [
         { id: 'start_1', type: 'START', name: '开始' },
         { id: 'approval_1', type: 'APPROVAL', name: '主管审批',
-          approver: { mode: 'USER', userIds: ['1'] } },
+          approver: { mode: 'USER', userIds: [myUserId] } },
         { id: 'end_1', type: 'END', name: '结束' },
       ],
       edges: [
@@ -165,13 +176,15 @@ test.describe('审批中心', () => {
     const origin = apiBase(base);
     const csrf2 = (await ctx.cookies()).find((c) => c.name === 'schema_csrf')?.value ?? '';
     const h = { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': csrf2 };
+    const me2 = await (await ctx.request.get(`${origin}/api/me`)).json() as { userId?: number };
+    const myUserId = String(me2.userId ?? 1);
 
     const key = `e2e${uniq()}`;
     const schema = {
       flowKey: key, name: 'E2E 驳回流程', version: 1, schemaVersion: 1,
       nodes: [
         { id: 'start_1', type: 'START' },
-        { id: 'approval_1', type: 'APPROVAL', name: '驳回测试', approver: { mode: 'USER', userIds: ['1'] } },
+        { id: 'approval_1', type: 'APPROVAL', name: '驳回测试', approver: { mode: 'USER', userIds: [myUserId] } },
         { id: 'end_1', type: 'END' },
       ],
       edges: [
