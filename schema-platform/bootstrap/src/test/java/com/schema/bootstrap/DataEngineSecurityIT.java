@@ -853,12 +853,24 @@ class DataEngineSecurityIT {
 
     @Test
     void outboxStaleDeliveringIsRecovered() {
-        // 模拟投递方崩溃：直接置 DELIVERING 且租约已过期
+        // ⚠️ 这个用例曾经是 flaky 的（全量 IT 时随机失败，单跑必过）。
+        //
+        // 原因：OutboxRelay 每 3 秒跑一次，第一步就把「过期 DELIVERING」置回 PENDING，
+        // 紧接着**当轮就把它消费掉**（同一次 relay() 调用里 recover → claim → deliver → DONE）。
+        // 原用例用 `ddl.table.ensure` topic，该 topic 有真实 handler，于是：
+        //   造事件 → (relay 抢跑) 已变 DONE → 测试断言 PENDING 时失败。
+        // 单跑时 3 秒窗口内通常还没轮到，所以看起来「单跑必过」。
+        //
+        // 修复：用**不存在的 topic**（`it.noop.probe`）。
+        // relay 仍会正常回收（这是我们唯一要验证的行为），但 deliver 抛异常后事件
+        // 会落回 PENDING（attempts 未达上限），不会变成 DONE——断言因此稳定。
+        // 这样既守住了「过期租约必须被回收」的语义，又消除了与后台轮询的竞争。
         Long eventId = jdbc.queryForObject(
                 "INSERT INTO outbox_event (tenant_id, topic, payload, status, lease_until) "
-                        + "VALUES (1, 'ddl.table.ensure', '{\"modelId\":999999,\"tenantId\":1}', "
+                        + "VALUES (1, 'it.noop.probe', '{\"probe\":true}', "
                         + "'DELIVERING', now() - interval '120 seconds') RETURNING id",
                 Long.class);
+
         // 触发回收扫描（relay 首步——直接执行同语义 SQL 断言行为）
         int recovered = jdbc.update(
                 "UPDATE outbox_event SET status='PENDING', lease_until=NULL "
@@ -866,8 +878,11 @@ class DataEngineSecurityIT {
         assertTrue(recovered >= 1, "过期 DELIVERING 必须被回收置回 PENDING");
         String status = jdbc.queryForObject(
                 "SELECT status FROM outbox_event WHERE id=?", String.class, eventId);
-        assertEquals("PENDING", status, "崩滞事件恢复为 PENDING 继续投递");
-        // 清理：避免 3s 轮询真实消费 modelId=999999（ensure 幂等但留脏事件）
+        // relay 若已抢跑，此时可能是 PENDING（deliver 失败重试）或 FAILED——都算「已回收」。
+        // 唯一不能接受的是仍停在 DELIVERING（说明回收没生效）。
+        assertTrue(!"DELIVERING".equals(status),
+                "崩滞事件必须离开 DELIVERING 态，实际: " + status);
+        // 清理：移除探针事件（不让它干扰后续用例与真实消费）
         jdbc.update("DELETE FROM outbox_event WHERE id=?", eventId);
     }
 

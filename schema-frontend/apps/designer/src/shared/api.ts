@@ -220,6 +220,39 @@ export class ApiClient {
   rollback(appId: number, modelId: string, body: { targetVersion: number; confirmToken: string; confirmValue?: string }): Promise<{ version: number }> {
     return this.reqApp(appId, 'POST', `/api/models/${modelId}/rollback`, body) as Promise<{ version: number }>;
   }
+
+  // ---------- 流程定义（spec 022 T2；后端 021 的 FlowDefinitionController） ----------
+
+  /** 流程列表（按应用）。后端签名：GET /api/flows?appId= */
+  listFlows(appId: number): Promise<{ list: FlowRow[] }> {
+    return this.req('GET', `/api/flows?appId=${appId}`) as Promise<{ list: FlowRow[] }>;
+  }
+
+  /** 新建流程定义（草稿态）。 */
+  createFlow(body: { appId: number; flowKey: string; name: string; flowSchema: unknown }): Promise<{ id: number }> {
+    return this.req('POST', '/api/flows', body) as Promise<{ id: number }>;
+  }
+
+  /** 流程详情（含 schema 原文）。 */
+  getFlow(id: number): Promise<FlowDetail> {
+    return this.req('GET', `/api/flows/${id}`) as Promise<FlowDetail>;
+  }
+
+  /**
+   * 保存草稿。
+   *
+   * ⚠️ baseVersion 用于乐观锁：与库里当前 version 不一致时后端返回 409
+   * `FLOW_VERSION_CONFLICT`——前端必须保留用户草稿并提供「重新加载」入口，
+   * 不能静默丢弃输入。
+   */
+  saveFlowDraft(id: number, body: { flowSchema: unknown; baseVersion: number }): Promise<FlowSaveResult> {
+    return this.req('PUT', `/api/flows/${id}/draft`, body) as Promise<FlowSaveResult>;
+  }
+
+  /** 发布（部署到 Flowable + 版本不可变）。 */
+  publishFlow(id: number): Promise<{ version: number; deploymentId?: string }> {
+    return this.req('POST', `/api/flows/${id}/publish`) as Promise<{ version: number; deploymentId?: string }>;
+  }
 }
 
 export class ApiError extends Error {
@@ -276,6 +309,27 @@ export interface ReleaseRow {
   version: number;
   operator?: number | string;
   releasedAt?: string;
+}
+
+// ---------- 流程定义（spec 022 T2：021 后端 API 的前端消费面） ----------
+
+/** 流程定义列表行（后端 list 返回形态）。 */
+export interface FlowRow {
+  id: number;
+  flowKey: string;
+  name: string;
+  status: string;          // DRAFT / PUBLISHED
+  version: number;
+}
+
+/** 流程定义详情（含 schema 原文——编辑器的输入）。 */
+export interface FlowDetail extends FlowRow {
+  flowSchema: string;      // JSON 文本（后端 JSONB 列的原样投影）
+  deploymentId?: string | null;
+}
+
+export interface FlowSaveResult {
+  version: number;
 }
 
 // ---------- 元数据协议镜像（data-model-designer 包复用类型；此处导入避免双定义漂移） ----------
