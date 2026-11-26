@@ -210,6 +210,28 @@ export class RequestClient {
     return this.unwrap(resp);
   }
 
+  /**
+   * 公开 POST（spec 022 T3 审批办理需要）。
+   *
+   * 与私有 post 同一条通道（authFetch：静默刷新 + 403 csrf 重试），
+   * 只是暴露给 feature 层调用。错误经 unwrap 抛 {@link ServerError}，
+   * 其 `code` 即后端错误码（TASK_NOT_ASSIGNED 等）——审批中心据此做错误矩阵。
+   */
+  async postJson(path: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
+    return this.post(path, body, signal);
+  }
+
+  /**
+   * 公开 GET + JSON 解包（审批中心读列表/详情用）。
+   *
+   * 与 {@link get} 的区别：get 返回裸 Response（供导航壳自己处理流），
+   * 本方法直接解包并映射错误——列表页需要的是数据或异常，不是 Response。
+   */
+  async getJson(path: string, signal?: AbortSignal): Promise<unknown> {
+    const resp = await this.request(path, { method: 'GET', signal });
+    return this.unwrap(resp);
+  }
+
   /** 响应解包 + 服务端错误映射（03FE §7 字段级回填）。 */
   private async unwrap(resp: Response): Promise<unknown> {
     if (resp.ok) {

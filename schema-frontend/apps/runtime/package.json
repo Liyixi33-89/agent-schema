@@ -9,20 +9,21 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@schema/auth-sdk": "workspace:*",
+    "@schema/chart-kit": "workspace:*",
+    "@schema/component-materials": "workspace:*",
+    "@schema/flow-designer": "workspace:*",
+    "@schema/schema-form": "workspace:*",
+    "@schema/schema-protocol": "workspace:*",
+    "@schema/schema-renderer": "workspace:*",
+    "@schema/script-host": "workspace:*",
+    "@schema/shared-ui": "workspace:*",
     "@schema/theme-engine": "workspace:*",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
+    "@schema/usage-tracker": "workspace:*",
     "antd": "5.25.4",
     "dayjs": "1.11.13",
-    "@schema/schema-form": "workspace:*",
-    "@schema/schema-renderer": "workspace:*",
-    "@schema/component-materials": "workspace:*",
-    "@schema/chart-kit": "workspace:*",
-    "@schema/schema-protocol": "workspace:*",
-    "@schema/usage-tracker": "workspace:*",
-    "@schema/auth-sdk": "workspace:*",
-    "@schema/shared-ui": "workspace:*",
-    "@schema/script-host": "workspace:*"
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
     "vite": "6.3.5",

@@ -369,6 +369,9 @@ public class FlowInstanceService {
         out.put("instanceId", instanceId);
         out.put("modelId", bind.get("model_id"));
         out.put("recordId", bind.get("record_id"));
+        // flowDefId：审批中心据此拉流程定义渲染画布（T3 实例着色需要节点集合）。
+        // 此前遗漏该字段导致前端只能显示轨迹、无法画图。
+        out.put("flowDefId", bind.get("flow_def_id"));
         out.put("status", bind.get("status"));
         out.put("startedBy", bind.get("started_by"));
         out.put("startedAt", bind.get("started_at"));

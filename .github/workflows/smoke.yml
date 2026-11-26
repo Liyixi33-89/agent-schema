@@ -386,6 +386,9 @@ jobs:
           SMOKE_DESIGNER_BASE: http://127.0.0.1:5173/designer
           SMOKE_RUNTIME_BASE: http://127.0.0.1:5174/runtime
           SMOKE_ADMIN_BASE: http://127.0.0.1:5175/admin
+          # CI 的页面走 vite preview（5173/5174/5175），不代理 API；后端在 18080。
+          # 需要造数据的 E2E（approval）必须显式知道 API 地址，否则会打到 preview 端口拿 404。
+          SMOKE_API_BASE: http://127.0.0.1:18080
           SMOKE_META_FILE: /tmp/smoke-meta.json
           SMOKE_USERNAME: accept_admin
           SMOKE_PASSWORD: ${{ secrets.SMOKE_ACCEPT_PASSWORD || 'Accept!2026' }}
