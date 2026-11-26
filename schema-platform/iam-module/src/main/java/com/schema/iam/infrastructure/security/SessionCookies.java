@@ -20,6 +20,40 @@ public final class SessionCookies {
     public static final String RT = "schema_rt";
     public static final String CSRF = "schema_csrf";
 
+    /**
+     * CSRF/会话 cookie 是否带 {@code Secure} 属性。
+     *
+     * ## 为什么要这个开关
+     * 原实现把 {@code Secure} 硬编码进三处 Set-Cookie。注释假设「要么 localhost
+     * （浏览器忽略 Secure），要么生产 HTTPS」——但**存在第三种真实场景**：
+     * HTTP + 公网 IP 的测试/内网环境。
+     *
+     * 该场景下浏览器**拒绝保存**带 Secure 的 cookie（HTTP 非安全上下文），
+     * 于是 `GET /api/auth/csrf` 的 Set-Cookie 被丢弃 → 登录请求缺 CSRF
+     * → 恒返回 `CSRF_TOKEN_REJECTED`，**登录完全不可用**。
+     * （2026-11-26 在 111.231.57.177 实测踩到：/designer 登录页反复提示
+     *  「登录已过期，请重新登录」，后端日志为 CSRF_TOKEN_REJECTED。）
+     *
+     * ## 安全立场
+     * **默认 true（保持 Secure）**——生产必须 HTTPS，不因本开关而放宽。
+     * 只有显式设置环境变量 {@code COOKIE_INSECURE=1} 才降级，
+     * 且该变量只应出现在临时 HTTP 环境（配置里有醒目注释）。
+     * 这是「显式、可审计的降级」，不是默认松懈。
+     *
+     * ⚠️ 降级后 cookie 可被明文网络嗅探——仅限内网/临时测试使用。
+     */
+    private static final boolean SECURE = !"1".equals(System.getenv("COOKIE_INSECURE"));
+
+    /** 会话 cookie 的 Secure 属性片段（空串=降级模式）。 */
+    private static String secureAttr() {
+        return SECURE ? "Secure; " : "";
+    }
+
+    /** 当前是否处于降级模式（测试与运维自检用）。 */
+    public static boolean isInsecureCookieMode() {
+        return !SECURE;
+    }
+
     public static final long AT_MAX_AGE = JwtCodec.ACCESS_TTL_SECONDS;       // 2h
     public static final long RT_MAX_AGE = JwtCodec.REFRESH_TTL_SECONDS;     // 7d
 
@@ -33,23 +67,23 @@ public final class SessionCookies {
     public static void issue(HttpServletResponse resp, String accessToken, String refreshToken,
             String csrfValue) {
         set(resp, AT, accessToken, AT_MAX_AGE,
-                "HttpOnly; Secure; SameSite=Lax; Path=/");
+                "HttpOnly; " + secureAttr() + "SameSite=Lax; Path=/");
         set(resp, RT, refreshToken, RT_MAX_AGE,
-                "HttpOnly; Secure; SameSite=Strict; Path=/api/auth");
+                "HttpOnly; " + secureAttr() + "SameSite=Strict; Path=/api/auth");
         set(resp, CSRF, csrfValue, RT_MAX_AGE,
-                "Secure; SameSite=Lax; Path=/");
+                secureAttr() + "SameSite=Lax; Path=/");
     }
 
     /** 匿名 csrf 签发（登录页加载 GET /api/auth/csrf——登录 CSRF 防护，未绑定会话）。 */
     public static void issueCsrfOnly(HttpServletResponse resp, String csrfValue) {
-        set(resp, CSRF, csrfValue, RT_MAX_AGE, "Secure; SameSite=Lax; Path=/");
+        set(resp, CSRF, csrfValue, RT_MAX_AGE, secureAttr() + "SameSite=Lax; Path=/");
     }
 
     /** 登出：三枚 Max-Age=0 清除（属性与签发一致——不一致清除失效）。 */
     public static void clear(HttpServletResponse resp) {
-        set(resp, AT, "", 0, "HttpOnly; Secure; SameSite=Lax; Path=/");
-        set(resp, RT, "", 0, "HttpOnly; Secure; SameSite=Strict; Path=/api/auth");
-        set(resp, CSRF, "", 0, "Secure; SameSite=Lax; Path=/");
+        set(resp, AT, "", 0, "HttpOnly; " + secureAttr() + "SameSite=Lax; Path=/");
+        set(resp, RT, "", 0, "HttpOnly; " + secureAttr() + "SameSite=Strict; Path=/api/auth");
+        set(resp, CSRF, "", 0, secureAttr() + "SameSite=Lax; Path=/");
     }
 
     private static void set(HttpServletResponse resp, String name, String value, long maxAge, String attrs) {
