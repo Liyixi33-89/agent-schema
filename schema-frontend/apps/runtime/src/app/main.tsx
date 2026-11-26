@@ -15,8 +15,9 @@ import FormPageHost from '../features/page-host/FormPageHost';
 import { AppShell, watchTenantChange } from './AppShell';
 import SessionExpired from './SessionExpired';
 import PreviewPage from '../features/preview/PreviewPage';
+ import ApprovalCenter from '../features/approval/ApprovalCenter';
 import { cachedEntry, cacheEntry } from './pageCache';
-import { parseRuntimeHash, type RouteInfo } from './route';
+import { approvalHash, parseRuntimeHash, type RouteInfo } from './route';
 
 // v0.4 Cookie 通道：正式访问不带 getToken（schema_at 自动携带）；预览页场景由宿主另行注入 Bearer
 /** 会话失效信号桥（模块级——client 回调触发 React 状态切占位组件；App 挂载时接管）。 */
@@ -102,8 +103,18 @@ function App(): React.ReactElement {
   if (!route) {
     return (
       <Typography.Paragraph style={{ padding: 24 }}>
-        运行时容器就绪。访问 {'#/app/:appId'} 打开应用导航壳；{'#/page/:pageId'} 直接打开发布页面（预览通道）。
+        运行时容器就绪。访问 {'#/app/:appId'} 打开应用导航壳；{'#/page/:pageId'} 直接打开发布页面（预览通道）；
+        {'#/approval'} 进入审批中心。
       </Typography.Paragraph>
+    );
+  }
+  if (route.kind === 'approval') {
+    return (
+      <ApprovalCenter
+        client={client}
+        instanceId={route.instanceId ?? null}
+        onOpenInstance={(id) => { window.location.hash = approvalHash(id); }}
+      />
     );
   }
   if (route.kind === 'app' && route.appId) {

@@ -121,6 +121,9 @@ importers:
       '@schema/component-materials':
         specifier: workspace:*
         version: link:../../packages/component-materials
+      '@schema/flow-designer':
+        specifier: workspace:*
+        version: link:../../packages/flow-designer
       '@schema/schema-form':
         specifier: workspace:*
         version: link:../../packages/schema-form

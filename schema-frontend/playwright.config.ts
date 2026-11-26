@@ -72,6 +72,12 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: DESIGNER },
     },
     {
+      // 审批中心（spec 022 T3）：待办/已办/详情/办理
+      name: 'approval',
+      testMatch: /approval\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: RUNTIME },
+    },
+    {
       name: 'runtime',
       testMatch: /runtime\.smoke\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: RUNTIME },
