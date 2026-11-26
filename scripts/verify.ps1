@@ -354,8 +354,11 @@ if (Test-Path (Join-Path $be 'pom.xml')) {
         $pgHost = $env:VERIFY_IT_DB_HOST; if (-not $pgHost) { $pgHost = $env:VERIFY_PG_HOST }
         if (-not $pgHost) { $pgHost = 'localhost' }
         $pgPort = $env:VERIFY_IT_DB_PORT; if (-not $pgPort) { $pgPort = '5432' }
-        $pgDb = $env:VERIFY_IT_DB_NAME; if (-not $pgDb) { $pgDb = 'schema_dev' }
-        $pgUser = $env:VERIFY_IT_DB_USER; if (-not $pgUser) { $pgUser = 'schema_dev' }
+        # 默认库名用 schema_it（不是 schema_dev）：IamServiceIT / IamSecurityChainIT
+        # 会无条件 DELETE 全部用户/角色，ItDbGuard 只放行 *_it / *_test / test_* 命名。
+        # schema_dev 在服务器上是真实开发库，不能被 IT 清空（2026-11-25 验收库事故后收紧）。
+        $pgDb = $env:VERIFY_IT_DB_NAME; if (-not $pgDb) { $pgDb = 'schema_it' }
+        $pgUser = $env:VERIFY_IT_DB_USER; if (-not $pgUser) { $pgUser = 'schema_it' }
         $pgPass = $env:VERIFY_IT_DB_PASS; if (-not $pgPass) { $pgPass = 'schema_local_only' }
         $pgUp = $false
         try {

@@ -18,14 +18,16 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_DB: schema_dev
-          POSTGRES_USER: schema_dev
-          POSTGRES_PASSWORD: schema_local_only
+          # 库名必须是测试专用命名（ItDbGuard 只放行 *_it / *_test / test_*）：
+          # 这些 IT 会无条件 DELETE 全部用户/角色——验收库曾因此丢过 112 个页面。
+          POSTGRES_DB: schema_it
+          POSTGRES_USER: schema_it
+          POSTGRES_PASSWORD: schema_it_only_2026
         ports:
           - 5432:5432
         # 就绪探针：pg_isready 通过才算 service 可用
         options: >-
-          --health-cmd "pg_isready -U schema_dev -d schema_dev"
+          --health-cmd "pg_isready -U schema_it -d schema_it"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
