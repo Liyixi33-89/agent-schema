@@ -54,4 +54,12 @@ public class FlowDeploymentConfig {
     public ApproverResolver.OrgQueryPort flowOrgQueryPort(JdbcTemplate jdbc) {
         return new JdbcOrgQueryPort(jdbc);
     }
+
+    // 通知端口（T7）**刻意不在此定义 Bean**：
+    // - flow-module 保持零业务模块依赖（pom 只有 platform-common）
+    // - 适配器由组合根 bootstrap 的 FlowNotifyConfig 提供（转调 notification-module）
+    // - 未提供时 FlowInstanceService 内部降级为 NoopFlowNotifyPort（见其构造器）
+    //
+    // ⚠️ 这里不能用 ObjectProvider<FlowNotifyPort> 自省：Bean 定义本身就是
+    //    FlowNotifyPort 时会查到自己（自引用）。改用构造器可选注入。
 }

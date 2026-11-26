@@ -52,13 +52,60 @@ public class FlowInstanceService {
     private final FlowInstanceRepository instRepo;
     private final FlowExecutionEngine engine;
     private final ApproverResolver.OrgQueryPort org;
+    private final FlowNotifyPort notify;
 
+    /**
+     * 通知端口是**可选依赖**（T7）。
+     *
+     * flow-module 不依赖 notification-module：适配器由组合根 bootstrap 提供，
+     * 未提供时降级为 NOOP（流程照走，不发通知，WARN 留痕）。
+     * 用 ObjectProvider 而非 @Autowired(required=false)，是为了让 Spring
+     * 在无该 Bean 时不报错且显式表达「可缺省」。
+     */
+    @org.springframework.beans.factory.annotation.Autowired
     public FlowInstanceService(FlowDefinitionRepository defRepo, FlowInstanceRepository instRepo,
-            FlowExecutionEngine engine, ApproverResolver.OrgQueryPort org) {
+            FlowExecutionEngine engine, ApproverResolver.OrgQueryPort org,
+            org.springframework.beans.factory.ObjectProvider<FlowNotifyPort> notifyProvider) {
+        FlowNotifyPort provided = notifyProvider.getIfAvailable();
         this.defRepo = defRepo;
         this.instRepo = instRepo;
         this.engine = engine;
         this.org = org;
+        this.notify = provided != null ? provided
+                : new com.schema.flow.infrastructure.NoopFlowNotifyPort();
+    }
+
+    /** 唯一具体构造器（构造器只有一个 @Autowired 版本，此处为包私有实现细节）。 */
+    private FlowInstanceService(FlowDefinitionRepository defRepo, FlowInstanceRepository instRepo,
+            FlowExecutionEngine engine, ApproverResolver.OrgQueryPort org, Void ignored,
+            FlowNotifyPort notify) {
+        this.defRepo = defRepo;
+        this.instRepo = instRepo;
+        this.engine = engine;
+        this.org = org;
+        this.notify = notify != null ? notify
+                : new com.schema.flow.infrastructure.NoopFlowNotifyPort();
+    }
+
+    /**
+     * 单测工厂（T7 之前的 4 参数签名）。
+     *
+     * 不做过构造器重载：5 参数构造器里 `notify != null ? ... : Noop` 与
+     * 4 参数构造器的 `this(..., null)` 会让编译器判定「引用不明确」。
+     * 用静态工厂避开重载解析，语义也更清楚（测试意图 = 不关心通知）。
+     */
+    static FlowInstanceService forTest(FlowDefinitionRepository defRepo,
+            FlowInstanceRepository instRepo, FlowExecutionEngine engine,
+            ApproverResolver.OrgQueryPort org) {
+        return new FlowInstanceService(defRepo, instRepo, engine, org, null,
+                new com.schema.flow.infrastructure.NoopFlowNotifyPort());
+    }
+
+    /** 单测工厂（带通知桩，用于断言「发了什么通知」）。 */
+    static FlowInstanceService forTest(FlowDefinitionRepository defRepo,
+            FlowInstanceRepository instRepo, FlowExecutionEngine engine,
+            ApproverResolver.OrgQueryPort org, FlowNotifyPort notify) {
+        return new FlowInstanceService(defRepo, instRepo, engine, org, null, notify);
     }
 
     /**
@@ -92,6 +139,8 @@ public class FlowInstanceService {
         variables.put("recordId", recordId);
         variables.put("flowDefId", flowDefId);
         variables.put("initiator", t.operatorId());
+        // 租户 id 供通知适配器取用（T7）——仍是业务标识，非凭证，A12 不受影响
+        variables.put("tenantId", t.tenantId());
 
         String instanceId = engine.start(processKey, modelId + ":" + recordId, variables);
 
@@ -110,7 +159,57 @@ public class FlowInstanceService {
         // 审批人解析为空 → BLOCK：挂起实例（A9）
         blockIfNoAssignee(schema, t, instanceId);
 
+        // T7：待办通知（A9 挂起时 blockIfNoAssignee 内部已决定不发——无受理人可通知）
+        notifyTodo(schema, def, t, instanceId, modelId, recordId);
+
         return Map.of("instanceId", instanceId);
+    }
+
+    /**
+     * 派发待办通知（T7 / FLOW_TODO）。
+     *
+     * 只通知「首个 APPROVAL 节点解析出的审批人」——引擎启动后这些人的任务已就绪。
+     * 挂起实例（审批人解析为空）在此返回，不产生无收件人的通知。
+     */
+    private void notifyTodo(FlowSchema schema, Map<String, Object> def, TenantInfo t,
+            String instanceId, long modelId, long recordId) {
+        FlowNode firstApproval = null;
+        for (FlowNode n : schema.nodes()) {
+            if (n != null && "APPROVAL".equals(n.type())) {
+                firstApproval = n;
+                break;
+            }
+        }
+        if (firstApproval == null) {
+            return;
+        }
+        List<Long> assignees = ApproverResolver.resolve(
+                firstApproval.approver(), t.tenantId(), t.operatorId(), org);
+        if (assignees.isEmpty()) {
+            // A9：已挂起，无受理人——不通知
+            return;
+        }
+        Map<String, Object> vars = new LinkedHashMap<>();
+        vars.put("flowName", String.valueOf(def.getOrDefault("name", def.get("flow_key"))));
+        vars.put("bizRef", modelId + ":" + recordId);
+        vars.put("instanceId", instanceId);
+        safeNotify(() -> notify.todo(instanceId, assignees, vars), instanceId, "FLOW_TODO");
+    }
+
+    /**
+     * 通知失败不得影响流程事务（T7 边界）。
+     *
+     * 审批/发起的业务结果比「通知是否送达」重要得多——通知模块故障时
+     * 让整个办理回滚是错误的价值排序。此处吞异常并记 ERROR，
+     * 由通知模块自身的 SUPERSEDED/SUPPRESSED 留痕兜底可审计性。
+     */
+    private void safeNotify(Runnable action, String instanceId, String kind) {
+        try {
+            action.run();
+        } catch (RuntimeException e) {
+            log.error("[FLOW_NOTIFY_FAILED] instance={} kind={} — 业务不受影响: {}",
+                    instanceId, kind, e.toString());
+        }
     }
 
     /** 待办（§3.4 GET /api/my/tasks）。 */
@@ -176,16 +275,80 @@ public class FlowInstanceService {
                 approved ? "COMPLETE" : "REJECT", t.operatorId(), comment, OffsetDateTime.now());
 
         String nextState = engine.instanceState(task.instanceId());
+        boolean becameFinished = false;
         if (approved && "FINISHED".equals(nextState)) {
             instRepo.updateStatus(t.tenantId(), task.instanceId(), ST_FINISHED);
+            becameFinished = true;
         } else if (!approved) {
             // 拒绝 = 终止语义（A8）：实例结束，业务状态置驳回
             instRepo.updateStatus(t.tenantId(), task.instanceId(), ST_FINISHED);
+            becameFinished = true;
+        }
+
+        // T7 / A8：办结通知发起人（FLOW_DONE_APPROVED / FLOW_DONE_REJECTED）
+        // 放在状态更新之后：先落业务事实，再发通知（通知失败不回滚，见 safeNotify）。
+        if (becameFinished) {
+            notifyFinished(t, task.instanceId(), approved, comment);
         }
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("instanceState", nextState);
         out.put("approved", approved);
+        return out;
+    }
+
+    /**
+     * 办结通知发起人（A8 要求「发起人收到 FLOW_DONE_REJECTED」）。
+     *
+     * 发起人取自 flow_instance_biz.started_by——不信任流程变量
+     * （变量在 A12 已收窄，但业务真源是绑定表）。
+     */
+    private void notifyFinished(TenantInfo t, String instanceId, boolean approved, String comment) {
+        Map<String, Object> bind = instRepo.findByInstanceId(t.tenantId(), instanceId).orElse(null);
+        if (bind == null) {
+            log.warn("[FLOW_NOTIFY_SKIP] instance={} 无业务绑定，跳办结通知", instanceId);
+            return;
+        }
+        // ⚠️ started_by 可能为 null（仓储投影字段缺失 / 单测桩未设该列）——
+        //    直接装箱转型会抛 NPE，而通知失败绝不该影响办理结果。
+        Object startedBy = bind.get("started_by");
+        if (!(startedBy instanceof Number initiatorNum)) {
+            log.warn("[FLOW_NOTIFY_SKIP] instance={} 缺 started_by，跳办结通知", instanceId);
+            return;
+        }
+        long initiatorId = initiatorNum.longValue();
+        Map<String, Object> vars = new LinkedHashMap<>();
+        vars.put("flowName", String.valueOf(
+                bind.getOrDefault("flow_name", bind.getOrDefault("flow_key", "流程"))));
+        vars.put("bizRef", bind.get("model_id") + ":" + bind.get("record_id"));
+        vars.put("instanceId", instanceId);
+        if (comment != null && !comment.isBlank()) {
+            vars.put("comment", comment);
+        }
+        safeNotify(() -> notify.finished(instanceId, initiatorId, approved, comment, vars),
+                instanceId, approved ? "FLOW_DONE_APPROVED" : "FLOW_DONE_REJECTED");
+    }
+
+    /**
+     * 已办（T5：待办/已办双侧）。
+     *
+     * 数据源是引擎历史（HistoryService）而非任务表——
+     * 已完成任务在运行时表里已不存在，只有历史表留有办理记录。
+     * 只返回「我作为办理人」的记录，不混入我发起但由他人办理的实例。
+     */
+    public Map<String, Object> doneTasks(int page, int size) {
+        TenantInfo t = tenant();
+        // 数据源是 flow_task_log 而非引擎历史：
+        // 引擎的 HistoricActivityInstance 查询需要已知 instanceId（无法跨实例扫），
+        // 而「我的已办」本质是「我办理过的任务」——业务侧审计表才是真源，
+        // 且它记录了 REJECT/AUTO 等引擎历史不含的语义。
+        List<Map<String, Object>> mine = instRepo.listTasksByOperator(t.tenantId(), t.operatorId());
+        int from = Math.max(0, page) * Math.max(1, size);
+        int to = Math.min(mine.size(), from + Math.max(1, size));
+        List<Map<String, Object>> pageItems = from >= mine.size() ? List.of() : mine.subList(from, to);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("list", pageItems);
+        out.put("total", mine.size());
         return out;
     }
 

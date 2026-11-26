@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
@@ -34,6 +35,19 @@ public class FlowInstanceController {
     @GetMapping("/my/tasks")
     public Map<String, Object> myTasks() {
         return service.myTasks();
+    }
+
+    /**
+     * 已办：GET /api/my/tasks/done?page=&size=
+     *
+     * ⚠️ 必须注册在 `/my/tasks` **之后**——Spring 的路径匹配对静态段优先，
+     * 但显式声明成独立的 `/my/tasks/done` 更不会与 `/my/tasks` 混淆。
+     */
+    @GetMapping("/my/tasks/done")
+    public Map<String, Object> doneTasks(
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size) {
+        return service.doneTasks(page, size);
     }
 
     /** 办理：POST /api/tasks/{taskId}/complete */
