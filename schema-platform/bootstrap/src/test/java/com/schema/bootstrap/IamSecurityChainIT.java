@@ -70,6 +70,9 @@ class IamSecurityChainIT {
                 .addFilters(ctx.getBeansOfType(jakarta.servlet.Filter.class).values()
                         .toArray(new jakarta.servlet.Filter[0]))
                 .build();
+        // ⚠️ 防误伤闸（2026-11-26 事故后加）：无条件 DELETE 会抹掉真实库的全部 IAM 数据。
+        // 2026-11-25 验收库因此丢过 112 个页面。见 ItDbGuard 注释。
+        ItDbGuard.assertDestructiveAllowed(jdbc);
         jdbc.update("DELETE FROM sys_user_role");
         jdbc.update("DELETE FROM sys_role_permission");
         jdbc.update("DELETE FROM sys_role_data_scope");
