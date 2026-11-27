@@ -73,6 +73,16 @@ class PageSecurityChainIT {
     private long pageId;
     private long modelId;
 
+    /**
+     * 本 IT 会创建的页面 key 条件（2026-11-27）。
+     *
+     * 与 createPage / POST 请求体一致：sec_page_、denied_、race_ + nanoTime，
+     * 以及 schema 里的固定 pageKey 'sec'。
+     */
+    private static final String TEST_PAGE_KEY_COND =
+            "page_key LIKE 'sec\\_page\\_%' OR page_key LIKE 'denied\\_%' "
+                    + "OR page_key LIKE 'race\\_%' OR page_key = 'sec'";
+
     @BeforeAll
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(ctx)
@@ -80,11 +90,19 @@ class PageSecurityChainIT {
                         .toArray(new jakarta.servlet.Filter[0]))
                 .build();
         // 页面域数据清理（幂等重跑）
-        jdbc.update("DELETE FROM page_preview_session");
-        jdbc.update("DELETE FROM page_preview_grant");
-        jdbc.update("DELETE FROM app_release");
-        jdbc.update("DELETE FROM page_release_version");
-        jdbc.update("DELETE FROM page_schema");
+        //
+        // ⚠️ 必须带条件（2026-11-27）：原为无 WHERE 的全表清空，
+        // 连错库时会清掉真实页面与发布记录。
+        // page_preview_* 没有 page_key 列（只有 page_id），按 page_id 子查询限定。
+        jdbc.update("DELETE FROM page_preview_session WHERE page_id IN "
+                + "(SELECT id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        jdbc.update("DELETE FROM page_preview_grant WHERE page_id IN "
+                + "(SELECT id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        jdbc.update("DELETE FROM app_release WHERE app_id IN "
+                + "(SELECT app_id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        jdbc.update("DELETE FROM page_release_version WHERE page_id IN "
+                + "(SELECT id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        jdbc.update("DELETE FROM page_schema WHERE " + TEST_PAGE_KEY_COND);
         jdbc.update("DELETE FROM meta_field_reference WHERE ref_type IN ('PAGE','SCRIPT')");
 
         // 种子角色：designer（page:design + app:publish）与 viewer（无页面权限点）——幂等种子

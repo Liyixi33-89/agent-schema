@@ -58,17 +58,34 @@ class DataEngineIT {
 
     private long modelId;
 
+    /**
+     * 本 IT 会创建的模型 key 前缀（2026-11-27）。
+     *
+     * 用途：把清理范围限定在测试数据内，避免「无 WHERE 全表清空」误伤真实数据。
+     * 与 createModel 调用里的前缀保持一致：order_ / m_ / cross_app_ / victim_。
+     * SQL 的 LIKE 转义 `\_` 在 Java 里写 `\\_`。
+     */
+    private static final String TEST_MODEL_KEY_COND =
+            "model_key LIKE 'order\\_%' OR model_key LIKE 'm\\_%' "
+                    + "OR model_key LIKE 'cross\\_app\\_%' OR model_key LIKE 'victim\\_%'";
+
     @BeforeAll
     void warmup() {
         // 幂等清理（物理表随建随用——测试模型用 nanoTime 键防撞）
-        jdbc.update("DELETE FROM data_promote_task");
+        //
+        // ⚠️ 全部限定在「本 IT 创建的测试数据」范围内（2026-11-27）：
+        // 原先 DELETE FROM meta_model / meta_field 等是无 WHERE 的全表清空，
+        // 在连错库时会清掉真实模型——2026-11-26 验收库的 expense 模型
+        // 就是这样丢失的。本 IT 的模型 key 恒为 order_ + nanoTime。
+        jdbc.update("DELETE FROM data_promote_task WHERE tenant_id = 1");
         jdbc.update("DELETE FROM data_physical_table WHERE tenant_id = 1 AND model_id > 0 "
                 + "AND table_name LIKE 'biz_model_%'");
-        jdbc.update("DELETE FROM meta_field_reference");
-        jdbc.update("DELETE FROM meta_confirm_token");
-        jdbc.update("DELETE FROM meta_schema_version");
-        jdbc.update("DELETE FROM meta_field");
-        jdbc.update("DELETE FROM meta_model");
+        for (String tbl : new String[]{"meta_field_reference", "meta_confirm_token",
+                "meta_schema_version", "meta_field"}) {
+            jdbc.update("DELETE FROM " + tbl + " WHERE model_id IN "
+                    + "(SELECT id FROM meta_model WHERE " + TEST_MODEL_KEY_COND + ")");
+        }
+        jdbc.update("DELETE FROM meta_model WHERE " + TEST_MODEL_KEY_COND);
         // 清理历史物理表（测试模型键唯一，重跑安全）
         List<String> oldTables = jdbc.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'biz_model_%'",

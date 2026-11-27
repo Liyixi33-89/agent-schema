@@ -49,14 +49,28 @@ class MetadataCommandServiceIT {
 
     private long modelId;
 
+    /**
+     * 本 IT 会创建的模型 key 前缀（2026-11-27）。
+     *
+     * 清理范围限定在测试数据内，避免「无 WHERE 全表清空」误伤真实数据。
+     * 与 createModel 调用里的前缀一致：order_ / m_ / cross_app_ / victim_。
+     */
+    private static final String TEST_MODEL_KEY_COND =
+            "model_key LIKE 'order\\_%' OR model_key LIKE 'm\\_%' "
+                    + "OR model_key LIKE 'cross\\_app\\_%' OR model_key LIKE 'victim\\_%'";
+
     @BeforeAll
     void warmup() {
         // 清理本测试的历史数据（幂等重跑）
-        jdbc.update("DELETE FROM meta_field_reference");
-        jdbc.update("DELETE FROM meta_confirm_token");
-        jdbc.update("DELETE FROM meta_schema_version");
-        jdbc.update("DELETE FROM meta_field");
-        jdbc.update("DELETE FROM meta_model");
+        //
+        // ⚠️ 必须带条件（2026-11-27）：原为无 WHERE 的全表清空，
+        // 连错库时会清掉真实模型——2026-11-26 验收库的 expense 模型即如此丢失。
+        for (String tbl : new String[]{"meta_field_reference", "meta_confirm_token",
+                "meta_schema_version", "meta_field"}) {
+            jdbc.update("DELETE FROM " + tbl + " WHERE model_id IN "
+                    + "(SELECT id FROM meta_model WHERE " + TEST_MODEL_KEY_COND + ")");
+        }
+        jdbc.update("DELETE FROM meta_model WHERE " + TEST_MODEL_KEY_COND);
     }
 
     @BeforeEach

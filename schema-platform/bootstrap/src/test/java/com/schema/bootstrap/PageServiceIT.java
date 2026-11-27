@@ -58,15 +58,32 @@ class PageServiceIT {
     private long modelId;
     private long pageId;
 
+    /**
+     * 本 IT 会创建的页面 key 条件（2026-11-27）。
+     *
+     * 与 createPage 调用一致：page_/other_ + nanoTime，以及固定 'rich'。
+     * 用于把清理限定在测试数据内，避免全表清空误伤真实页面。
+     */
+    private static final String TEST_PAGE_KEY_COND =
+            "page_key LIKE 'page\\_%' OR page_key LIKE 'other\\_%' OR page_key = 'rich'";
+
     @BeforeAll
     void warmup() {
         // 清理本测试的历史数据（幂等重跑）
-        jdbc.update("DELETE FROM page_preview_session");
-        jdbc.update("DELETE FROM page_preview_grant");
-        jdbc.update("DELETE FROM app_release");
-        jdbc.update("DELETE FROM page_release_version");
-        jdbc.update("DELETE FROM page_schema");
-        jdbc.update("DELETE FROM meta_field_reference");
+        //
+        // ⚠️ 必须带条件（2026-11-27）：原为无 WHERE 的全表清空，
+        // 连错库时会清掉真实页面与发布记录。
+        // page_preview_* 没有 page_key 列（只有 page_id），因此按 page_id 子查询限定。
+        jdbc.update("DELETE FROM page_preview_session WHERE page_id IN "
+                + "(SELECT id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        jdbc.update("DELETE FROM page_preview_grant WHERE page_id IN "
+                + "(SELECT id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        jdbc.update("DELETE FROM app_release WHERE app_id IN "
+                + "(SELECT app_id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        jdbc.update("DELETE FROM page_release_version WHERE page_id IN "
+                + "(SELECT id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        jdbc.update("DELETE FROM page_schema WHERE " + TEST_PAGE_KEY_COND);
+        jdbc.update("DELETE FROM meta_field_reference WHERE ref_type IN ('PAGE','SCRIPT')");
         // 授权接线后：操作者(1,1,1) 需持页面设计/发布权限（M4 收口——perm gate 生效）
         grantPagePermsToDefaultOperator();
     }
