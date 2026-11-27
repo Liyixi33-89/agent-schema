@@ -490,11 +490,14 @@ def datascope_precheck(target: str, strict: bool) -> None:
     local = (ROOT / "scripts" / "datascope-precheck.sh").read_bytes()
     b64 = base64.b64encode(local).decode("ascii")
     strict_arg = " --strict" if strict else ""
-    # ⚠️ 不用 `chmod +x` 后直接执行：服务器 /tmp 可能挂 noexec（实测
-    # "Permission denied"，且退出码非 2 被误判为通过）。改为管道喂给 bash，
-    # 全程不需要可执行位。
+    # 执行方式的三次迭代（都踩过）：
+    #   ① `echo b64 > /tmp/x && chmod +x /tmp/x && /tmp/x`  → /tmp 可能 noexec，Permission denied
+    #   ② `echo b64 | base64 -d | bash -s -- args`         → stdin 被管道占用，
+    #      脚本内的 `sudo -u postgres psql` 读不到终端，静默返回空（误判「库不存在」）
+    #   ③ 最终：写到 **$HOME** 再 bash 执行（不依赖 noexec 目录，也不占 stdin）
     remote = (
-        f"echo {b64} | base64 -d | bash -s -- {db}{strict_arg}"
+        f"f=$HOME/.ds-precheck.sh && echo {b64} | base64 -d > $f && "
+        f"bash $f {db}{strict_arg}; rc=$?; rm -f $f; exit $rc"
     )
     try:
         proc = ssh(remote, check=False, timeout=120)
