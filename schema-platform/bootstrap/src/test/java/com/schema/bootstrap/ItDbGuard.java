@@ -72,6 +72,56 @@ public final class ItDbGuard {
         return false;
     }
 
+    // ------------------------------------------------------------------
+    // 第二道闸：无 WHERE 的全表 DELETE / TRUNCATE
+    // ------------------------------------------------------------------
+
+    /**
+     * 判断 SQL 是否为「无 WHERE 的全表清空」。
+     *
+     * 实现说明：先匹配清空语句的**开头**（DELETE FROM x / TRUNCATE [TABLE] x），
+     * 再检查**整条语句**是否出现 WHERE 关键字。
+     * 不用单条复杂正则——`.*$` 配合 DOTALL 会贪婪吞掉 WHERE，实测误判。
+     */
+    static boolean isFullTableWipe(String sql) {
+        if (sql == null) return false;
+        String s = sql.trim();
+        java.util.regex.Matcher head = java.util.regex.Pattern
+                .compile("^(?:DELETE\\s+FROM|TRUNCATE(?:\\s+TABLE)?)\\s+[\\w.\"]+",
+                        java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(s);
+        if (!head.find()) return false;                     // 不是清空语句
+        return !java.util.regex.Pattern.compile("\\bWHERE\\b",
+                java.util.regex.Pattern.CASE_INSENSITIVE).matcher(s).find();
+    }
+
+    /**
+     * 断言 SQL 不是「无 WHERE 的全表清空」。
+     *
+     * 与 {@link #assertDestructiveAllowed(JdbcTemplate)} 互补：
+     * 那道闸问「这个库能不能动」，本闸问「这条语句该不该这么写」。
+     * 两者都过才执行清理。
+     *
+     * @param sql 即将执行的 SQL
+     * @throws IllegalStateException 无 WHERE 清空且未显式放行
+     */
+    public static void assertScopedStatement(String sql) {
+        if (!isFullTableWipe(sql)) return;
+
+        boolean override = "true".equalsIgnoreCase(System.getProperty("it.allow-full-table-delete"))
+                || "true".equalsIgnoreCase(System.getenv("IT_ALLOW_FULL_TABLE_DELETE"));
+        if (override) {
+            System.err.println("[ItDbGuard] \u26a0\ufe0f 已显式放行全表清空：" + sql.trim());
+            return;
+        }
+        throw new IllegalStateException(
+                "IT 防误伤闸：拒绝执行「无 WHERE 的全表清空」：\n  " + sql.trim() + "\n"
+                        + "  这类语句会清掉同库其他测试甚至真实数据——\n"
+                        + "  2026-11-26 验收库的真实应用/模型就是这样被清掉的。\n"
+                        + "  请改用带条件的清理（限定 tenant_id / 测试数据 key 前缀 / 本次创建的 id）。\n"
+                        + "  确需清全表时显式加 -Dit.allow-full-table-delete=true。");
+    }
+
     /**
      * 断言当前连接的库允许执行破坏性清理。
      *

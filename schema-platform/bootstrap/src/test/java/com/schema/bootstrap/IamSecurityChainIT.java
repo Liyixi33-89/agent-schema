@@ -73,6 +73,10 @@ class IamSecurityChainIT {
         // ⚠️ 防误伤闸（2026-11-26 事故后加）：无条件 DELETE 会抹掉真实库的全部 IAM 数据。
         // 2026-11-25 验收库因此丢过 112 个页面。见 ItDbGuard 注释。
         ItDbGuard.assertDestructiveAllowed(jdbc);
+        // ## 为什么这里**必须**清全表（与其他 IT 不同）
+        // 本 IT 断言的是「无权限必须被拒绝」。IAM 是全局域，留任意历史
+        // role/permission/data_scope 都可能让拒绝用例意外通过（假绿）。
+        // 因此依赖第一道闸（库名白名单）作为保护，不做 key 限定。
         jdbc.update("DELETE FROM sys_user_role");
         jdbc.update("DELETE FROM sys_role_permission");
         jdbc.update("DELETE FROM sys_role_data_scope");

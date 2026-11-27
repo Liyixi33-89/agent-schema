@@ -65,10 +65,13 @@ class WriteConstraintsIT {
             jdbc.update("DROP TABLE IF EXISTS " + t);
         }
         jdbc.update("DELETE FROM data_physical_table WHERE table_name LIKE 'biz_model_%'");
-        jdbc.update("DELETE FROM meta_field_reference");
-        jdbc.update("DELETE FROM meta_confirm_token");
-        jdbc.update("DELETE FROM meta_schema_version");
-        jdbc.update("DELETE FROM meta_field");
+        // ⚠️ 必须带条件（2026-11-27）：原为无 WHERE 的全表清空，连错库会清掉真实模型数据。
+        // 本 IT 的模型 key 恒为 writec_% （见下方 DELETE FROM meta_model）。
+        for (String tbl : new String[]{"meta_field_reference", "meta_confirm_token",
+                "meta_schema_version", "meta_field"}) {
+            jdbc.update("DELETE FROM " + tbl + " WHERE model_id IN "
+                    + "(SELECT id FROM meta_model WHERE model_key LIKE 'writec_%')");
+        }
         jdbc.update("DELETE FROM meta_model WHERE model_key LIKE 'writec_%'");
         // 种子角色自愈（DataEngineIT 同款——userId=1 无范围则记录不可见）
         jdbc.update("""

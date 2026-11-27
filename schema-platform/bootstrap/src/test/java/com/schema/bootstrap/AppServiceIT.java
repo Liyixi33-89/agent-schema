@@ -56,14 +56,21 @@ class AppServiceIT {
     @BeforeAll
     void warmup() {
         // 幂等清理历史数据（app 域自引用清空——角色/用户行保留供其他 IT 复用）
-        jdbc.update("DELETE FROM ops_notice");
-        jdbc.update("DELETE FROM app");
+        //
+        // ⚠️ 必须带条件（2026-11-27）：原为无 WHERE 的全表清空，
+        // 会在连错库时清掉真实应用——2026-11-26 验收库的「报销管理」应用
+        // 就是这样丢失的。本 IT 创建的应用名恒为「应用_」+nanoTime（见 createApp 调用）。
+        jdbc.update("DELETE FROM ops_notice WHERE title LIKE 'IT_%'");
+        jdbc.update("DELETE FROM app WHERE name LIKE '应用_%'");
         ensureUser(1, "app_default_op", "应用默认操作员");
         ensureUser(2, "app_second_user", "应用第二用户");
         ensureUser(9001, "app_other_tenant", "跨租户用户");
         jdbc.update("DELETE FROM sys_user_role WHERE user_id IN (1,2) AND role_id IN "
                 + "(SELECT id FROM sys_role WHERE app_id IS NOT NULL)");
-        jdbc.update("DELETE FROM sys_role WHERE app_id IS NOT NULL");
+        // 只清指向「本 IT 创建的应用」的角色——真实应用的角色必须保留
+        // （原先 DELETE FROM sys_role WHERE app_id IS NOT NULL 会连同真实应用的角色一起删）
+        jdbc.update("DELETE FROM sys_role WHERE app_id IN "
+                + "(SELECT id FROM app WHERE name LIKE '应用_%')");
         // 应用创建权限闸（PRD07 §4：租户管理员）：用户 1 需持租户级 org:manage 角色
         Long roleId = ensureTenantRole("it_org_admin", "IT 组织管理员");
         jdbc.update("INSERT INTO sys_role_permission (role_id, resource_type, resource_id, action) "

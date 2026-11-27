@@ -69,6 +69,12 @@ class IamServiceIT {
         // 一旦 IT 连到有真实数据的库（验收/生产）就会抹掉全部用户与角色。
         // 2026-11-25 验收库因此丢过 112 个页面。见 ItDbGuard 注释。
         ItDbGuard.assertDestructiveAllowed(jdbc);
+        // ## 为什么这里**必须**清全表（与其他 IT 不同）
+        // IAM 是全局域：角色/权限/部门的解析结果会被权限判定链全量消费。
+        // 留任意一行历史数据（例如某个 role 仍带 data_scope），就会让
+        // 「无权限应被拒绝」的用例意外通过 —— 测试失去意义。
+        // 因此本 IT 依赖第一道闸（库名白名单）作为唯一保护，
+        // 而不是按 key 限定（IAM 表没有可用的测试前缀列）。
         jdbc.update("DELETE FROM sys_user_role");
         jdbc.update("DELETE FROM sys_role_permission");
         jdbc.update("DELETE FROM sys_role_data_scope");

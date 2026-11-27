@@ -58,15 +58,48 @@ class PageServiceIT {
     private long modelId;
     private long pageId;
 
+    /**
+     * 本 IT 会创建的页面 key 条件（2026-11-27）。
+     *
+     * 与 createPage 调用一致：page_/other_ + nanoTime，以及固定 'rich'。
+     * 用于把清理限定在测试数据内，避免全表清空误伤真实页面。
+     */
+    private static final String TEST_PAGE_KEY_COND =
+            "page_key LIKE 'page\\_%' OR page_key LIKE 'other\\_%' OR page_key = 'rich'";
+
     @BeforeAll
     void warmup() {
         // 清理本测试的历史数据（幂等重跑）
-        jdbc.update("DELETE FROM page_preview_session");
-        jdbc.update("DELETE FROM page_preview_grant");
-        jdbc.update("DELETE FROM app_release");
-        jdbc.update("DELETE FROM page_release_version");
-        jdbc.update("DELETE FROM page_schema");
-        jdbc.update("DELETE FROM meta_field_reference");
+        //
+        // ⚠️ 必须带条件（2026-11-27）：原为无 WHERE 的全表清空，
+        // 连错库时会清掉真实页面与发布记录。
+        // page_preview_* 没有 page_key 列（只有 page_id），因此按 page_id 子查询限定。
+        //
+        // ⚠️ 顺序关键：app_release / page_release_version 必须在 page_schema **之前**清。
+        // 否则 page_schema 删掉后，`app_id IN (SELECT app_id FROM page_schema ...)`
+        // 取不到任何 app_id → 发布记录残留 → 下次 publish 的 releaseVersion 从 3 起，
+        // 断言 assertEquals(1, ...) 失败（2026-11-27 CI 实际踩到）。
+        jdbc.update("DELETE FROM page_preview_session WHERE page_id IN "
+                + "(SELECT id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        jdbc.update("DELETE FROM page_preview_grant WHERE page_id IN "
+                + "(SELECT id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        // 先清发布记录（此时 page_schema 还在，子查询能取到 page_id / app_id）
+        jdbc.update("DELETE FROM page_release_version WHERE page_id IN "
+                + "(SELECT id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        // ⚠️ app_release 必须清到「appId=1 在测试租户下的全部发布」：
+        // 本 IT 的 publish 调 pages.publish(1, ...)，而 nextReleaseVersion 按
+        // (tenant, appId) 累计版本号。留任意历史行都会让首个发布的
+        // releaseVersion 不是 1 → assertEquals(1, ...) 失败（2026-11-27 CI 实测 3）。
+        //
+        // 这不是「无脑清全表」：条件锁定 tenant_id + app_id 两个业务键，
+        // 其他租户/应用的发布历史完全不受影响。而 appId=1 在本测试库里
+        // 就是测试专用应用（真实部署里 appId=1 是报销管理，但 IT 闸门已禁止
+        // 连真实库，见 ItDbGuard）。
+        jdbc.update("DELETE FROM app_release WHERE tenant_id = 1 AND app_id = 1");
+        jdbc.update("DELETE FROM app_release WHERE app_id IN "
+                + "(SELECT app_id FROM page_schema WHERE " + TEST_PAGE_KEY_COND + ")");
+        jdbc.update("DELETE FROM page_schema WHERE " + TEST_PAGE_KEY_COND);
+        jdbc.update("DELETE FROM meta_field_reference WHERE ref_type IN ('PAGE','SCRIPT')");
         // 授权接线后：操作者(1,1,1) 需持页面设计/发布权限（M4 收口——perm gate 生效）
         grantPagePermsToDefaultOperator();
     }

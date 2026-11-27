@@ -110,4 +110,81 @@ class ItDbGuardTest {
             System.clearProperty("it.allow-destructive-db");
         }
     }
+
+    // ---------- 第二道闸：无 WHERE 的全表清空 ----------
+
+    @Test
+    @DisplayName("识别「无 WHERE 的全表清空」")
+    void detectsFullTableWipe() {
+        for (String sql : new String[]{
+                "DELETE FROM app",
+                "DELETE FROM meta_model",
+                "DELETE FROM page_schema",
+                "DELETE FROM app_release",
+                "DELETE FROM ops_notice",
+                "TRUNCATE app",
+                "TRUNCATE TABLE meta_model",
+                "  DELETE   FROM   app  ",          // 多余空白
+                "delete from app",                   // 小写
+        }) {
+            assertTrue(ItDbGuard.isFullTableWipe(sql), "应识别为全表清空: " + sql);
+        }
+    }
+
+    @Test
+    @DisplayName("带 WHERE 的语句不算全表清空")
+    void allowsScopedDelete() {
+        for (String sql : new String[]{
+                "DELETE FROM app WHERE name LIKE '应用_%'",
+                "DELETE FROM meta_model WHERE model_key LIKE 'order_%'",
+                "DELETE FROM meta_model WHERE " + "model_key LIKE 'order\\_%' OR model_key LIKE 'm\\_%'",
+                "DELETE FROM app WHERE id IN (SELECT id FROM x)",
+                "DELETE FROM meta_schema_version WHERE model_id IN (SELECT id FROM meta_model)",
+        }) {
+            assertFalse(ItDbGuard.isFullTableWipe(sql), "不应判为全表清空: " + sql);
+        }
+    }
+
+    @Test
+    @DisplayName("非清空语句一律放行")
+    void ignoresNonDeleteStatements() {
+        for (String sql : new String[]{
+                "SELECT * FROM app",
+                "INSERT INTO app (id) VALUES (1)",
+                "UPDATE app SET status = 'ACTIVE'",
+                "DELETE FROM app WHERE id = 1",
+                null,
+                "",
+        }) {
+            assertFalse(ItDbGuard.isFullTableWipe(sql));
+        }
+    }
+
+    @Test
+    @DisplayName("🔴 assertScopedStatement 对全表清空抛错（2026-11-26 数据的直接死因）")
+    void assertScopedRejectsFullWipe() {
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> ItDbGuard.assertScopedStatement("DELETE FROM app"));
+        assertTrue(e.getMessage().contains("无 WHERE 的全表清空"));
+        assertTrue(e.getMessage().contains("2026-11-26"), "应说明事故背景");
+        assertTrue(e.getMessage().contains("it.allow-full-table-delete"), "应给出救急开关");
+    }
+
+    @Test
+    @DisplayName("assertScopedStatement 对带条件语句放行")
+    void assertScopedAllowsScoped() {
+        ItDbGuard.assertScopedStatement("DELETE FROM app WHERE name LIKE '应用_%'");
+        ItDbGuard.assertScopedStatement("DELETE FROM meta_model WHERE model_key LIKE 'order_%'");
+    }
+
+    @Test
+    @DisplayName("assertScopedStatement 救急开关")
+    void assertScopedOverride() {
+        System.setProperty("it.allow-full-table-delete", "true");
+        try {
+            ItDbGuard.assertScopedStatement("DELETE FROM app");   // 不抛
+        } finally {
+            System.clearProperty("it.allow-full-table-delete");
+        }
+    }
 }
