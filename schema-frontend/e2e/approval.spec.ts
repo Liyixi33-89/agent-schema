@@ -33,6 +33,40 @@ function creds(): { username: string; password: string } {
 }
 
 /** 与 ApprovalCenter.shortId 一致：长 id 显示为前 8 位 + …。 */
+/**
+ * 取当前租户下可用的 appId（**不要硬编码 1**）。
+ *
+ * CI 的冒烟应用是种子脚本经 API 建的，id 自增（通常是 2/3…）；
+ * 本地验收库的「应用_xxx」也是自增。硬编码 1 在 CI 会指向不存在的应用
+ * → 元数据写操作 400/403，且错误信息与真实原因无关，极难排查。
+ */
+async function firstAppId(
+  ctx: BrowserContext, origin: string, h: Record<string, string>,
+): Promise<string> {
+  const listed = await ctx.request.get(`${origin}/api/apps?keyword=`, { headers: h });
+  if (listed.ok()) {
+    const body = await listed.json() as { list?: { id?: string | number }[] } | { id?: string | number }[];
+    const list = Array.isArray(body) ? body : (body.list ?? []);
+    if (list[0]?.id != null) return String(list[0].id);
+  }
+  // 列表为空（新库/权限过滤）：**主动建一个**——与 smoke.yml 的种子脚本同一做法。
+  // 元数据写操作（建模/建流程）必须有 X-App-Id，没有应用就无法继续。
+  const created = await ctx.request.post(`${origin}/api/apps`, {
+    headers: h,
+    data: { name: `E2E 审批应用 ${Date.now().toString(36)}`, description: 'approval E2E' },
+  });
+  if (!created.ok()) {
+    throw new Error(`创建应用失败 ${created.status()}：${(await created.text()).slice(0, 300)}`);
+  }
+  // 后端建应用返回 { appId }（不是 { id }）
+  const createdBody = await created.json() as { appId?: string | number; id?: string | number };
+  const newId = createdBody.appId ?? createdBody.id;
+  if (newId == null) {
+    throw new Error(`创建应用响应无 id：${JSON.stringify(createdBody).slice(0, 200)}`);
+  }
+  return String(newId);
+}
+
 function shortId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}…` : id;
 }
@@ -140,11 +174,13 @@ test.describe('审批中心', () => {
     const myUserId = String(me.userId ?? 1);
     const cookies2 = await ctx.cookies();
     const csrf2 = cookies2.find((c) => c.name === 'schema_csrf')?.value ?? '';
-    // X-App-Id 是元数据/页面写操作的必需头（缺则 403 PERM_DENIED，实测确认）
-    const h = {
-      'Content-Type': 'application/json', Origin: originOf(origin),
-      'X-CSRF-Token': csrf2, 'X-App-Id': '1',
+    // X-App-Id 是元数据/页面写操作的必需头（缺则 403 PERM_DENIED，实测确认）。
+    // ⚠️ 不能硬编码 1：CI 的冒烟应用 id 是自增的（见 smoke.yml 的 Seed smoke app）。
+    const baseHeaders = {
+      'Content-Type': 'application/json', Origin: originOf(origin), 'X-CSRF-Token': csrf2,
     };
+    const appId = await firstAppId(ctx, origin, baseHeaders);
+    const h = { ...baseHeaders, 'X-App-Id': appId };
 
     const key = `e2e${uniq()}`;
     const schema = {
@@ -161,7 +197,7 @@ test.describe('审批中心', () => {
       ],
     };
     const created = await (await ctx.request.post(`${origin}/api/flows`, {
-      headers: h, data: { appId: 1, flowKey: key, name: 'E2E 审批流程', flowSchema: schema },
+      headers: h, data: { appId: Number(appId), flowKey: key, name: 'E2E 审批流程', flowSchema: schema },
     })).json() as { id: string };
     expect(created.id, '流程创建应返回 id').toBeTruthy();
 
@@ -173,10 +209,16 @@ test.describe('审批中心', () => {
     const modelId = await createModelWithTitleField(ctx, origin, h, 'APR 审批模型');
     const recordId = await createRecord(ctx, origin, h, modelId, `审批 ${Date.now()}`);
 
-    const started = await (await ctx.request.post(
+    const startResp = await ctx.request.post(
       `${origin}/api/records/${modelId}/${recordId}/flow/start`, {
         headers: h, data: { flowDefId: Number(created.id) },
-      })).json() as { instanceId?: string };
+      });
+    if (!startResp.ok()) {
+      // 诊断：CI 日志里只有状态码，看不到错误码/消息（2026-11-27）
+      console.log(`[DIAG] flow/start ${startResp.status()}: ${(await startResp.text()).slice(0, 400)}`);
+      console.log(`[DIAG] modelId=${modelId} recordId=${recordId} flowDefId=${created.id}`);
+    }
+    const started = await startResp.json() as { instanceId?: string };
     const instanceId = started.instanceId;
     expect(instanceId, '发起应返回 instanceId').toBeTruthy();
     // 类型收窄：下面用它精确定位列表行（instanceId 是 string|undefined）
@@ -262,11 +304,13 @@ test.describe('审批中心', () => {
     const ctx = page.context();
     const origin = apiBase(base);
     const csrf2 = (await ctx.cookies()).find((c) => c.name === 'schema_csrf')?.value ?? '';
-    // X-App-Id 是元数据/页面写操作的必需头（缺则 403 PERM_DENIED，实测确认）
-    const h = {
-      'Content-Type': 'application/json', Origin: originOf(origin),
-      'X-CSRF-Token': csrf2, 'X-App-Id': '1',
+    // X-App-Id 是元数据/页面写操作的必需头（缺则 403 PERM_DENIED，实测确认）。
+    // ⚠️ 不能硬编码 1：CI 的冒烟应用 id 是自增的（见 smoke.yml 的 Seed smoke app）。
+    const baseHeaders = {
+      'Content-Type': 'application/json', Origin: originOf(origin), 'X-CSRF-Token': csrf2,
     };
+    const appId = await firstAppId(ctx, origin, baseHeaders);
+    const h = { ...baseHeaders, 'X-App-Id': appId };
     const me2 = await (await ctx.request.get(`${origin}/api/me`)).json() as { userId?: number };
     const myUserId = String(me2.userId ?? 1);
 
@@ -284,7 +328,7 @@ test.describe('审批中心', () => {
       ],
     };
     const created = await (await ctx.request.post(`${origin}/api/flows`, {
-      headers: h, data: { appId: 1, flowKey: key, name: 'E2E 驳回流程', flowSchema: schema },
+      headers: h, data: { appId: Number(appId), flowKey: key, name: 'E2E 驳回流程', flowSchema: schema },
     })).json() as { id: string };
     await ctx.request.post(`${origin}/api/flows/${created.id}/publish`, { headers: h });
     // 同 SMK-APR-01：授权修复后必须对真实存在的记录发起（随机假 id 会被 FORBIDDEN 拦下）
@@ -293,6 +337,9 @@ test.describe('审批中心', () => {
     const startedResp = await ctx.request.post(
       `${origin}/api/records/${modelId}/${recordId}/flow/start`,
       { headers: h, data: { flowDefId: Number(created.id) } });
+    if (!startedResp.ok()) {
+      console.log(`[DIAG] flow/start ${startedResp.status()}: ${(await startedResp.text()).slice(0, 400)}`);
+    }
     expect(startedResp.ok(), `发起应成功（${startedResp.status()}）`).toBeTruthy();
 
     await page.goto(`${base}/#/approval`);
