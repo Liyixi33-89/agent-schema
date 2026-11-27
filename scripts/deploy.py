@@ -460,6 +460,50 @@ def deploy_prod(head: str, work: Path, backend_jar: Path, web_dir: Path):
 
 
 
+def datascope_precheck(target: str, strict: bool) -> None:
+    """发布前只读权限预检（2026-11-27 加）。
+
+    ## 为什么在发布流程里做
+    资源级授权上线后，`ScopeResolver` 对「无任何数据范围授权」的判定是 `1 = 0`
+    （默认拒绝，最小权限原则）。而「账号有很多管理员角色」**不**代表有数据范围——
+    生产 admin 实测 22 个角色、0 个带范围，上线后 50 个模型的数据全部不可见。
+
+    这类问题在部署后才被发现，代价很高（业务突然不可用）；发布前只读扫描一次
+    就能提前暴露。
+
+    ## 纪律：只读、不自动修
+    缺范围属于**权限决策**，必须由人按模型授予。自动批量补 ALL 会把最小权限
+    变成全员全量，是最危险的做法——因此本函数只打印报告与建议，绝不写库。
+
+    ## 失败策略
+    prod 目标默认 `--strict`（有 NO_SCOPE 账号即中止）；
+    accept 目标只报告不阻断（验收库本就可能有测试账号无范围）。
+    可用 `--skip-datascope-check` 显式跳过（会打印警告），或 `--datascope-strict`
+    在 accept 上也严格。
+    """
+    db = "schema_prod" if target == "prod" else "schema_acceptance"
+    print(f"\n== 数据权限预检（只读）: {db} ==")
+    remote = f"bash -s -- {db}" + (" --strict" if strict else "")
+    # 脚本随仓库发布，经 stdin 传入避免在服务器留副本
+    local = (ROOT / "scripts" / "datascope-precheck.sh").read_text(encoding="utf-8")
+    try:
+        out = ssh(f"{remote} <<'DS_PRE'\n{local}\nDS_PRE", check=False, timeout=120)
+    except Exception as e:  # noqa: BLE001 - 预检失败不应掩盖真实部署错误
+        print(f"  预检执行异常（不阻断）: {e}")
+        return
+    print(out.rstrip())
+    if strict:
+        # ssh(check=False) 不抛异常，这里按输出里的 strict 结论判断
+        if "[--strict] 存在缺范围账号" in out:
+            raise SystemExit(
+                f"\n数据权限预检未通过（{db}）：存在无数据范围的活跃账号。\n"
+                "  这是有意的门禁——资源级授权上线后这些账号将看不到任何业务数据。\n"
+                "  请先按模型授予范围（见上方建议），或明确知情后用\n"
+                "  --skip-datascope-check 跳过本预检。\n"
+                "  ⚠️ 不要为了「让预检通过」而批量补 model_id=0 的 ALL。"
+            )
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", required=True, help="git commit（完整或短 hash）")
@@ -467,6 +511,10 @@ def main():
                     help="发布目标：prod=生产面（默认）/ accept=验收面")
     ap.add_argument("--skip-build", action="store_true")
     ap.add_argument("--skip-verify", action="store_true")
+    ap.add_argument("--skip-datascope-check", action="store_true",
+                    help="跳过发布前数据权限预检（危险：会放过「上线后业务不可见」的配置）")
+    ap.add_argument("--datascope-strict", action="store_true",
+                    help="验收面也按 strict 处理（默认 prod 已 strict，accept 只报告）")
     args = ap.parse_args()
 
     head = require_clean_head(args.version)
@@ -475,6 +523,14 @@ def main():
         print("== verify (commit 级) ==")
         run(["powershell" if os.name == "nt" else "pwsh",
              "-NoProfile", "-File", "scripts/verify.ps1", "-Level", "commit"], cwd=ROOT)
+
+    # 数据权限预检：在构建之前跑（构建耗时，早失败更省时间）
+    if args.skip_datascope_check:
+        print("\n⚠️ 已跳过数据权限预检（--skip-datascope-check）")
+        print("   若账号缺数据范围，上线后其业务数据将全部不可见（1 = 0 默认拒绝）")
+    else:
+        strict = args.target == "prod" or args.datascope_strict
+        datascope_precheck(args.target, strict)
 
     with tempfile.TemporaryDirectory(prefix="schema-release-") as td:
         work = Path(td)
