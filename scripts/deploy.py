@@ -490,10 +490,11 @@ def datascope_precheck(target: str, strict: bool) -> None:
     local = (ROOT / "scripts" / "datascope-precheck.sh").read_bytes()
     b64 = base64.b64encode(local).decode("ascii")
     strict_arg = " --strict" if strict else ""
+    # ⚠️ 不用 `chmod +x` 后直接执行：服务器 /tmp 可能挂 noexec（实测
+    # "Permission denied"，且退出码非 2 被误判为通过）。改为管道喂给 bash，
+    # 全程不需要可执行位。
     remote = (
-        f"echo {b64} | base64 -d > /tmp/ds-precheck.sh && "
-        f"chmod +x /tmp/ds-precheck.sh && "
-        f"bash /tmp/ds-precheck.sh {db}{strict_arg}"
+        f"echo {b64} | base64 -d | bash -s -- {db}{strict_arg}"
     )
     try:
         proc = ssh(remote, check=False, timeout=120)
@@ -503,15 +504,22 @@ def datascope_precheck(target: str, strict: bool) -> None:
     out = (proc.stdout or "") + (proc.stderr or "")
     print(out.rstrip())
 
-    # 预检自身失败（库不存在/查询出错/脚本异常退出 2）→ **按失败处理，不放行**。
+    # 预检自身失败 → **按失败处理，不放行**。
     # 「无法确认」不等于「没有问题」：放行等于用未知风险换部署速度。
-    if proc.returncode == 2 or "数据库不存在或无法查询" in out:
+    # 判据：任何非 0/1 的退出码都算「预检无法执行」（0=通过, 1=strict 判定失败）。
+    # 实测踩过：脚本 Permission denied 退出码 126，旧逻辑只认 2 → 直接放行部署。
+    if proc.returncode not in (0, 1):
         raise SystemExit(
             f"\n数据权限预检无法执行（{db}，exit={proc.returncode}）。\n"
-            "  预检失败不等于没有风险——拒绝继续，请先确认：\n"
+            "  预检失败不等于没有风险——拒绝继续。常见原因：\n"
             "    · 目标库名是否正确\n"
             "    · 服务器上 sudo -u postgres 是否可用\n"
+            "    · 脚本执行环境（/tmp noexec 等）\n"
             "  （如确需跳过，用 --skip-datascope-check 显式承担风险）")
+    if "数据库不存在或无法查询" in out:
+        raise SystemExit(
+            f"\n数据权限预检无法执行（{db}）：目标库不存在或不可查询。\n"
+            "  拒绝继续——请先确认库名与数据库可达性。")
 
     if strict:
         # ssh(check=False) 不抛异常，这里按输出里的 strict 结论判断
