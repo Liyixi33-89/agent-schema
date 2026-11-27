@@ -33,6 +33,19 @@ public class JdbcFlowInstanceRepository implements FlowInstanceRepository {
         return id == null ? 0L : id;
     }
 
+    /**
+     * 记录实例执行时的流程定义版本（2026-11-27 评审修复）。
+     *
+     * 单独一条 UPDATE 而不是塞进 insert：insert 是既有接口（多处调用），
+     * 改签名会波及测试；且版本只在发起路径需要，语义上是「发起后补记」。
+     */
+    @Override
+    public void recordDefVersion(long tenantId, String instanceId, Integer defVersion) {
+        if (defVersion == null) return;
+        jdbc.update("UPDATE flow_instance_biz SET flow_def_version = ? "
+                + "WHERE tenant_id = ? AND instance_id = ?", defVersion, tenantId, instanceId);
+    }
+
     @Override
     public Optional<Map<String, Object>> findByInstanceId(long tenantId, String instanceId) {
         List<Map<String, Object>> rows = jdbc.queryForList(

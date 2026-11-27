@@ -54,6 +54,14 @@ export interface InstanceDetail {
   recordId: number | string;
   /** 流程定义 id（T3 加：审批中心据此拉 schema 渲染画布）。 */
   flowDefId: number | string | null;
+  /**
+   * 发起时的流程定义版本（2026-11-27 评审修复）。
+   *
+   * `flow_definition.flow_schema` 是可覆盖草稿，按 flowDefId 读到的永远是当前版本。
+   * 与实例执行版本不一致时，画布展示的是「新图配旧轨迹」——必须明确标注，
+   * 否则用户会误以为流程走错了。null = 迁移前存量实例（版本未知）。
+   */
+  flowDefVersion: number | null;
   status: string;
   startedBy: number | string;
   startedAt: string;
@@ -75,8 +83,38 @@ export interface TaskLogEntry {
 
 // ---------- 解析（后端字段名/类型不完全统一，做一次收口） ----------
 
-function asArray(v: unknown): unknown[] {
-  return Array.isArray(v) ? v : [];
+/**
+ * 响应结构损坏（2026-11-27 评审修复）。
+ *
+ * 原实现把「缺少 list」静默当成空列表 —— 后端契约改动、代理返回 HTML 错误页、
+ * 网关 502 都会伪装成「你没有待办」，用户以为没事实际是故障。
+ * 而 `list: [null]` 又会在取字段时抛 TypeError，错误信息毫无指向性。
+ *
+ * 现在：**结构不对就抛**，由调用方呈现为「加载失败」（可重试）；
+ * 只有明确合法的 `list: []` 才算「确实没有」。
+ */
+export class ResponseShapeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ResponseShapeError';
+  }
+}
+
+/** 取出 list 数组并校验结构；不是数组或含非对象元素都算损坏。 */
+function requireList(raw: unknown, what: string): Record<string, unknown>[] {
+  if (raw == null || typeof raw !== 'object') {
+    throw new ResponseShapeError(`${what}响应不是对象（收到 ${raw === null ? 'null' : typeof raw}）`);
+  }
+  const list = (raw as { list?: unknown }).list;
+  if (!Array.isArray(list)) {
+    throw new ResponseShapeError(`${what}响应缺少 list 数组`);
+  }
+  return list.map((x, i) => {
+    if (x == null || typeof x !== 'object' || Array.isArray(x)) {
+      throw new ResponseShapeError(`${what}响应 list[${i}] 不是对象（收到 ${x === null ? 'null' : typeof x}）`);
+    }
+    return x as Record<string, unknown>;
+  });
 }
 
 function str(v: unknown, fallback = ''): string {
@@ -84,41 +122,50 @@ function str(v: unknown, fallback = ''): string {
   return String(v);
 }
 
-/** 解析待办响应。 */
+/** 版本号解析：接受 number / 数字串；其余（null/空/非数字）→ null 表示版本未知。 */
+function toVersion(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** 解析待办响应。结构损坏抛 {@link ResponseShapeError}。 */
 export function parseTasks(raw: unknown): TaskItem[] {
-  const o = raw as { list?: unknown } | null;
-  return asArray(o?.list).map((x) => {
-    const r = x as Record<string, unknown>;
-    return {
+  const rows = requireList(raw, '待办');
+  const out: TaskItem[] = [];
+  for (const r of rows) {
+    // taskId 是办理的唯一凭据，缺失即脏数据——丢弃该行（其余行仍可用）
+    if (r.taskId == null || `${r.taskId}` === '') continue;
+    out.push({
       taskId: str(r.taskId),
       instanceId: str(r.instanceId),
       nodeId: str(r.nodeId),
       nodeName: str(r.nodeName),
       createdAt: str(r.createdAt),
-    };
-  }).filter((t) => t.taskId !== '');
+    });
+  }
+  return out;
 }
 
-/** 解析已办响应（含 total）。 */
+/** 解析已办响应（含 total）。结构损坏抛 {@link ResponseShapeError}。 */
 export function parseDone(raw: unknown): { list: DoneItem[]; total: number } {
-  const o = raw as { list?: unknown; total?: unknown } | null;
-  const list = asArray(o?.list).map((x) => {
-    const r = x as Record<string, unknown>;
-    return {
-      taskId: str(r.task_id ?? r.taskId),
-      instanceId: str(r.instance_id ?? r.instanceId),
-      nodeId: str(r.node_id ?? r.nodeId),
-      action: str(r.action),
-      comment: r.comment == null ? null : String(r.comment),
-      operatedAt: str(r.operated_at ?? r.operatedAt),
-      modelId: (r.model_id ?? r.modelId ?? null) as DoneItem['modelId'],
-      recordId: (r.record_id ?? r.recordId ?? null) as DoneItem['recordId'],
-      flowDefId: (r.flow_def_id ?? r.flowDefId ?? null) as DoneItem['flowDefId'],
-      startedBy: (r.started_by ?? r.startedBy ?? null) as DoneItem['startedBy'],
-      status: r.status == null ? null : String(r.status),
-    };
-  });
-  const total = typeof o?.total === 'number' ? o.total : list.length;
+  const rows = requireList(raw, '已办');
+  const list: DoneItem[] = rows.map((r) => ({
+    taskId: str(r.task_id ?? r.taskId),
+    instanceId: str(r.instance_id ?? r.instanceId),
+    nodeId: str(r.node_id ?? r.nodeId),
+    action: str(r.action),
+    comment: r.comment == null ? null : String(r.comment),
+    operatedAt: str(r.operated_at ?? r.operatedAt),
+    modelId: (r.model_id ?? r.modelId ?? null) as DoneItem['modelId'],
+    recordId: (r.record_id ?? r.recordId ?? null) as DoneItem['recordId'],
+    flowDefId: (r.flow_def_id ?? r.flowDefId ?? null) as DoneItem['flowDefId'],
+    startedBy: (r.started_by ?? r.startedBy ?? null) as DoneItem['startedBy'],
+    status: r.status == null ? null : String(r.status),
+  }));
+  // total 缺失时回退列表长度（分页会退化，但不至于报错）
+  const t = (raw as { total?: unknown }).total;
+  const total = typeof t === 'number' && Number.isFinite(t) ? t : list.length;
   return { list, total };
 }
 
@@ -126,36 +173,45 @@ export function parseDone(raw: unknown): { list: DoneItem[]; total: number } {
 export function parseInstanceDetail(raw: unknown): InstanceDetail | null {
   const r = raw as Record<string, unknown> | null;
   if (r == null || r.instanceId == null) return null;
+  // tasks / history 缺失视为空（引擎未启用时后端明确返回 []）；
+  // 但元素不是对象属于损坏响应——抛出去让宿主显示「加载失败」而不是空白轨迹。
+  const asObjArray = (v: unknown, field: string): Record<string, unknown>[] => {
+    if (v == null) return [];
+    if (!Array.isArray(v)) {
+      throw new ResponseShapeError(`实例详情 ${field} 不是数组（收到 ${typeof v}）`);
+    }
+    return v.map((x, i) => {
+      if (x == null || typeof x !== 'object' || Array.isArray(x)) {
+        throw new ResponseShapeError(`实例详情 ${field}[${i}] 不是对象`);
+      }
+      return x as Record<string, unknown>;
+    });
+  };
   return {
     instanceId: str(r.instanceId),
     modelId: (r.modelId ?? '') as InstanceDetail['modelId'],
     recordId: (r.recordId ?? '') as InstanceDetail['recordId'],
     flowDefId: (r.flowDefId ?? r.flow_def_id ?? null) as InstanceDetail['flowDefId'],
+    flowDefVersion: toVersion(r.flowDefVersion ?? r.flow_def_version),
     status: str(r.status),
     startedBy: (r.startedBy ?? '') as InstanceDetail['startedBy'],
     startedAt: str(r.startedAt),
-    tasks: asArray(r.tasks).map((x) => {
-      const t = x as Record<string, unknown>;
-      return {
-        task_id: str(t.task_id),
-        node_id: str(t.node_id),
-        action: str(t.action),
-        operator_id: (t.operator_id ?? '') as TaskLogEntry['operator_id'],
-        comment: t.comment == null ? null : String(t.comment),
-        operated_at: str(t.operated_at),
-      };
-    }),
-    history: asArray(r.history).map((x) => {
-      const h = x as Record<string, unknown>;
-      return {
-        activityId: str(h.activityId),
-        activityName: h.activityName == null ? null : String(h.activityName),
-        activityType: str(h.activityType),
-        assignee: (h.assignee ?? null) as HistoryEntry['assignee'],
-        startedAt: h.startedAt == null ? null : String(h.startedAt),
-        endedAt: h.endedAt == null ? null : String(h.endedAt),
-      };
-    }),
+    tasks: asObjArray(r.tasks, 'tasks').map((t) => ({
+      task_id: str(t.task_id),
+      node_id: str(t.node_id),
+      action: str(t.action),
+      operator_id: (t.operator_id ?? '') as TaskLogEntry['operator_id'],
+      comment: t.comment == null ? null : String(t.comment),
+      operated_at: str(t.operated_at),
+    })),
+    history: asObjArray(r.history, 'history').map((h) => ({
+      activityId: str(h.activityId),
+      activityName: h.activityName == null ? null : String(h.activityName),
+      activityType: str(h.activityType),
+      assignee: (h.assignee ?? null) as HistoryEntry['assignee'],
+      startedAt: h.startedAt == null ? null : String(h.startedAt),
+      endedAt: h.endedAt == null ? null : String(h.endedAt),
+    })),
   };
 }
 

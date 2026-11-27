@@ -8,9 +8,26 @@ import time
 import xml.etree.ElementTree as ET
 
 REQUIRED_SMOKE = {
+    # 三条原始场景：三个应用各自的「打开即能用」底线
     'SMK-DES-01': ('designer.smoke.spec.ts', 'designer'),
     'SMK-RUN-01': ('runtime.smoke.spec.ts', 'runtime'),
     'SMK-ADM-01': ('admin-console.smoke.spec.ts', 'admin-console'),
+    # 流程编辑器（spec 022 T1/T2）：建流程 → 保存 → 发布 主链路
+    'SMK-FLOW-01': ('flow-editor.spec.ts', 'flow-editor'),
+    # 发布前置自检（审批人为空时禁用发布）——防「带病发布」
+    'SMK-FLOW-02': ('flow-editor.spec.ts', 'flow-editor'),
+    # 删除节点连带删边——防悬空边导致流程引擎启动失败
+    'SMK-FLOW-03': ('flow-editor.spec.ts', 'flow-editor'),
+    # 审批中心（spec 022 T3）：发起 → 待办 → 详情 → 办理 → 已办 全闭环
+    'SMK-APR-01': ('approval.spec.ts', 'approval'),
+    # 驳回必须填意见（前端拦截）
+    'SMK-APR-02': ('approval.spec.ts', 'approval'),
+    # TRIGGER_FLOW 动作消费（spec 022 T4）：提交后自动发起流程
+    'SMK-TRF-01': ('trigger-flow.spec.ts', 'approval'),
+    # A7 零行为回归：未配置 TRIGGER_FLOW 的表单提交后不得发起任何流程
+    'SMK-TRF-02': ('trigger-flow.spec.ts', 'approval'),
+    # A7 错误矩阵：重复发起被 INSTANCE_ALREADY_RUNNING 拦截
+    'SMK-TRF-03': ('trigger-flow.spec.ts', 'approval'),
 }
 
 

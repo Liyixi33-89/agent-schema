@@ -180,4 +180,34 @@ describe('parseStartResponse / parseError', () => {
     expect(parseError(new Error('boom'))).toEqual({ code: '', message: 'boom' });
     expect(parseError('plain')).toEqual({ code: '', message: 'plain' });
   });
+
+  it('🔴 缺少 instanceId 必须返回 null（不能当成功）', () => {
+    // 2026-11-27 评审：原先 runTriggerFlow 在 instanceId 缺失时仍记 ok:true，
+    // 用户以为流程已发起，审批中心却什么都没有。
+    expect(parseStartResponse({})).toBeNull();
+    expect(parseStartResponse({ instanceId: '' })).toBeNull();
+    expect(parseStartResponse({ instanceId: null })).toBeNull();
+    expect(parseStartResponse('<html>502</html>')).toBeNull();
+  });
+});
+
+describe('resolveRecordId 与提交数据时序', () => {
+  const action: TriggerFlowAction = { type: 'TRIGGER_FLOW', flowId: '1', bizKeyFrom: 'orderNo' };
+
+  it('bizKeyFrom 取的是提交数据里的值', () => {
+    expect(resolveRecordId(action, {
+      modelId: 1,
+      submittedData: { orderNo: 'NO-001' },
+    })).toBe('NO-001');
+  });
+
+  it('🔴 提交数据变化后解析结果随之变化（防「用旧值」回归）', () => {
+    // beforeSubmit 脚本可能改字段；调用方必须传「钩子之后」的快照。
+    // 这里断言纯函数语义：传什么就用什么——时序正确性由调用方保证。
+    const before = resolveRecordId(action, { modelId: 1, submittedData: { orderNo: 'OLD' } });
+    const after = resolveRecordId(action, { modelId: 1, submittedData: { orderNo: 'NEW' } });
+    expect(before).toBe('OLD');
+    expect(after).toBe('NEW');
+    expect(before).not.toBe(after);
+  });
 });

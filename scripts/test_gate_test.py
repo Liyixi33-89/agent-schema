@@ -11,7 +11,9 @@ import test_gate as gate
 
 
 def report_xml():
-    root = ET.Element('testsuites', tests='3', failures='0', errors='0', skipped='0')
+    # 场景数由 REQUIRED_SMOKE 动态决定（清单随功能增长，硬编码会立刻失效）
+    count = len(gate.REQUIRED_SMOKE)
+    root = ET.Element('testsuites', tests=str(count), failures='0', errors='0', skipped='0')
     for scenario, (filename, project) in gate.REQUIRED_SMOKE.items():
         suite = ET.SubElement(root, 'testsuite', name=filename, hostname=project, tests='1')
         ET.SubElement(suite, 'testcase', name=scenario + ' 场景', classname=filename)
@@ -26,7 +28,7 @@ class ReportGateTest(unittest.TestCase):
             return gate.check_playwright(path, not_before)
 
     def test_valid_report(self):
-        self.assertEqual(self.check(report_xml()), 3)
+        self.assertEqual(self.check(report_xml()), len(gate.REQUIRED_SMOKE))
 
     def test_missing_stale_and_broken_report(self):
         with tempfile.TemporaryDirectory() as directory:

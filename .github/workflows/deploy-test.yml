@@ -79,12 +79,14 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_DB: schema_dev
-          POSTGRES_USER: schema_dev
-          POSTGRES_PASSWORD: schema_local_only
+          # 库名须为测试专用命名（ItDbGuard 只放行 schema_it 或 test*/it*/ci* 整名匹配）：
+          # 本工作流会跑 verify -Level commit（含 backend-it），多个 IT 会清空业务表。
+          POSTGRES_DB: schema_it
+          POSTGRES_USER: schema_it
+          POSTGRES_PASSWORD: schema_it_only_2026
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U schema_dev -d schema_dev"
+          --health-cmd "pg_isready -U schema_it -d schema_it"
           --health-interval 5s --health-timeout 5s --health-retries 10
 
     steps:

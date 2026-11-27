@@ -15,6 +15,16 @@ public interface FlowInstanceRepository {
     long insert(String instanceId, long tenantId, long modelId, long recordId, long flowDefId,
             long startedBy, String status);
 
+    /**
+     * 记录实例执行时的流程定义版本（2026-11-27 评审修复）。
+     *
+     * flow_definition.flow_schema 是可变草稿；不记录版本的话，
+     * 审批中心按 flow_def_id 读当前 schema 会给旧实例配上新图。
+     *
+     * @param defVersion 发起时 flow_definition.version；null 表示未知（不回写）
+     */
+    void recordDefVersion(long tenantId, String instanceId, Integer defVersion);
+
     Optional<Map<String, Object>> findByInstanceId(long tenantId, String instanceId);
 
     List<Map<String, Object>> findByBizRecord(long tenantId, long modelId, long recordId);

@@ -55,7 +55,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "spring.datasource.password=${IT_DB_PASS:schema_local_only}",
         "spring.flyway.clean-disabled=false",
         // 本 IT 专属：启用 Flowable（首次运行自动建 ACT_* 表）
-        "flowable.process.enabled=true"
+        "flowable.process.enabled=true",
+        // 本 IT 验证的是引擎状态机（发起/办理/驳回/挂起），用固定假 recordId
+        // （7001/7002…）且不造物理表数据。记录级授权要查真实记录，这里关闭。
+        // ⚠️ 生产必须保持默认 true——关闭等于允许对任意记录发起流程。
+        "flow.record-access.enabled=false"
 })
 class FlowIT {
 

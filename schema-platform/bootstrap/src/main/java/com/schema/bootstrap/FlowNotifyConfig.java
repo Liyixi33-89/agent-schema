@@ -86,9 +86,18 @@ public class FlowNotifyConfig {
             }
         }
 
-        /** 站内信跳转：前端审批中心实例详情。 */
+        /**
+         * 站内信跳转：前端审批中心实例详情。
+         *
+         * 2026-11-27 评审修复：原链接 `/runtime/flow-instances/{id}` 对应的路由
+         * 从未实现（runtime 是 hash 路由，且审批中心在 `#/approval/{id}`）。
+         * 通知点进去会 404 或落回首页——等于失效。
+         *
+         * 路由定义见 `apps/runtime/src/app/route.ts`：
+         * `#/approval` 列表，`#/approval/{instanceId}` 直接开详情。
+         */
         private static String jumpUrl(String instanceId) {
-            return "/runtime/flow-instances/" + instanceId;
+            return "/runtime/#/approval/" + instanceId;
         }
 
         /**

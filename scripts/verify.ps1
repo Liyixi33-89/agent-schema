@@ -341,6 +341,19 @@ if (Test-Path (Join-Path $fe 'package.json')) {
     }
 } else { Skip 'frontend-build/test' 'schema-frontend 尚未初始化' }
 
+# E2E 必跑清单一致性（2026-11-27 评审）：scripts/test_gate.py 的手写清单必须与
+# e2e/ 下真实 SMK 场景双向一致——否则删掉/误配测试文件，门禁仍会通过（假绿）。
+if (Test-Path (Join-Path $root 'scripts/check_test_gate_manifest.py')) {
+    Step 'e2e-manifest' {
+        Push-Location $root
+        try {
+            python scripts/check_test_gate_manifest.py
+            if ($LASTEXITCODE -ne 0) { throw "必跑清单与仓库不一致（退出码 $LASTEXITCODE）" }
+        }
+        finally { Pop-Location }
+    }
+}
+
 if (Test-Path (Join-Path $be 'pom.xml')) {
     Step 'backend-test' {
         Push-Location $be

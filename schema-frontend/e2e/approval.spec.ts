@@ -31,6 +31,11 @@ function creds(): { username: string; password: string } {
   return smokeCredentials();
 }
 
+/** 与 ApprovalCenter.shortId 一致：长 id 显示为前 8 位 + …。 */
+function shortId(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 8)}…` : id;
+}
+
 function apiBase(pageBase: string): string {
   const explicit = process.env.SMOKE_API_BASE;
   if (explicit && explicit.trim() !== '') return explicit.replace(/\/$/, '');
@@ -101,13 +106,19 @@ test.describe('审批中心', () => {
       })).json() as { instanceId?: string };
     const instanceId = started.instanceId;
     expect(instanceId, '发起应返回 instanceId').toBeTruthy();
+    // 类型收窄：下面用它精确定位列表行（instanceId 是 string|undefined）
+    if (!instanceId) throw new Error('发起流程未返回 instanceId');
+    const myShortId = shortId(instanceId);
 
     // ---------- 2. 打开审批中心 ----------
     await page.goto(`${base}/#/approval`);
     await expect(page.getByText('审批中心')).toBeVisible({ timeout: 20_000 });
 
-    // 待办里应出现「主管审批」
-    const todoRow = page.locator('.ant-list-item').filter({ hasText: '主管审批' }).first();
+    // 待办里应出现本轮实例（用 shortId 精确匹配，避免命中历史记录）
+    const todoRow = page.locator('.ant-list-item')
+      .filter({ hasText: '主管审批' })
+      .filter({ hasText: myShortId })
+      .first();
     await expect(todoRow).toBeVisible({ timeout: 20_000 });
 
     // ---------- 3. 打开详情 ----------
@@ -159,7 +170,10 @@ test.describe('审批中心', () => {
     await page.getByText('已办', { exact: true }).click();
     // ⚠️ 已办列表展示 node_id（approval_1）而非节点显示名：
     //    后端 listTasksByOperator 只投影 flow_task_log + 实例绑定，不带 schema 里的 nodeName。
-    const doneRow = page.locator('.ant-list-item').filter({ hasText: 'approval_1' }).first();
+    const doneRow = page.locator('.ant-list-item')
+      .filter({ hasText: 'approval_1' })
+      .filter({ hasText: myShortId })
+      .first();
     await expect(doneRow).toBeVisible({ timeout: 20_000 });
     // 「同意」在 Tag 与意见文本里各出现一次，取第一个（Tag）
     await expect(doneRow.getByText('同意').first()).toBeVisible();
