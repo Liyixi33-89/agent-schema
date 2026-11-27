@@ -28,10 +28,27 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SERVER = os.environ.get("SCHEMA_DEPLOY_HOST", "root@111.231.57.177")
-# 部署通道：日常发布用 deploy 专用账号（setup-deploy-user.sh 创建，sudo 白名单仅 schema-release.sh）；
-# root 直连仅作为初始化/救援通道保留（环境变量 SCHEMA_DEPLOY_ROLE 可临时覆盖）。
+SERVER = os.environ.get("SCHEMA_DEPLOY_HOST", "deploy@111.231.57.177")
+# ⚠️ 实际 SSH 用户由 SERVER 的 `user@` 前缀决定，**不是**这个 ROLE。
+# ROLE 仅用于一致性断言（2026-11-27 评审指出：改 ROLE 不会切换用户，
+# 曾让人误以为设 ROLE=deploy 就在用 deploy 账号）。
 ROLE = os.environ.get("SCHEMA_DEPLOY_ROLE", "deploy")
+
+
+def _assert_role_matches() -> None:
+    """ROLE 与 SERVER 的用户名前缀必须一致，否则报错。
+
+    不一致时行为完全由 SERVER 决定、ROLE 只是摆设——
+    「看似可配置实则无效」的选项比不提供更危险。
+    """
+    if "@" not in SERVER:
+        raise SystemExit(f"SCHEMA_DEPLOY_HOST 缺少用户名前缀（应为 user@host）: {SERVER}")
+    actual = SERVER.split("@", 1)[0]
+    if actual != ROLE:
+        raise SystemExit(
+            f"SCHEMA_DEPLOY_ROLE({ROLE}) 与 SCHEMA_DEPLOY_HOST 的用户名({actual}) 不一致。\n"
+            "  实际 SSH 用户由 SERVER 决定，ROLE 不会切换用户。\n"
+            f"  请改 SCHEMA_DEPLOY_HOST={ROLE}@<host>，或去掉 SCHEMA_DEPLOY_ROLE。")
 REMOTE_ROOT = "/opt/schema"
 ENTRIES = {  # 入口 -> 路径（发布后独立验证）
     "runtime": "/",
@@ -499,11 +516,14 @@ def datascope_precheck(target: str, strict: bool) -> None:
     remote = f"sudo -n /bin/bash {release_sh} datascope-check {db}{strict_arg}"
     try:
         proc = ssh(remote, check=False, timeout=180)
-    except SystemExit as e:
-        # ssh 自身异常（超时/连接失败）——预检不可用，拒绝发布
+    except SystemExit:
+        # ⚠️ 不能 `except SystemExit as e` 再 raise SystemExit —— SystemExit 在
+        # Python 里不继承 Exception，且 ssh() 内部用 SystemExit 报错（超时/失败）。
+        # 这里必须捕获后**转换成明确的下文**，否则调用方拿到的是「远程命令失败」
+        # 这种与预检无关的文案（实测：超时被误报成普通部署错误）。
         raise SystemExit(
-            f"\n数据权限预检无法执行（{db}）：{e}\n"
-            "  预检不可用不等于没有风险——拒绝发布。") from e
+            f"\n数据权限预检无法执行（{db}）：ssh 调用失败（超时或连接异常）。\n"
+            "  预检不可用不等于没有风险——拒绝发布。")
     except Exception as e:  # noqa: BLE001
         raise SystemExit(
             f"\n数据权限预检无法执行（{db}）：{e}\n"
@@ -541,6 +561,10 @@ def main():
     ap.add_argument("--datascope-strict", action="store_true",
                     help="验收面也按 strict 处理（默认 prod 已 strict，accept 只报告）")
     args = ap.parse_args()
+
+    # 先校验部署身份（ROLE 与 SERVER 用户名一致），再动任何东西——
+    # 避免跑到一半才发现「以为用 deploy 其实用 root」。
+    _assert_role_matches()
 
     head = require_clean_head(args.version)
 
