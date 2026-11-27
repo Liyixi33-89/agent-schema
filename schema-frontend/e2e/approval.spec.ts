@@ -1,3 +1,4 @@
+import type { BrowserContext } from '@playwright/test';
 import { test, expect, smokeCredentials } from './fixtures';
 
 /**
@@ -34,6 +35,53 @@ function creds(): { username: string; password: string } {
 /** 与 ApprovalCenter.shortId 一致：长 id 显示为前 8 位 + …。 */
 function shortId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}…` : id;
+}
+
+/**
+ * 建一个只含 `title` 字段的模型（审批/流程 E2E 用）。
+ *
+ * 两段式保存：precheck 拿 token → schema 提交（baseVersion 必须是当前版本）。
+ * 详见 trigger-flow.spec.ts 里对这套契约的说明。
+ */
+async function createModelWithTitleField(
+  ctx: BrowserContext, origin: string, h: Record<string, string>, name: string,
+): Promise<string> {
+  const modelKey = `e2e${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`;
+  const created = await (await ctx.request.post(`${origin}/api/models`, {
+    headers: h, data: { modelKey, name },
+  })).json() as { id?: string | number; currentVersion?: number };
+  expect(created.id, '模型创建应返回 id').toBeTruthy();
+  const modelId = String(created.id);
+  const baseVersion = created.currentVersion ?? 1;
+
+  const changes = [
+    { op: 'ADD_FIELD', fieldKey: 'title', field: { label: '标题', type: 'text', required: false } },
+  ];
+  const pre = await (await ctx.request.post(`${origin}/api/models/${modelId}/precheck`, {
+    headers: h, data: { changes },
+  })).json() as { confirmToken?: string };
+  expect(pre.confirmToken, 'precheck 应签发 token').toBeTruthy();
+
+  const saved = await ctx.request.post(`${origin}/api/models/${modelId}/schema`, {
+    headers: h, data: { changes, baseVersion, confirmToken: pre.confirmToken },
+  });
+  if (!saved.ok()) throw new Error(`字段保存失败 ${saved.status()}：${(await saved.text()).slice(0, 300)}`);
+  return modelId;
+}
+
+/** 建一条业务记录，返回 recordId（字符串——19 位雪花 id 不能用 Number）。 */
+async function createRecord(
+  ctx: BrowserContext, origin: string, h: Record<string, string>,
+  modelId: string, title: string,
+): Promise<string> {
+  const resp = await ctx.request.post(`${origin}/api/data/${modelId}`, {
+    headers: h, data: { title },
+  });
+  if (!resp.ok()) throw new Error(`记录创建失败 ${resp.status()}：${(await resp.text()).slice(0, 300)}`);
+  const text = await resp.text();
+  const m = /"id"\s*:\s*"?([^",}]+)"?/.exec(text);
+  if (!m) throw new Error(`记录创建响应无 id：${text.slice(0, 200)}`);
+  return m[1];
 }
 
 function apiBase(pageBase: string): string {
@@ -99,9 +147,14 @@ test.describe('审批中心', () => {
 
     await ctx.request.post(`${origin}/api/flows/${created.id}/publish`, { headers: h });
 
-    const recordId = Math.floor(Math.random() * 1_000_000) + 100000;
+    // 2026-11-27 授权修复后，发起流程要求业务记录**真实存在且可见**。
+    // 原先随机造一个不存在的 recordId 直接发起已被 FORBIDDEN 拦下（这是修复的正确行为）。
+    // 改为：先建模型 + 插一条真实记录，再对它发起流程。
+    const modelId = await createModelWithTitleField(ctx, origin, h, 'APR 审批模型');
+    const recordId = await createRecord(ctx, origin, h, modelId, `审批 ${Date.now()}`);
+
     const started = await (await ctx.request.post(
-      `${origin}/api/records/1/${recordId}/flow/start`, {
+      `${origin}/api/records/${modelId}/${recordId}/flow/start`, {
         headers: h, data: { flowDefId: Number(created.id) },
       })).json() as { instanceId?: string };
     const instanceId = started.instanceId;
@@ -210,10 +263,13 @@ test.describe('审批中心', () => {
       headers: h, data: { appId: 1, flowKey: key, name: 'E2E 驳回流程', flowSchema: schema },
     })).json() as { id: string };
     await ctx.request.post(`${origin}/api/flows/${created.id}/publish`, { headers: h });
-    const recordId = Math.floor(Math.random() * 1_000_000) + 200000;
-    await ctx.request.post(`${origin}/api/records/1/${recordId}/flow/start`, {
-      headers: h, data: { flowDefId: Number(created.id) },
-    });
+    // 同 SMK-APR-01：授权修复后必须对真实存在的记录发起（随机假 id 会被 FORBIDDEN 拦下）
+    const modelId = await createModelWithTitleField(ctx, origin, h, 'APR 驳回模型');
+    const recordId = await createRecord(ctx, origin, h, modelId, `驳回 ${Date.now()}`);
+    const startedResp = await ctx.request.post(
+      `${origin}/api/records/${modelId}/${recordId}/flow/start`,
+      { headers: h, data: { flowDefId: Number(created.id) } });
+    expect(startedResp.ok(), `发起应成功（${startedResp.status()}）`).toBeTruthy();
 
     await page.goto(`${base}/#/approval`);
     const row = page.locator('.ant-list-item').filter({ hasText: '驳回测试' }).first();
