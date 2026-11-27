@@ -487,10 +487,11 @@ def datascope_precheck(target: str, strict: bool) -> None:
     # 脚本随仓库发布，经 stdin 传入避免在服务器留副本
     local = (ROOT / "scripts" / "datascope-precheck.sh").read_text(encoding="utf-8")
     try:
-        out = ssh(f"{remote} <<'DS_PRE'\n{local}\nDS_PRE", check=False, timeout=120)
+        proc = ssh(f"{remote} <<'DS_PRE'\n{local}\nDS_PRE", check=False, timeout=120)
     except Exception as e:  # noqa: BLE001 - 预检失败不应掩盖真实部署错误
         print(f"  预检执行异常（不阻断）: {e}")
         return
+    out = (proc.stdout or "") + (proc.stderr or "")
     print(out.rstrip())
     if strict:
         # ssh(check=False) 不抛异常，这里按输出里的 strict 结论判断
