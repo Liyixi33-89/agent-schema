@@ -90,6 +90,22 @@ function apiBase(pageBase: string): string {
   return new URL(pageBase).origin;
 }
 
+/**
+ * Origin 头必须是**纯 scheme://host[:port]**（无路径）。
+ *
+ * 2026-11-27 修复：验收面 API 挂在 `/accept` 前缀下（apiBase 返回
+ * `http://host/accept`），原实现直接把它当 Origin 头发送 →
+ * 浏览器/后端 CSRF 校验判为非法 Origin（Origin 语义不允许带 path）。
+ * 同源部署时 apiBase 恰好没有路径，所以这个 bug 一直没暴露。
+ */
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
 
 test.describe('审批中心', () => {
   test.beforeEach(async ({ page, baseURL }) => {
@@ -100,7 +116,7 @@ test.describe('审批中心', () => {
     await ctx.request.get(`${origin}/api/auth/csrf`);
     const csrf = (await ctx.cookies()).find((c) => c.name === 'schema_csrf')?.value ?? '';
     await ctx.request.post(`${origin}/api/auth/login`, {
-      headers: { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': csrf },
+      headers: { 'Content-Type': 'application/json', Origin: originOf(origin), 'X-CSRF-Token': csrf },
       data: { username: creds().username, password: creds().password },
     });
 
@@ -124,7 +140,11 @@ test.describe('审批中心', () => {
     const myUserId = String(me.userId ?? 1);
     const cookies2 = await ctx.cookies();
     const csrf2 = cookies2.find((c) => c.name === 'schema_csrf')?.value ?? '';
-    const h = { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': csrf2 };
+    // X-App-Id 是元数据/页面写操作的必需头（缺则 403 PERM_DENIED，实测确认）
+    const h = {
+      'Content-Type': 'application/json', Origin: originOf(origin),
+      'X-CSRF-Token': csrf2, 'X-App-Id': '1',
+    };
 
     const key = `e2e${uniq()}`;
     const schema = {
@@ -242,7 +262,11 @@ test.describe('审批中心', () => {
     const ctx = page.context();
     const origin = apiBase(base);
     const csrf2 = (await ctx.cookies()).find((c) => c.name === 'schema_csrf')?.value ?? '';
-    const h = { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': csrf2 };
+    // X-App-Id 是元数据/页面写操作的必需头（缺则 403 PERM_DENIED，实测确认）
+    const h = {
+      'Content-Type': 'application/json', Origin: originOf(origin),
+      'X-CSRF-Token': csrf2, 'X-App-Id': '1',
+    };
     const me2 = await (await ctx.request.get(`${origin}/api/me`)).json() as { userId?: number };
     const myUserId = String(me2.userId ?? 1);
 

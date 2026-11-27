@@ -30,6 +30,20 @@ interface Ctx {
   myUserId: string;
 }
 
+/**
+ * Origin 头必须是**纯 scheme://host[:port]**（无路径）。
+ *
+ * 验收面 API 挂在 `/accept` 前缀下（apiBase 返回 `http://host/accept`），
+ * 直接当 Origin 头发送会被 CSRF 校验判为非法（Origin 语义不允许带 path）。
+ */
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
 async function prepare(page: Page, baseURL?: string): Promise<Ctx> {
   const base = String(baseURL).replace(/\/$/, '');
   const ctx = page.context();
@@ -42,13 +56,13 @@ async function prepare(page: Page, baseURL?: string): Promise<Ctx> {
   const c1 = (await ctx.cookies()).find((c) => c.name === 'schema_csrf')?.value ?? '';
   const cred = smokeCredentials();
   await ctx.request.post(`${origin}/api/auth/login`, {
-    headers: { 'Content-Type': 'application/json', Origin: origin, 'X-CSRF-Token': c1 },
+    headers: { 'Content-Type': 'application/json', Origin: originOf(origin), 'X-CSRF-Token': c1 },
     data: { username: cred.username, password: cred.password },
   });
   const csrf = (await ctx.cookies()).find((c) => c.name === 'schema_csrf')?.value ?? '';
   // X-App-Id 是元数据/页面写操作的必需头（缺则 403 permDenied）
   const h = {
-    'Content-Type': 'application/json', Origin: origin,
+    'Content-Type': 'application/json', Origin: originOf(origin),
     'X-CSRF-Token': csrf, 'X-App-Id': '1',
   };
 
