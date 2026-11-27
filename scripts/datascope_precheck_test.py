@@ -186,11 +186,26 @@ class PrecheckScriptContractTest(unittest.TestCase):
         self.assertIn("return 2", self.sh)
 
     def test_no_script_path_argument(self):
-        """不接收「执行哪个脚本」的参数。"""
-        # 只接受 DB 与 --strict
+        """不接收「执行哪个脚本」的参数。
+
+        只接受：<db> / --strict / --expected-no-scope。
+        任何接受脚本路径的形态都会把白名单入口变成「root 执行任意代码」。
+        """
+        # 位置参数 1 是库名，且必须走白名单 case
         self.assertIn('DB="${1:-}"', self.sh)
-        self.assertIn('"${2:-}" = "--strict"', self.sh)
-        self.assertNotIn('"${3:-}"', self.sh)
+        # 显式声明支持的全部选项
+        self.assertIn("--strict)", self.sh)
+        self.assertIn("--expected-no-scope)", self.sh)
+        # 不得接受路径类参数（.sh / /path / exec 任意文件）
+        import re as _re
+        code_lines = [ln for ln in self.sh.splitlines()
+                      if ln.strip() and not ln.strip().startswith("#")]
+        code = "\n".join(code_lines)
+        self.assertNotIn("--script", code)
+        self.assertNotIn("--from-file", code)
+        # 不得把参数 3+ 当作要执行的脚本
+        self.assertNotIn('exec "$3"', code)
+        self.assertNotIn('bash "$3"', code)
 
 
 class ReleaseScriptSubcommandTest(unittest.TestCase):
@@ -202,6 +217,55 @@ class ReleaseScriptSubcommandTest(unittest.TestCase):
             self.assertIn("datascope-check)", src, f"{name} 缺 datascope-check 分派")
             self.assertIn("/usr/local/sbin/schema-datascope-check", src,
                           f"{name} 应 exec 到 root 属主的固定路径")
+
+
+class ExpectedNoScopeSemanticsTest(unittest.TestCase):
+    """「预期拒绝」与「缺少必要授权」必须区分（2026-11-27 要求）。
+
+    不能要求所有活跃账号都有数据范围——那会逼人为了过门禁乱授 ALL。
+    本类只做静态断言（脚本必须实现该语义），行为由服务器端到端验证覆盖。
+    """
+
+    def setUp(self):
+        self.sh = (ROOT / "scripts" / "datascope-precheck.sh").read_text(encoding="utf-8")
+
+    def test_supports_expected_no_scope_option(self):
+        self.assertIn("--expected-no-scope", self.sh)
+
+    def test_reports_expected_as_info_not_failure(self):
+        """预期拒绝应输出 [INFO]，且不参与 UNEXPECTED_COUNT。"""
+        self.assertIn("[INFO]", self.sh)
+        self.assertIn("EXPECTED_HIT", self.sh)
+        self.assertIn("UNEXPECTED", self.sh)
+        # 判定只看 UNEXPECTED
+        self.assertIn('"${UNEXPECTED_COUNT:-0}" -eq 0', self.sh)
+
+    def test_no_scope_all_expected_passes(self):
+        """全部 NO_SCOPE 均为预期时应 exit 0。"""
+        self.assertIn("NO_SCOPE 均为预期拒绝", self.sh)
+
+    def test_documents_dont_force_all_scopes(self):
+        """脚本注释里必须写明「不强制所有账号都有范围」的理由。"""
+        self.assertIn("不能要求", self.sh)
+        self.assertIn("乱授 ALL", self.sh)
+
+
+class ExpectedNoScopeWiringTest(unittest.TestCase):
+    """deploy.py 必须能透传 --expected-no-scope。"""
+
+    def setUp(self):
+        self.src = (ROOT / "scripts" / "deploy.py").read_text(encoding="utf-8")
+
+    def test_cli_option_exists(self):
+        self.assertIn("--expected-no-scope", self.src)
+
+    def test_env_fallback(self):
+        self.assertIn("SCHEMA_DATASCOPE_EXPECTED_NO_SCOPE", self.src)
+
+    def test_passed_to_remote_command(self):
+        self.assertIn("--expected-no-scope", self.src)
+        # 必须出现在 ssh 命令行拼接处
+        self.assertIn("exp_arg", self.src)
 
 
 if __name__ == "__main__":

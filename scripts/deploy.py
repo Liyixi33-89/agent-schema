@@ -477,7 +477,7 @@ def deploy_prod(head: str, work: Path, backend_jar: Path, web_dir: Path):
 
 
 
-def datascope_precheck(target: str, strict: bool) -> None:
+def datascope_precheck(target: str, strict: bool, expected_no_scope: str = "") -> None:
     """发布前只读数据权限预检（2026-11-27）。
 
     ## 为什么在发布流程里做
@@ -511,9 +511,16 @@ def datascope_precheck(target: str, strict: bool) -> None:
     release_sh = ("/opt/schema/schema-release.sh" if target == "prod"
                   else "/opt/schema/schema-release-accept.sh")
     strict_arg = " --strict" if strict else ""
+    # 「预期无数据范围」的账号（逗号分隔）：本就不该有数据权限的账号
+    # （如纯配置管理账号），不应被当成「缺少必要授权」而阻断发布。
+    # 由 --expected-no-scope 传入，也可用环境变量 SCHEMA_DATASCOPE_EXPECTED_NO_SCOPE。
+    exp = (expected_no_scope or "").strip()
+    exp_arg = f' --expected-no-scope "{exp}"' if exp else ""
 
     print(f"\n== 数据权限预检（只读）: {db} ==")
-    remote = f"sudo -n /bin/bash {release_sh} datascope-check {db}{strict_arg}"
+    if exp:
+        print(f"   预期无数据范围（不计为失败）: {exp}")
+    remote = f"sudo -n /bin/bash {release_sh} datascope-check {db}{strict_arg}{exp_arg}"
     try:
         proc = ssh(remote, check=False, timeout=180)
     except SystemExit:
@@ -560,6 +567,11 @@ def main():
                     help="跳过发布前数据权限预检（危险：会放过「上线后业务不可见」的配置）")
     ap.add_argument("--datascope-strict", action="store_true",
                     help="验收面也按 strict 处理（默认 prod 已 strict，accept 只报告）")
+    ap.add_argument("--expected-no-scope", default="",
+                    metavar="ACC1,ACC2",
+                    help="预期无数据范围的账号（逗号分隔）：本就不该有数据权限的账号，"
+                         "不计为「缺少必要授权」。也可用环境变量 "
+                         "SCHEMA_DATASCOPE_EXPECTED_NO_SCOPE 指定。")
     args = ap.parse_args()
 
     # 先校验部署身份（ROLE 与 SERVER 用户名一致），再动任何东西——
@@ -579,7 +591,9 @@ def main():
         print("   若账号缺数据范围，上线后其业务数据将全部不可见（1 = 0 默认拒绝）")
     else:
         strict = args.target == "prod" or args.datascope_strict
-        datascope_precheck(args.target, strict)
+        expected = (args.expected_no_scope
+                    or os.environ.get("SCHEMA_DATASCOPE_EXPECTED_NO_SCOPE", ""))
+        datascope_precheck(args.target, strict, expected)
 
     with tempfile.TemporaryDirectory(prefix="schema-release-") as td:
         work = Path(td)
