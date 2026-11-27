@@ -109,6 +109,20 @@ class FlowInstanceServiceTest {
     }
 
     @Test
+    void recordsFlowDefinitionVersionOnStart() {
+        // 2026-11-27 评审修复：flow_schema 是可覆盖草稿，必须记住发起时是哪一版，
+        // 否则审批中心渲染旧实例会配上新图（轨迹与图形对不上）。
+        long defId = defRepo.addPublished(1L, linear());
+        engine.onStart = vars -> "inst-ver";
+
+        asOperator(() -> assertEquals("inst-ver", service.start(1L, 501L, defId).get("instanceId")));
+
+        Object ver = instRepo.byInstance.get("inst-ver").get("flow_def_version");
+        assertNotNull(ver, "发起时必须记录流程定义版本");
+        assertTrue(((Number) ver).intValue() >= 1, "版本号应为正整数");
+    }
+
+    @Test
     void rejectsMissingDefinition() {
         asOperator(() -> {
             BizException e = assertThrows(BizException.class, () -> service.start(1L, 500L, 9999));
@@ -472,6 +486,14 @@ class FlowInstanceServiceTest {
         @Override
         public Optional<Map<String, Object>> findByInstanceId(long tenantId, String instanceId) {
             return Optional.ofNullable(byInstance.get(instanceId));
+        }
+
+        /** 记录执行版本（2026-11-27）：写进桩行，供断言「发起时记了哪一版」。 */
+        @Override
+        public void recordDefVersion(long tenantId, String instanceId, Integer defVersion) {
+            if (defVersion == null) return;
+            Map<String, Object> row = byInstance.get(instanceId);
+            if (row != null) row.put("flow_def_version", defVersion);
         }
 
         @Override

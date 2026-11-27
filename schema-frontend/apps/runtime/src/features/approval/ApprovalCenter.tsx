@@ -22,8 +22,7 @@ import {
 import { FlowCanvas } from '@schema/flow-designer';
 import type { FlowSchema } from '@schema/schema-protocol';
 import { ServerError } from '@schema/schema-form';
- import { authFetch } from '@schema/auth-sdk';
-import type { RequestClient } from '../../shared/request';
+ import type { RequestClient } from '../../shared/request';
 import {
   actionText, completeErrorText, instanceStatusText, parseDone, parseInstanceDetail,
   parseTasks, toNodeStates, toTimeline,
@@ -48,6 +47,15 @@ export default function ApprovalCenter(props: ApprovalCenterProps): React.ReactE
   const [done, setDone] = React.useState<{ list: DoneItem[]; total: number } | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  /**
+   * 已办分页状态（2026-11-27 评审修复）。
+   *
+   * 原实现固定取 `page=0&size=50`，分页按钮只切前端切片——
+   * 超过 50 条的历史记录**永远看不到**。改为页码进查询状态、翻页重新请求。
+   * 页码从 0 开始（后端契约），UI 层按 antd 习惯从 1 展示。
+   */
+  const [donePage, setDonePage] = React.useState(0);
+  const [doneSize, setDoneSize] = React.useState(20);
 
   const reload = React.useCallback(async () => {
     setLoading(true);
@@ -57,7 +65,8 @@ export default function ApprovalCenter(props: ApprovalCenterProps): React.ReactE
         const raw = await client.getJson('/api/my/tasks');
         setTasks(parseTasks(raw));
       } else {
-        const raw = await client.getJson('/api/my/tasks/done?page=0&size=50');
+        // 真服务端分页：page/size 随状态变化重新拉取
+        const raw = await client.getJson(`/api/my/tasks/done?page=${donePage}&size=${doneSize}`);
         setDone(parseDone(raw));
       }
     } catch (e) {
@@ -65,9 +74,12 @@ export default function ApprovalCenter(props: ApprovalCenterProps): React.ReactE
     } finally {
       setLoading(false);
     }
-  }, [client, tab]);
+  }, [client, tab, donePage, doneSize]);
 
   React.useEffect(() => { void reload(); }, [reload]);
+
+  // 切页签时重置页码：待办无分页，从已办切回来时不应保留旧页码
+  React.useEffect(() => { setDonePage(0); }, [tab]);
 
   // 详情打开时，列表仍在后台——关闭抽屉后需要刷新（A5：办理后两侧都变）
   const closeDetail = () => {
@@ -103,7 +115,13 @@ export default function ApprovalCenter(props: ApprovalCenterProps): React.ReactE
       ) : tab === 'todo' ? (
         <TodoList tasks={tasks ?? []} onOpen={(id) => onOpenInstance?.(id)} />
       ) : (
-        <DoneList data={done ?? { list: [], total: 0 }} onOpen={(id) => onOpenInstance?.(id)} />
+        <DoneList
+          data={done ?? { list: [], total: 0 }}
+          onOpen={(id) => onOpenInstance?.(id)}
+          page={donePage}
+          size={doneSize}
+          onPageChange={(p, s) => { setDonePage(p); setDoneSize(s); }}
+        />
       )}
 
       {instanceId != null && instanceId !== '' && (
@@ -149,15 +167,28 @@ function TodoList(props: { tasks: TaskItem[]; onOpen: (instanceId: string) => vo
 function DoneList(props: {
   data: { list: DoneItem[]; total: number };
   onOpen: (instanceId: string) => void;
+  /** 服务端分页：当前页码（0 基）。 */
+  page: number;
+  size: number;
+  onPageChange: (page: number, size: number) => void;
 }): React.ReactElement {
-  const { data, onOpen } = props;
-  if (data.list.length === 0) {
+  const { data, onOpen, page, size, onPageChange } = props;
+  if (data.list.length === 0 && page === 0) {
     return <Empty description="暂无已办" />;
   }
   return (
     <List
       dataSource={data.list}
-      pagination={data.total > 20 ? { pageSize: 20, total: data.total } : false}
+      // 真分页：total 来自服务端，翻页触发重新请求（不再本地切片）
+      pagination={data.total > size ? {
+        current: page + 1,        // antd 是 1 基，后端是 0 基
+        pageSize: size,
+        total: data.total,
+        showSizeChanger: true,
+        pageSizeOptions: ['10', '20', '50'],
+        showTotal: (t) => `共 ${t} 条`,
+        onChange: (p, s) => onPageChange(p - 1, s),
+      } : false}
       renderItem={(d) => (
         <List.Item actions={[
           <Button key="open" type="link" onClick={() => onOpen(d.instanceId)}>查看实例</Button>,
@@ -275,6 +306,30 @@ function InstanceDrawer(props: {
           <div>
             <Typography.Text strong>流程图</Typography.Text>
             <div style={{ marginTop: 8 }}>
+              {/* 版本一致性提示（2026-11-27 评审修复）：
+                  flow_definition.flow_schema 是可覆盖草稿，画布读到的永远是当前版本。
+                  与实例执行版本不一致时，展示的是「新图配旧轨迹」——必须明确告知，
+                  否则用户会以为流程走错了分支。 */}
+              {versionStatus(detail, schema) === 'stale' && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 8 }}
+                  message="流程图可能与实例不符"
+                  description={`该实例发起时使用的是 v${detail.flowDefVersion}，`
+                    + `当前流程图已更新到 v${schema?.version}。图中节点位置与分支仅供参考，`
+                    + `实际执行轨迹以下方时间线为准。`}
+                />
+              )}
+              {versionStatus(detail, schema) === 'unknown' && schema != null && (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 8 }}
+                  message="流程版本未知"
+                  description="该实例创建较早，未记录执行版本；流程图显示的是当前版本，仅供参考。"
+                />
+              )}
               {schema != null ? (
                 <FlowCanvas
                   schema={schema}
@@ -377,23 +432,58 @@ function CompleteDrawer(props: {
 
   // 待办里取本实例的活动任务（详情不直接给 taskId——tasks 是审计日志）
   const [taskId, setTaskId] = React.useState<string | null>(null);
+  /** 任务装载态（2026-11-27 评审修复）：未就绪不得允许提交。 */
+  const [taskLoading, setTaskLoading] = React.useState(false);
+  /** 装载失败原因（可重试，不能伪装成「没有任务」）。 */
+  const [taskError, setTaskError] = React.useState<string | null>(null);
+
+  /**
+   * 每轮打开都重置（2026-11-27 评审修复）。
+   *
+   * 原实现重开抽屉时保留上一轮的 comment / errorMsg / taskId，
+   * 导致：① 上一实例的意见串到新实例  ② 旧 taskId 被提交到新实例
+   * ③ 无加载态，用户在 taskId 未就绪时点提交只能看到误导性的「找不到任务」。
+   */
+  React.useEffect(() => {
+    if (!open) return;
+    setComment('');
+    setErrorMsg(null);
+    setTaskId(null);
+    setTaskError(null);
+  }, [open, detail.instanceId]);
+
   React.useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    setTaskLoading(true);
+    setTaskError(null);
     (async () => {
       try {
         const raw = await client.getJson('/api/my/tasks');
         const list = parseTasks(raw);
         const mine = list.find((t) => t.instanceId === detail.instanceId);
         if (!cancelled) setTaskId(mine?.taskId ?? null);
-      } catch {
-        if (!cancelled) setTaskId(null);
+      } catch (e) {
+        // 失败要显式暴露并给重试，不能静默变成「没有待办任务」
+        if (!cancelled) setTaskError(errText(e));
+      } finally {
+        if (!cancelled) setTaskLoading(false);
       }
     })();
     return () => { cancelled = true; };
   }, [open, client, detail.instanceId]);
 
   const submit = async (approved: boolean) => {
+    // 任务未就绪（装载中/装载失败/确无任务）一律不得提交——
+    // 否则会把「还没加载完」误报成「任务不可办理」。
+    if (taskLoading) {
+      setErrorMsg('正在加载任务信息，请稍候');
+      return;
+    }
+    if (taskError != null) {
+      setErrorMsg(`任务信息加载失败：${taskError}`);
+      return;
+    }
     if (taskId == null) {
       setErrorMsg('找不到可办理的任务（可能已被他人处理，请刷新）');
       return;
@@ -405,31 +495,13 @@ function CompleteDrawer(props: {
     setSubmitting(true);
     setErrorMsg(null);
     try {
-      // ⚠️ 直接调 authFetch（不经 RequestClient.postJson）：
-      // 实测 RequestClient 这条路径发出的请求缺 X-CSRF-Token → 403 CSRF_TOKEN_REJECTED，
-      // 而同一浏览器内手动 fetch 带 csrf 头却是 200。authFetch 是三个应用共用的
-      // 唯一认证通道（自动注入双提交头），此处显式使用它并传入 baseUrl 对齐。
-      const base = client.baseUrl();
-      const resp = await authFetch({
-        path: `/api/tasks/${taskId}/complete`,
-        baseUrl: base,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          approved,
-          comment: comment.trim() === '' ? null : comment.trim(),
-        }),
+      // 2026-11-27 统一回归：CSRF 头重复拼接的根因已在 auth-sdk 修复
+      // （authHeaders 大小写去重 + 回归测试），这里回归统一客户端——
+      // 继续 authFetch 直调会绕开会话失效回调与错误映射等能力。
+      await client.postJson(`/api/tasks/${taskId}/complete`, {
+        approved,
+        comment: comment.trim() === '' ? null : comment.trim(),
       });
-      if (!resp.ok) {
-        let code = 'SERVER_ERROR';
-        let msg = `办理失败 (${resp.status})`;
-        try {
-          const b = (await resp.json()) as { code?: string; message?: string };
-          if (b.code) code = b.code;
-          if (b.message) msg = b.message;
-        } catch { /* 非 JSON 错误体 */ }
-        throw new ServerError(code, msg, {});
-      }
       message.success(approved ? '已同意' : '已驳回');
       onDone();
     } catch (e) {
@@ -452,8 +524,15 @@ function CompleteDrawer(props: {
       footer={
         <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
           <Button onClick={onClose} disabled={submitting}>取消</Button>
-          <Button danger onClick={() => void submit(false)} loading={submitting}>驳回</Button>
-          <Button type="primary" onClick={() => void submit(true)} loading={submitting}>同意</Button>
+          {/* 任务未就绪时禁用：避免用户在 taskId 未知时提交出误导性错误 */}
+          <Button danger onClick={() => void submit(false)}
+            loading={submitting} disabled={taskLoading || taskError != null || taskId == null}>
+            驳回
+          </Button>
+          <Button type="primary" onClick={() => void submit(true)}
+            loading={submitting} disabled={taskLoading || taskError != null || taskId == null}>
+            同意
+          </Button>
         </Space>
       }
     >
@@ -461,7 +540,13 @@ function CompleteDrawer(props: {
         {errorMsg != null && (
           <Alert type="error" showIcon message="办理失败" description={errorMsg} />
         )}
-        {taskId == null && (
+        {taskLoading && (
+          <Alert type="info" showIcon message="正在加载任务信息…" />
+        )}
+        {taskError != null && (
+          <Alert type="error" showIcon message="任务信息加载失败" description={taskError} />
+        )}
+        {!taskLoading && taskError == null && taskId == null && (
           <Alert type="warning" showIcon message="未找到可办理任务"
             description="该实例当前任务可能已由他人处理，请关闭后刷新列表。" />
         )}
@@ -508,6 +593,22 @@ async function loadSchema(
     nodes: s.nodes as FlowSchema['nodes'],
     edges: s.edges as FlowSchema['edges'],
   };
+}
+
+/**
+ * 流程定义版本与实例执行版本是否一致（2026-11-27 评审修复）。
+ *
+ * 后端 `/api/flows/{id}` 返回的永远是**当前草稿**；实例发起时用的可能是旧版。
+ * 不一致时画布是「新图配旧轨迹」——必须提示，不能让用户以为流程走错了。
+ *
+ * @returns 'match' 一致 | 'stale' 画布是新版但实例用旧版 | 'unknown' 版本未知（存量实例）
+ */
+function versionStatus(
+  detail: InstanceDetail,
+  schema: FlowSchema | null,
+): 'match' | 'stale' | 'unknown' {
+  if (schema == null || detail.flowDefVersion == null) return 'unknown';
+  return schema.version === detail.flowDefVersion ? 'match' : 'stale';
 }
 
 function shortId(id: string): string {

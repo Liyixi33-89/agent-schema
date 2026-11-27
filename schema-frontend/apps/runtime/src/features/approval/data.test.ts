@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   actionText, completeErrorText, durationOf, instanceStatusText, parseDone,
-  parseInstanceDetail, parseTasks, toNodeStates, toTimeline, typeLabel,
+  parseInstanceDetail, parseTasks, ResponseShapeError, toNodeStates, toTimeline, typeLabel,
   type InstanceDetail,
 } from './data';
 
@@ -26,13 +26,24 @@ describe('parseTasks', () => {
     });
   });
 
-  it('空态与缺 list 都返回空数组（不抛异常）', () => {
+  it('合法空列表 → 空数组（确实没有待办）', () => {
     expect(parseTasks({ list: [] })).toEqual([]);
-    expect(parseTasks({})).toEqual([]);
-    expect(parseTasks(null)).toEqual([]);
   });
 
-  it('过滤掉 taskId 为空的脏数据', () => {
+  it('🔴 缺少 list → 抛 ResponseShapeError（不能伪装成「无待办」）', () => {
+    // 后端契约改动 / 网关返回 HTML 错误页 / 502 —— 都必须暴露为加载失败
+    expect(() => parseTasks({})).toThrow(ResponseShapeError);
+    expect(() => parseTasks(null)).toThrow(ResponseShapeError);
+    expect(() => parseTasks('<html>502 Bad Gateway</html>')).toThrow(ResponseShapeError);
+  });
+
+  it('🔴 list:[null] → 抛 ResponseShapeError（不能抛裸 TypeError）', () => {
+    expect(() => parseTasks({ list: [null] })).toThrow(ResponseShapeError);
+    expect(() => parseTasks({ list: [{ taskId: 'ok' }, null] })).toThrow(ResponseShapeError);
+    expect(() => parseTasks({ list: ['str'] })).toThrow(ResponseShapeError);
+  });
+
+  it('过滤掉 taskId 为空的脏数据（行级容错）', () => {
     const raw = { list: [{ taskId: '', instanceId: 'i1' }, { taskId: 't2', instanceId: 'i2' }] };
     expect(parseTasks(raw)).toHaveLength(1);
     expect(parseTasks(raw)[0].taskId).toBe('t2');
@@ -68,6 +79,8 @@ describe('parseDone', () => {
 
   it('空态', () => {
     expect(parseDone({ list: [], total: 0 })).toEqual({ list: [], total: 0 });
+    // 缺 list 现在属损坏响应（不再静默当空）
+    expect(() => parseDone({})).toThrow(ResponseShapeError);
   });
 });
 
@@ -99,7 +112,7 @@ describe('parseInstanceDetail', () => {
 
 describe('toNodeStates（节点着色）', () => {
   const base: InstanceDetail = {
-    instanceId: 'i1', modelId: 1, recordId: 1, flowDefId: 24, status: 'RUNNING',
+    instanceId: 'i1', modelId: 1, recordId: 1, flowDefId: 24, flowDefVersion: 3, status: 'RUNNING',
     startedBy: 1, startedAt: '', tasks: [],
     history: [
       { activityId: 'start_1', activityName: null, activityType: 'startEvent',
@@ -131,7 +144,7 @@ describe('toNodeStates（节点着色）', () => {
 
 describe('toTimeline', () => {
   const detail: InstanceDetail = {
-    instanceId: 'i1', modelId: 1, recordId: 1, flowDefId: 24, status: 'RUNNING',
+    instanceId: 'i1', modelId: 1, recordId: 1, flowDefId: 24, flowDefVersion: 3, status: 'RUNNING',
     startedBy: 1, startedAt: '', tasks: [],
     history: [
       { activityId: 'start_1', activityName: null, activityType: 'startEvent',

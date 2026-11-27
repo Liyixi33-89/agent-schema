@@ -11,7 +11,9 @@ import test_gate as gate
 
 
 def report_xml():
-    root = ET.Element('testsuites', tests='3', failures='0', errors='0', skipped='0')
+    # 场景数由 REQUIRED_SMOKE 动态决定（清单随功能增长，硬编码会立刻失效）
+    count = len(gate.REQUIRED_SMOKE)
+    root = ET.Element('testsuites', tests=str(count), failures='0', errors='0', skipped='0')
     for scenario, (filename, project) in gate.REQUIRED_SMOKE.items():
         suite = ET.SubElement(root, 'testsuite', name=filename, hostname=project, tests='1')
         ET.SubElement(suite, 'testcase', name=scenario + ' 场景', classname=filename)
@@ -26,7 +28,7 @@ class ReportGateTest(unittest.TestCase):
             return gate.check_playwright(path, not_before)
 
     def test_valid_report(self):
-        self.assertEqual(self.check(report_xml()), 3)
+        self.assertEqual(self.check(report_xml()), len(gate.REQUIRED_SMOKE))
 
     def test_missing_stale_and_broken_report(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -117,6 +119,31 @@ class CiGateTest(unittest.TestCase):
                 gate.wait_for_ci('owner/repo', self.sha)
         with self.assertRaises(ValueError):
             gate.wait_for_ci('owner/repo', 'master')
+
+
+def test_spec_file_name_tolerates_path_variants():
+    """classname 的路径写法差异不得导致「必跑场景缺失」（2026-11-27 CI 实际问题）。
+
+    Playwright junit reporter 在不同调用方式/平台上给出不同 classname 形态：
+    只有文件名、带 e2e/ 前缀、Windows 反斜杠、带 describe 层级。
+    严格相等会让门禁误报——CI 上 11 条全通过却报「缺失」。
+    """
+    same = gate._same_spec_file
+    expected = 'approval.spec.ts'
+    for variant in (
+        'approval.spec.ts',
+        'e2e/approval.spec.ts',
+        'e2e\\approval.spec.ts',
+        'approval.spec.ts › 审批中心',
+        'e2e/approval.spec.ts › 审批中心 › SMK-APR-01 发起',
+    ):
+        assert same(variant, expected), f'{variant!r} 应识别为 {expected}'
+
+    # 不同文件不得误判为同一文件
+    assert not same('trigger-flow.spec.ts', expected)
+    assert not same('e2e/trigger-flow.spec.ts', expected)
+    assert not same(None, expected)
+    assert not same('', expected)
 
 
 if __name__ == '__main__':

@@ -50,7 +50,17 @@ async function runTriggerFlow(args: {
     try {
       const raw = await client.startFlow(plan.modelId, plan.recordId, plan.flowId);
       const instanceId = parseStartResponse(raw);
-      outcomes.push({ flowId: plan.flowId, ok: true, ...(instanceId ? { instanceId } : {}) });
+      if (instanceId == null) {
+        // 2026-11-27 评审修复：没有 instanceId 说明响应不合契约（网关改写、
+        // 后端降级返回 200+空体等）。记 ok 会让用户以为流程已发起，
+        // 实际审批中心里什么都没有——比明确报错更糟。
+        outcomes.push({
+          flowId: plan.flowId, ok: false, code: 'INVALID_START_RESPONSE',
+          message: '流程发起响应异常（未返回实例 ID），请到审批中心确认是否已发起',
+        });
+        continue;
+      }
+      outcomes.push({ flowId: plan.flowId, ok: true, instanceId });
     } catch (e) {
       const { code, message: msg } = parseError(e);
       outcomes.push({ flowId: plan.flowId, ok: false, code, message: triggerFlowErrorText(code, msg) });
@@ -70,10 +80,21 @@ export default function SchemaFormPage({ client, page, fields, recordId, detailR
 }): React.ReactElement {
   const readOnly = page.type === 'DETAIL';
   // FormStore：构造期破环 + 默认值装载 + 初始 effect 求值（M7 三轮收口后行为）
-  const store = useMemo(() => new FormStore({
-    fields,
-    uniqueChecker: (fieldKey, value) => client.uniqueCheck(page.modelId!, fieldKey, value, recordId),
-  }), [client, page.modelId, recordId, fields]);
+  // 编辑态初值在**构造期**装载（2026-11-27 评审修复）：
+  // 原实现在 render 主体里 `if (detailRow) store.setValues(detailRow)`，
+  // 每次重渲染都会执行——提交中/错误状态变化时把用户正在编辑的内容覆盖回详情原值。
+  // 放进 useMemo 后只在 store 重建（切换记录）时装载一次。
+  const store = useMemo(() => {
+    const s = new FormStore({
+      fields,
+      uniqueChecker: (fieldKey, value) => client.uniqueCheck(page.modelId!, fieldKey, value, recordId),
+    });
+    if (detailRow) {
+      s.setValues(detailRow);
+      s.refreshEffects();
+    }
+    return s;
+  }, [client, page.modelId, recordId, fields, detailRow]);
 
   const debounced = useMemo(
     () => new DebouncedUniqueChecker((k, v) => client.uniqueCheck(page.modelId!, k, v, recordId)),
@@ -82,6 +103,15 @@ export default function SchemaFormPage({ client, page, fields, recordId, detailR
   useEffect(() => () => debounced.cancelAll(), [debounced]);
 
   const guard = useRef(new SubmitGuard());
+
+  /**
+   * 本次会话中已创建的记录 id（2026-11-27 评审修复）。
+   *
+   * 场景：新建提交成功、但 TRIGGER_FLOW 发起失败（如流程未发布）。
+   * 用户修好问题再点提交——原实现会再 create 一条，产生重复业务记录。
+   * 记住首次创建成功的 id，后续提交走 update，只重试「保存+发起」而非重复插入。
+   */
+  const createdRecordIdRef = useRef<string | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
   // 错误汇总（M16 静默拦截修复）：布局外必填字段无法在页面上标红——
   // 在顶部汇总区明确列出字段名与提示，用户看得到拦截原因。
@@ -89,12 +119,6 @@ export default function SchemaFormPage({ client, page, fields, recordId, detailR
     { fieldKey: string; message: string; inLayout: boolean }[] | null
   >(null);
   const [submitting, setSubmitting] = useState(false);
-  // 编辑态初值（M16 竞态修复）：detailRow 由外层装载链一并拉取传入，
-  // 构造期直接装载进 store——取代原先组件内异步回填 effect。
-  if (detailRow) {
-    store.setValues(detailRow);
-    store.refreshEffects();
-  }
 
   // M14 页面脚本（08FE §4.3 调度点）：onLoad 挂载完成 / beforeSubmit·afterSubmit 提交前后
   const scripts = useScriptHooks({ page, store, client, recordId });
@@ -205,16 +229,34 @@ export default function SchemaFormPage({ client, page, fields, recordId, detailR
     try {
       // beforeSubmit 返回 false 阻断提交；超时按「不阻断」放行（08FE §4.3 韧性原则）
       const payload = { record: Object.fromEntries([...store.fields.keys()].map((k) => [k, store.get(k)])) };
-      const submittedData = payload.record;
       const pre = await scripts.beforeSubmit(payload);
       if (pre.ok && pre.value === false) {
         setGlobalError('提交被脚本阻断（beforeSubmit）');
         return;
       }
+      /**
+       * 真正要提交的数据（2026-11-27 评审修复）。
+       *
+       * 原实现在 beforeSubmit **之前**就把 store 快照存进 submittedData，
+       * 脚本钩子若改了字段（常见：自动填单号、补默认值），
+       * TRIGGER_FLOW 的 bizKeyFrom 仍按**旧值**解析——流程绑错记录。
+       * 现在在钩子之后重新取，与 executeSubmit 实际发出的数据一致。
+       */
+      const submittedData: Record<string, unknown> =
+        Object.fromEntries([...store.fields.keys()].map((k) => [k, store.get(k)]));
+
+      /**
+       * 已创建但流程未成功的记录 id（2026-11-27 评审修复）。
+       *
+       * 新建成功后 TRIGGER_FLOW 失败，用户再点提交原本会**又 create 一条**，
+       * 产生重复业务数据。记住上次创建的 id，重提时走 update。
+       * 用 ref 而非 state：避免触发重渲染，且提交路径读取时总是最新值。
+       */
+      const effectiveRecordId = recordId ?? createdRecordIdRef.current ?? undefined;
       const transport: SubmitTransport = {
-        submit: (payload) => recordId != null
-          ? client.update(page.modelId!, recordId, payload)
-          : client.create(page.modelId!, payload),
+        submit: (p) => effectiveRecordId != null
+          ? client.update(page.modelId!, effectiveRecordId, p)
+          : client.create(page.modelId!, p),
       };
       const submitAction = page.actions.find((a) => a.type === 'SUBMIT') as
         | { type: 'SUBMIT'; successBehavior: 'REFRESH' | 'REDIRECT' | 'TOAST'; redirectTo?: string }
@@ -268,21 +310,40 @@ export default function SchemaFormPage({ client, page, fields, recordId, detailR
       }
       store.publishErrors({});
 
+      // 记住本次落库的记录 id（新建才有）：流程失败后用户重提时走 update 而非再 create，
+      // 避免产生重复业务记录（2026-11-27 评审修复）。
+      const savedId = (result.serverResponse as { id?: unknown } | null)?.id;
+      if (effectiveRecordId == null && savedId != null && `${savedId}` !== '') {
+        createdRecordIdRef.current = String(savedId);
+      }
+
       // TRIGGER_FLOW（spec 022 T4）：提交成功后才发起流程。
       // 顺序要求：必须在 afterSubmit 之前——脚本钩子与流程发起都要看到「记录已落库」；
       // 且发起结果要能在页面卸载前呈现（onSubmitted 会触发刷新）。
       const dispatchNote = await runTriggerFlow({
-        client, page, recordId, serverResponse: result.serverResponse, submittedData,
+        client, page,
+        // 用本次实际落库的 id（新建场景 result.serverResponse.id），
+        // 否则 planTriggerFlow 拿不到 recordId 会 skip。
+        recordId: effectiveRecordId ?? savedId as string | undefined,
+        serverResponse: result.serverResponse, submittedData,
       });
       if (dispatchNote != null) {
         // 失败的提示先落状态：onSubmitted 若立即刷新，用户也已看到错误（message 是全局浮层）
         message.open({ type: dispatchNote.type, content: dispatchNote.message, duration: 6 });
       }
 
-      // afterSubmit 等待钩子完成再回调宿主（onSubmitted 常触发刷新/跳转——提前回调会卸载
-      // 页面中断钩子执行；钩子失败/超时按「不阻断」韧性原则放行成功路径）
-      void scripts.afterSubmit({ ...payload, result: { successBehavior: result.successBehavior } })
-        .finally(() => onSubmitted?.());
+      // afterSubmit 完成后才回调宿主（onSubmitted 常触发刷新/跳转——提前回调会卸载
+      // 页面中断钩子执行；钩子失败/超时按「不阻断」韧性原则放行成功路径）。
+      //
+      // 2026-11-27 评审修复：原先用 `void ...finally()` 不等待，外层 finally 立刻
+      // guard.leave() —— 脚本还在跑时用户就能再点提交（重复提交、afterSubmit 拿到
+      // 半截状态）。改为 await，锁的持有范围与「一次完整提交」对齐。
+      try {
+        await scripts.afterSubmit({ ...payload, result: { successBehavior: result.successBehavior } });
+      } catch {
+        // 钩子失败不阻断成功路径（韧性原则）——但已完成的业务流程不回滚
+      }
+      onSubmitted?.();
     } catch (e) {
       setGlobalError(e instanceof Error ? e.message : String(e));
     } finally {

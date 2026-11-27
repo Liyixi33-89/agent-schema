@@ -53,6 +53,8 @@ public class FlowInstanceService {
     private final FlowExecutionEngine engine;
     private final ApproverResolver.OrgQueryPort org;
     private final FlowNotifyPort notify;
+    /** 业务记录访问校验（2026-11-27 授权缺口修复）；bootstrap 必须装配真实实现。 */
+    private final RecordAccessPort recordAccess;
 
     /**
      * 通知端口是**可选依赖**（T7）。
@@ -65,26 +67,36 @@ public class FlowInstanceService {
     @org.springframework.beans.factory.annotation.Autowired
     public FlowInstanceService(FlowDefinitionRepository defRepo, FlowInstanceRepository instRepo,
             FlowExecutionEngine engine, ApproverResolver.OrgQueryPort org,
-            org.springframework.beans.factory.ObjectProvider<FlowNotifyPort> notifyProvider) {
+            org.springframework.beans.factory.ObjectProvider<FlowNotifyPort> notifyProvider,
+            org.springframework.beans.factory.ObjectProvider<RecordAccessPort> recordAccessProvider) {
         FlowNotifyPort provided = notifyProvider.getIfAvailable();
+        RecordAccessPort access = recordAccessProvider.getIfAvailable();
         this.defRepo = defRepo;
         this.instRepo = instRepo;
         this.engine = engine;
         this.org = org;
         this.notify = provided != null ? provided
                 : new com.schema.flow.infrastructure.NoopFlowNotifyPort();
+        // 未装配时降级为 ALLOW_ALL，但会打 WARN——生产缺装配必须可见，
+        // 由 RecordAccessPortWiringTest 断言 bean 存在兜底（不能靠日志）。
+        if (access == null) {
+            log.warn("RecordAccessPort 未装配：流程发起/详情将跳过记录级授权校验"
+                    + "（仅限本模块单测；生产必须是 RecordAccessAdapter）");
+        }
+        this.recordAccess = access != null ? access : RecordAccessPort.ALLOW_ALL;
     }
 
     /** 唯一具体构造器（构造器只有一个 @Autowired 版本，此处为包私有实现细节）。 */
     private FlowInstanceService(FlowDefinitionRepository defRepo, FlowInstanceRepository instRepo,
             FlowExecutionEngine engine, ApproverResolver.OrgQueryPort org, Void ignored,
-            FlowNotifyPort notify) {
+            FlowNotifyPort notify, RecordAccessPort recordAccess) {
         this.defRepo = defRepo;
         this.instRepo = instRepo;
         this.engine = engine;
         this.org = org;
         this.notify = notify != null ? notify
                 : new com.schema.flow.infrastructure.NoopFlowNotifyPort();
+        this.recordAccess = recordAccess != null ? recordAccess : RecordAccessPort.ALLOW_ALL;
     }
 
     /**
@@ -98,14 +110,28 @@ public class FlowInstanceService {
             FlowInstanceRepository instRepo, FlowExecutionEngine engine,
             ApproverResolver.OrgQueryPort org) {
         return new FlowInstanceService(defRepo, instRepo, engine, org, null,
-                new com.schema.flow.infrastructure.NoopFlowNotifyPort());
+                new com.schema.flow.infrastructure.NoopFlowNotifyPort(),
+                RecordAccessPort.ALLOW_ALL);
     }
 
     /** 单测工厂（带通知桩，用于断言「发了什么通知」）。 */
     static FlowInstanceService forTest(FlowDefinitionRepository defRepo,
             FlowInstanceRepository instRepo, FlowExecutionEngine engine,
             ApproverResolver.OrgQueryPort org, FlowNotifyPort notify) {
-        return new FlowInstanceService(defRepo, instRepo, engine, org, null, notify);
+        return new FlowInstanceService(defRepo, instRepo, engine, org, null, notify,
+                RecordAccessPort.ALLOW_ALL);
+    }
+
+    /**
+     * 单测工厂（带记录访问桩）。
+     *
+     * 授权缺口修复（2026-11-27）后新增：只有用它才能断言
+     * 「同租户不同用户」被拒绝的边界（管理员自审批 E2E 证明不了这个）。
+     */
+    static FlowInstanceService forTest(FlowDefinitionRepository defRepo,
+            FlowInstanceRepository instRepo, FlowExecutionEngine engine,
+            ApproverResolver.OrgQueryPort org, FlowNotifyPort notify, RecordAccessPort recordAccess) {
+        return new FlowInstanceService(defRepo, instRepo, engine, org, null, notify, recordAccess);
     }
 
     /**
@@ -129,6 +155,11 @@ public class FlowInstanceService {
             throw new BizException(FlowErrors.FLOW_DEF_NOT_PUBLISHED,
                     "流程引擎未启用，无法发起实例");
         }
+
+        // 记录级授权（2026-11-27 缺口修复）：租户校验只回答「流程定义属于谁」，
+        // 不回答「这条业务记录你能不能碰」。缺这一步，同租户任意用户可对
+        // 别人的记录发起流程——甚至对不存在的记录发起（凭空造实例）。
+        assertRecordAccessible(t, modelId, recordId, "发起流程");
 
         FlowSchema schema = FlowSchemaMapper.fromJson(String.valueOf(def.get("flow_schema")));
         String processKey = String.valueOf(def.get("flow_key"));
@@ -158,6 +189,18 @@ public class FlowInstanceService {
 
         // 审批人解析为空 → BLOCK：挂起实例（A9）
         blockIfNoAssignee(schema, t, instanceId);
+
+        // 记录执行版本（2026-11-27 评审修复）：flow_schema 是可覆盖的草稿，
+        // 不记版本的话审批中心渲染旧实例会配上新图。失败不影响发起主流程。
+        try {
+            Object defVersion = def.get("version");
+            if (defVersion instanceof Number n) {
+                instRepo.recordDefVersion(t.tenantId(), instanceId, n.intValue());
+            }
+        } catch (RuntimeException e) {
+            log.warn("记录流程定义版本失败 instance={} def={}——实例可用但详情将标注版本未知",
+                    instanceId, flowDefId, e);
+        }
 
         // T7：待办通知（A9 挂起时 blockIfNoAssignee 内部已决定不发——无受理人可通知）
         notifyTodo(schema, def, t, instanceId, modelId, recordId);
@@ -365,6 +408,11 @@ public class FlowInstanceService {
                 .orElseThrow(() -> new BizException(FlowErrors.INSTANCE_NOT_FOUND,
                         "实例不存在: " + instanceId));
 
+        // 可见性（2026-11-27 缺口修复）：租户过滤只能保证「不同租户互相看不到」，
+        // 同租户内任意用户原本可读到别人的实例、审批意见与完整轨迹。
+        // 三类人可见：发起人 / 审批参与者（含已办） / 有该记录数据权限的管理者。
+        assertInstanceVisible(t, bind, instanceId);
+
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("instanceId", instanceId);
         out.put("modelId", bind.get("model_id"));
@@ -372,6 +420,10 @@ public class FlowInstanceService {
         // flowDefId：审批中心据此拉流程定义渲染画布（T3 实例着色需要节点集合）。
         // 此前遗漏该字段导致前端只能显示轨迹、无法画图。
         out.put("flowDefId", bind.get("flow_def_id"));
+        // 实例执行时的定义版本（2026-11-27 评审修复）：前端据此判断
+        // 「当前 schema 是否就是实例执行的版本」，不一致时明确标注而非假装准确。
+        // 存量实例为 NULL（迁移前无记录）——前端显示「版本未知」。
+        out.put("flowDefVersion", bind.get("flow_def_version"));
         out.put("status", bind.get("status"));
         out.put("startedBy", bind.get("started_by"));
         out.put("startedAt", bind.get("started_at"));
@@ -381,6 +433,79 @@ public class FlowInstanceService {
     }
 
     // ---------- helpers ----------
+
+    /**
+     * 记录级授权闸（2026-11-27 授权缺口修复）。
+     *
+     * 拒绝时统一抛 {@code FORBIDDEN}——不区分「记录不存在」与「无权限」，
+     * 避免通过错误码差异探测他人记录是否存在（IDOR 信息泄露）。
+     */
+    private void assertRecordAccessible(TenantInfo t, long modelId, long recordId, String action) {
+        boolean ok;
+        try {
+            ok = recordAccess.canAccess(t.tenantId(), t.operatorId(), modelId, recordId);
+        } catch (RuntimeException e) {
+            // 授权判定本身出错时**拒绝**（fail-closed）：宁可业务失败，
+            // 也不能因为权限服务抖动而放行越权操作。
+            log.error("记录授权判定失败 model={} record={} operator={}——按拒绝处理",
+                    modelId, recordId, t.operatorId(), e);
+            ok = false;
+        }
+        if (!ok) {
+            throw new BizException(FlowErrors.FORBIDDEN,
+                    "无权" + action + "：业务记录不可访问",
+                    Map.of("modelId", modelId, "recordId", recordId));
+        }
+    }
+
+    /**
+     * 实例可见性闸（2026-11-27 授权缺口修复）。
+     *
+     * 三类人可见：
+     * 1. 发起人（看自己的流程进度）
+     * 2. 审批参与者（在 flow_task_log 里有操作记录，含已办回看）
+     * 3. 对该业务记录有数据权限的人（管理者/同部门等，复用记录授权端口）
+     *
+     * 其余同租户用户一律拒绝。
+     */
+    private void assertInstanceVisible(TenantInfo t, Map<String, Object> bind, String instanceId) {
+        long operatorId = t.operatorId();
+
+        // ① 发起人
+        Object startedBy = bind.get("started_by");
+        if (startedBy != null && String.valueOf(operatorId).equals(String.valueOf(startedBy))) {
+            return;
+        }
+
+        // ② 审批参与者（办理过的）
+        List<Map<String, Object>> logs = instRepo.listTaskLogs(t.tenantId(), instanceId);
+        for (Map<String, Object> logEntry : logs) {
+            Object op = logEntry.get("operator_id");
+            if (op != null && String.valueOf(operatorId).equals(String.valueOf(op))) {
+                return;
+            }
+        }
+
+        // ③ 业务记录有数据权限（管理者可见下属/部门的数据）
+        Object modelId = bind.get("model_id");
+        Object recordId = bind.get("record_id");
+        if (modelId != null && recordId != null) {
+            try {
+                if (recordAccess.canAccess(t.tenantId(), operatorId,
+                        Long.parseLong(String.valueOf(modelId)),
+                        Long.parseLong(String.valueOf(recordId)))) {
+                    return;
+                }
+            } catch (RuntimeException e) {
+                log.error("实例可见性判定失败 instance={} operator={}——按拒绝处理",
+                        instanceId, operatorId, e);
+            }
+        }
+
+        throw new BizException(FlowErrors.FORBIDDEN,
+                "无权查看该流程实例",
+                Map.of("instanceId", instanceId));
+    }
 
     /**
      * 首个审批节点解析为空 → 挂起 + 告警（A9）。

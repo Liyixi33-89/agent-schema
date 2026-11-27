@@ -8,10 +8,47 @@ import time
 import xml.etree.ElementTree as ET
 
 REQUIRED_SMOKE = {
+    # 三条原始场景：三个应用各自的「打开即能用」底线
     'SMK-DES-01': ('designer.smoke.spec.ts', 'designer'),
     'SMK-RUN-01': ('runtime.smoke.spec.ts', 'runtime'),
     'SMK-ADM-01': ('admin-console.smoke.spec.ts', 'admin-console'),
+    # 流程编辑器（spec 022 T1/T2）：建流程 → 保存 → 发布 主链路
+    'SMK-FLOW-01': ('flow-editor.spec.ts', 'flow-editor'),
+    # 发布前置自检（审批人为空时禁用发布）——防「带病发布」
+    'SMK-FLOW-02': ('flow-editor.spec.ts', 'flow-editor'),
+    # 删除节点连带删边——防悬空边导致流程引擎启动失败
+    'SMK-FLOW-03': ('flow-editor.spec.ts', 'flow-editor'),
+    # 审批中心（spec 022 T3）：发起 → 待办 → 详情 → 办理 → 已办 全闭环
+    'SMK-APR-01': ('approval.spec.ts', 'approval'),
+    # 驳回必须填意见（前端拦截）
+    'SMK-APR-02': ('approval.spec.ts', 'approval'),
+    # TRIGGER_FLOW 动作消费（spec 022 T4）：提交后自动发起流程
+    'SMK-TRF-01': ('trigger-flow.spec.ts', 'approval'),
+    # A7 零行为回归：未配置 TRIGGER_FLOW 的表单提交后不得发起任何流程
+    'SMK-TRF-02': ('trigger-flow.spec.ts', 'approval'),
+    # A7 错误矩阵：重复发起被 INSTANCE_ALREADY_RUNNING 拦截
+    'SMK-TRF-03': ('trigger-flow.spec.ts', 'approval'),
 }
+
+
+def _same_spec_file(classname, expected):
+    """报告里的 classname 是否就是清单声明的测试文件。
+
+    Playwright 的 junit reporter 在不同调用方式下 classname 形态不同：
+      - `approval.spec.ts`（只给文件名）
+      - `e2e/approval.spec.ts`（带目录）
+      - `e2e\\approval.spec.ts`（Windows 分隔符）
+      - `approval.spec.ts › 审批中心 › SMK-APR-01 …`（带 describe 层级）
+
+    严格相等会让门禁因「路径写法不同」误报缺失——2026-11-27 CI 就因此
+    报「必跑场景缺失」而实际 11 条全通过。这里按「末段文件名相同」判定。
+    """
+    if classname is None:
+        return False
+    # 取第一段（去掉 describe 层级），再取路径末段
+    head = str(classname).split('›')[0].strip()
+    tail = re.split(r'[/\\]', head)[-1].strip()
+    return tail == expected
 
 
 def check_playwright(path, not_before=None):
@@ -44,19 +81,40 @@ def check_playwright(path, not_before=None):
         for case in suite.findall('testcase'):
             if any(case.find(tag) is not None for tag in ('failure', 'error', 'skipped')):
                 raise ValueError(f'场景未通过: {case.get("name")}')
-            match = re.match(r'^(SMK-[A-Z]+-\d+)(?:\s|$)', case.get('name', ''))
-            if not match or match[1] not in REQUIRED_SMOKE:
+            # 场景 ID 可能出现在用例名任意位置：
+            #   未嵌套 describe → 'SMK-DES-01 登录后…'
+            #   有 describe     → '审批中心 › SMK-APR-01 发起…'  ← 2026-11-27 CI 漏判的原因
+            # 用非锚定匹配，取第一个出现的场景 ID。
+            match = re.search(r'(SMK-[A-Z]+-\d+)', case.get('name', ''))
+            if not match or match.group(1) not in REQUIRED_SMOKE:
                 continue
-            scenario = match[1]
+            scenario = match.group(1)
             if scenario in found:
                 raise ValueError(f'重复必跑场景: {scenario}')
             file_name, project = REQUIRED_SMOKE[scenario]
-            if case.get('classname') != file_name or suite.get('hostname') != project:
-                raise ValueError(f'必跑场景项目或文件不匹配: {scenario}')
+            if not _same_spec_file(case.get('classname'), file_name):
+                raise ValueError(
+                    f'必跑场景项目或文件不匹配: {scenario}'
+                    f'（清单: {file_name}，报告: {case.get("classname")!r}）')
+            if suite.get('hostname') != project:
+                raise ValueError(
+                    f'必跑场景项目不匹配: {scenario}'
+                    f'（清单: {project}，报告: {suite.get("hostname")!r}）')
             found[scenario] = True
     missing = REQUIRED_SMOKE.keys() - found.keys()
     if missing:
-        raise ValueError('必跑场景缺失: ' + ', '.join(sorted(missing)))
+        # 诊断：列出报告里实际识别到的场景与每个 suite 的 hostname/name，
+        # 让「缺了什么 + 报告长什么样」同时可见。
+        seen = []
+        for suite in suites:
+            names = [c.get('name', '')[:40] for c in suite.findall('testcase')]
+            seen.append(f'  suite name={suite.get("name")!r} '
+                        f'hostname={suite.get("hostname")!r} cases={names}')
+        detail = '\n'.join(seen) if seen else '  （报告无任何 testsuite）'
+        raise ValueError(
+            '必跑场景缺失: ' + ', '.join(sorted(missing))
+            + '\n报告实际内容:\n' + detail
+            + '\n已识别到的场景: ' + (', '.join(sorted(found)) or '（无）'))
     return len(cases)
 
 

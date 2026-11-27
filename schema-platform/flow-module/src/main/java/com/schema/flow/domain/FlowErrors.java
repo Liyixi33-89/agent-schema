@@ -31,6 +31,14 @@ public final class FlowErrors {
     public static final String TASK_NOT_FOUND = "TASK_NOT_FOUND";
     /** 定义版本冲突（草稿 baseVersion 过期）。 */
     public static final String VERSION_CONFLICT = "FLOW_VERSION_CONFLICT";
+
+    /**
+     * 资源级授权失败（2026-11-27 授权缺口修复）。
+     *
+     * 发起流程与查看实例都要校验「这条业务记录/实例你能碰吗」。
+     * 与「记录不存在」共用同一码，避免用错误码差异探测他人数据是否存在。
+     */
+    public static final String FORBIDDEN = "FORBIDDEN";
     /** FlowSchema 结构非法（复用前端 validateFlowSchema 语义后的服务端兜底）。 */
     public static final String SCHEMA_INVALID = "FLOW_SCHEMA_INVALID";
     /** 转办等本期未实现能力（契约占位）。 */
