@@ -309,6 +309,14 @@ case "${1:-}" in
     ingest)   shift; cmd_ingest "$@" ;;
     switch)   shift; cmd_switch "$@" ;;
     rollback) shift; cmd_rollback "$@" ;;
+    # 数据权限预检（2026-11-27）：由 deploy 经白名单调用，root 身份执行。
+    # 只读；退出码 0=通过 / 1=strict 发现缺范围 / 2=预检不可用。
+    # 脚本固定在 root 属主目录，**不接受**「执行哪个脚本」的参数——
+    # 否则这个白名单入口就变成「root 执行任意代码」。
+    datascope-check)
+        shift
+        exec /usr/local/sbin/schema-datascope-check "$@"
+        ;;
     status)   cmd_status ;;
     *) sed -n '2,20p' "$0"; exit 2 ;;
 esac

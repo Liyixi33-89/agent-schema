@@ -17,7 +17,6 @@
 环境要求：ssh/scp 可用且已配免密；服务器端已安装 scripts/schema-release.sh。
 """
 import argparse
-import base64
 import hashlib
 import json
 import os
@@ -462,78 +461,72 @@ def deploy_prod(head: str, work: Path, backend_jar: Path, web_dir: Path):
 
 
 def datascope_precheck(target: str, strict: bool) -> None:
-    """发布前只读权限预检（2026-11-27 加）。
+    """发布前只读数据权限预检（2026-11-27）。
 
     ## 为什么在发布流程里做
     资源级授权上线后，`ScopeResolver` 对「无任何数据范围授权」的判定是 `1 = 0`
     （默认拒绝，最小权限原则）。而「账号有很多管理员角色」**不**代表有数据范围——
     生产 admin 实测 22 个角色、0 个带范围，上线后 50 个模型的数据全部不可见。
 
-    这类问题在部署后才被发现，代价很高（业务突然不可用）；发布前只读扫描一次
-    就能提前暴露。
+    ## 执行身份：走 root 白名单，不经 deploy 用户的 postgres 权限
+    预检脚本安装在 root 属主目录（/usr/local/sbin），由 sudo 白名单允许的
+    `schema-release.sh datascope-check` 以 **root** 身份调用，内部用
+    `runuser -u postgres` 连库。
+
+    这样 deploy 用户**不需要**任何 `sudo -u postgres` 权限——那会直接扩大攻击面
+    （等同于给部署账号任意库读写能力）。也不接受「执行哪个脚本」的参数，
+    否则白名单入口就变成「root 执行任意代码」。
+
+    ## 判定只看退出码，不解析文案
+      0 = 通过
+      1 = strict 且发现缺范围 → 阻止发布
+      其他（2 / 126 / 超时 / 连接失败…）= 预检不可用 → 阻止发布
+
+    「无法确认」必须等于「拒绝」：用未知风险换部署速度是不可接受的。
+    实测踩过 —— 脚本 Permission denied 退出码 126、库名判断失效导致提前退出，
+    两次都被旧逻辑当成通过，直接部署了生产。
 
     ## 纪律：只读、不自动修
-    缺范围属于**权限决策**，必须由人按模型授予。自动批量补 ALL 会把最小权限
-    变成全员全量，是最危险的做法——因此本函数只打印报告与建议，绝不写库。
-
-    ## 失败策略
-    prod 目标默认 `--strict`（有 NO_SCOPE 账号即中止）；
-    accept 目标只报告不阻断（验收库本就可能有测试账号无范围）。
-    可用 `--skip-datascope-check` 显式跳过（会打印警告），或 `--datascope-strict`
-    在 accept 上也严格。
+    缺范围属于权限决策，必须由人按模型授予。自动批量补 ALL 会把最小权限
+    变成全员全量，是最危险的做法——因此预检只打印报告与建议，绝不写库。
     """
     db = "schema_prod" if target == "prod" else "schema_acceptance"
-    print(f"\n== 数据权限预检（只读）: {db} ==")
-    # ⚠️ 用 base64 传输脚本本体：脚本含 `(null)`、`|`、引号等字符，
-    # 直接拼进 ssh 命令行会被 shell 重新解析（实测在 heredoc 下报
-    # `syntax error near unexpected token '('`）。base64 只含安全字符。
-    local = (ROOT / "scripts" / "datascope-precheck.sh").read_bytes()
-    b64 = base64.b64encode(local).decode("ascii")
+    release_sh = ("/opt/schema/schema-release.sh" if target == "prod"
+                  else "/opt/schema/schema-release-accept.sh")
     strict_arg = " --strict" if strict else ""
-    # 执行方式的三次迭代（都踩过）：
-    #   ① `echo b64 > /tmp/x && chmod +x /tmp/x && /tmp/x`  → /tmp 可能 noexec，Permission denied
-    #   ② `echo b64 | base64 -d | bash -s -- args`         → stdin 被管道占用，
-    #      脚本内的 `sudo -u postgres psql` 读不到终端，静默返回空（误判「库不存在」）
-    #   ③ 最终：写到 **$HOME** 再 bash 执行（不依赖 noexec 目录，也不占 stdin）
-    remote = (
-        f"f=$HOME/.ds-precheck.sh && echo {b64} | base64 -d > $f && "
-        f"bash $f {db}{strict_arg}; rc=$?; rm -f $f; exit $rc"
-    )
+
+    print(f"\n== 数据权限预检（只读）: {db} ==")
+    remote = f"sudo -n /bin/bash {release_sh} datascope-check {db}{strict_arg}"
     try:
-        proc = ssh(remote, check=False, timeout=120)
-    except Exception as e:  # noqa: BLE001 - 预检失败不应掩盖真实部署错误
-        print(f"  预检执行异常（不阻断）: {e}")
-        return
+        proc = ssh(remote, check=False, timeout=180)
+    except SystemExit as e:
+        # ssh 自身异常（超时/连接失败）——预检不可用，拒绝发布
+        raise SystemExit(
+            f"\n数据权限预检无法执行（{db}）：{e}\n"
+            "  预检不可用不等于没有风险——拒绝发布。") from e
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(
+            f"\n数据权限预检无法执行（{db}）：{e}\n"
+            "  预检不可用不等于没有风险——拒绝发布。") from e
+
     out = (proc.stdout or "") + (proc.stderr or "")
     print(out.rstrip())
 
-    # 预检自身失败 → **按失败处理，不放行**。
-    # 「无法确认」不等于「没有问题」：放行等于用未知风险换部署速度。
-    # 判据：任何非 0/1 的退出码都算「预检无法执行」（0=通过, 1=strict 判定失败）。
-    # 实测踩过：脚本 Permission denied 退出码 126，旧逻辑只认 2 → 直接放行部署。
-    if proc.returncode not in (0, 1):
+    if proc.returncode == 0:
+        return
+    if proc.returncode == 1:
         raise SystemExit(
-            f"\n数据权限预检无法执行（{db}，exit={proc.returncode}）。\n"
-            "  预检失败不等于没有风险——拒绝继续。常见原因：\n"
-            "    · 目标库名是否正确\n"
-            "    · 服务器上 sudo -u postgres 是否可用\n"
-            "    · 脚本执行环境（/tmp noexec 等）\n"
-            "  （如确需跳过，用 --skip-datascope-check 显式承担风险）")
-    if "数据库不存在或无法查询" in out:
-        raise SystemExit(
-            f"\n数据权限预检无法执行（{db}）：目标库不存在或不可查询。\n"
-            "  拒绝继续——请先确认库名与数据库可达性。")
-
-    if strict:
-        # ssh(check=False) 不抛异常，这里按输出里的 strict 结论判断
-        if "[--strict] 存在缺范围账号" in out:
-            raise SystemExit(
-                f"\n数据权限预检未通过（{db}）：存在无数据范围的活跃账号。\n"
-                "  这是有意的门禁——资源级授权上线后这些账号将看不到任何业务数据。\n"
-                "  请先按模型授予范围（见上方建议），或明确知情后用\n"
-                "  --skip-datascope-check 跳过本预检。\n"
-                "  ⚠️ 不要为了「让预检通过」而批量补 model_id=0 的 ALL。"
-            )
+            f"\n数据权限预检未通过（{db}）：存在无数据范围的活跃账号。\n"
+            "  这是有意的门禁——资源级授权上线后这些账号将看不到任何业务数据。\n"
+            "  请先按模型授予范围（见上方建议）。\n"
+            "  ⚠️ 不要为了「让预检通过」而批量补 model_id=0 的 ALL。")
+    raise SystemExit(
+        f"\n数据权限预检无法执行（{db}，exit={proc.returncode}）。\n"
+        "  预检不可用不等于没有风险——拒绝发布。常见原因：\n"
+        "    · 预检脚本未安装到 /usr/local/sbin（root 属主）\n"
+        "    · schema-release.sh 的 datascope-check 子命令未部署\n"
+        "    · sudo 白名单未包含该脚本\n"
+        "  如确需跳过，用 --skip-datascope-check 显式承担风险。")
 
 
 def main():

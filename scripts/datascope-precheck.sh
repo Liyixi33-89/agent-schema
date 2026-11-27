@@ -1,28 +1,25 @@
 #!/usr/bin/env bash
-# 发布前只读权限预检：报告「无有效数据范围」的账号。
+# 发布前只读数据权限预检 —— 由 schema-release.sh 的 datascope-check 子命令调用。
 #
-# ## 为什么需要
-# 2026-11-27 资源级授权上线后，IamDataPermissionAdapter.resolveScopes() 只消费
-# **用户实际持有角色**上的范围；无匹配范围时 ScopeResolver 返回 1 = 0（默认拒绝）。
-# 于是「有很多管理员角色」不等于「能读业务数据」——生产 admin 有 22 个角色但
-# 0 个带范围，上线后 50 个模型的数据全部不可见。
+# ## 执行身份
+# 本脚本由 **root** 执行（经 deploy 的 sudo 白名单允许的 schema-release.sh）。
+# 内部用 runuser -u postgres 连库——因此 deploy 用户**不需要**任何 postgres 权限。
 #
-# ## 纪律：只读，绝不自动修
-# 本脚本只用 SELECT。缺范围属于权限决策，必须由人按模型授予：
-#   · 优先按具体模型授权（model_id=<id>）
-#   · 只有明确需要租户全模型管理时才批准 model_id=0 的通配 ALL
+# ## 为什么不接受任意脚本
+# 预检脚本安装在 root 属主、非 schema 可写的目录（/usr/local/sbin），
+# 且本文件不接收「执行哪个脚本」的参数——避免变成「root 执行任意代码」。
 #
-# ## 用法
-#   bash datascope-precheck.sh <db_name> [--strict]
-#     退出码 0 = 无风险（或未开 strict）
-#            1 = 存在 NO_SCOPE 账号且开了 --strict
-#            2 = 查询失败（库不存在/无法连接）——调用方应视为「无法确认」而拒绝发布
+# ## 目标库白名单
+# 只允许 schema_prod / schema_acceptance。库名不合法直接拒绝（防 SQL 注入与误查）。
 #
-# ## 实现注意（踩过的坑，别改回去）
-# · 分隔符用制表符而非 `|`：`psql -F'|'` 的竖线在函数/命令替换上下文会被
-#   shell 误当管道符（报 syntax error near unexpected token '('）
-# · SQL 走独立 .sql 文件再由 psql -f 执行：heredoc + 函数 + 命令替换三层嵌套时
-#   stdin 传递不可靠（实测表格输出为空），且多行 SQL 里的 '(null)' 极易触发引号问题
+# ## 退出码契约（deploy.py 依据退出码判断，不解析文案）
+#   0 = 预检通过（无 NO_SCOPE 账号，或非 strict 且只有警告）
+#   1 = strict 且存在 NO_SCOPE 账号 → 阻止发布
+#   2 = 预检不可用（库不存在 / 连不上 / SQL 失败 / 参数非法）→ 阻止发布
+#
+# ## 纪律：只读
+# 全部语句为 SELECT。缺数据范围是权限决策，必须由人按模型授予；
+# 自动补 model_id=0 的 ALL 会把最小权限变成全员全量，是最危险的做法。
 
 set -uo pipefail
 
@@ -30,33 +27,51 @@ DB="${1:-}"
 STRICT=0
 if [ "${2:-}" = "--strict" ]; then STRICT=1; fi
 
-if [ -z "$DB" ]; then
-  echo "用法: $0 <db_name> [--strict]" >&2
+# ---- 目标库白名单 ----
+case "$DB" in
+  schema_prod|schema_acceptance) : ;;
+  *)
+    echo "[datascope-precheck] 目标库不在白名单（仅允许 schema_prod / schema_acceptance）: ${DB:-<空>}" >&2
+    exit 2
+    ;;
+esac
+
+if [ "$(id -u)" != "0" ]; then
+  echo "[datascope-precheck] 必须以 root 执行（由 schema-release.sh 白名单调用）" >&2
   exit 2
 fi
 
-# sudo -u postgres 读不到当前目录（root 700）时会打印干扰行——切到 /tmp
+# runuser 不继承 cwd 问题（postgres 读不到 root 的目录会打印干扰行）
 cd /tmp || exit 2
 
-# 库存在性（查不到 ≠ 没问题，必须区分）
-exists=$(sudo -u postgres psql -t -A -d postgres 2>/dev/null \
-  -c "SELECT 1 FROM pg_database WHERE datname = '$DB'")
-if [ "$exists" != "1" ]; then
-  echo "[datascope-precheck] 数据库不存在或无法查询: $DB" >&2
+# 统一的只读查询入口：参数是 SQL 文本。
+# ⚠️ 不吞 stderr：SQL 错误必须可见（曾被 2>/dev/null 伪装成「无数据」，多花数轮排查）。
+# ⚠️ 校验退出码：非 0 一律按「预检不可用」返回，绝不把错误文本当数据。
+ro() {
+  local sql="$1" out rc
+  out=$(runuser -u postgres -- psql -d "$DB" -t -A -F "$(printf '\t')" -c "$sql" 2>&1)
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    echo "[datascope-precheck] SQL 执行失败（db=$DB, rc=$rc）:" >&2
+    printf '%s\n' "$out" | sed 's/^/  /' >&2
+    return 2
+  fi
+  printf '%s\n' "$out"
+  return 0
+}
+
+echo "[datascope-precheck] 目标库: $DB (strict=$STRICT)"
+
+# ---- 0. 库存在 ----
+if ! ro "SELECT 1 FROM pg_database WHERE datname = '$DB'" | grep -qx '1'; then
+  echo "[datascope-precheck] 数据库不存在或不可查询: $DB" >&2
   exit 2
 fi
 
-echo "[datascope-precheck] 目标库: $DB"
-
-# 把三段查询写成临时 SQL 文件，逐段 psql -f 执行（避免任何 shell 解析）
-# SQL 文本（变量承载，经 -c 传入）。内部只用单引号字面量，无双引号——
-# 与 -c "$SQL" 的双引号包裹不冲突。
-# 字段间用 E'\\t'（SQL 层拼制表符），下游 read 用 $'\\t' 对齐。
-# 注意：SELECT 出 **4 个独立列**（由 psql -F 制表符分隔），
-# **不要**把它们 `|| E'\t' ||` 拼成一个字段——那样 ORDER BY 4 会指向
-# 不存在的列，PostgreSQL 报 "ORDER BY position 4 is not in select list"，
-# 而 2>/dev/null 会把错误吞掉，表现为「查询失败或无活跃账号」。
-SQL_ACCOUNTS=$(cat <<'SQL'
+# ---- 1. 账号有效数据范围 ----
+# 4 个独立列（psql -F 制表符分隔）。**不要**拼成一个字段——
+# 那样 ORDER BY 4 会指向不存在的列（PostgreSQL 报错），且错误易被忽略。
+SQL_ACCOUNTS="
 SELECT u.account,
        count(DISTINCT ur.role_id),
        count(DISTINCT s.role_id),
@@ -68,55 +83,41 @@ LEFT JOIN sys_user_role ur      ON ur.user_id = u.id
 LEFT JOIN sys_role_data_scope s ON s.role_id  = ur.role_id
 WHERE u.status = 'ACTIVE'
 GROUP BY u.account
-ORDER BY 4 DESC, u.account
-SQL
-)
+ORDER BY 4 DESC, u.account"
 
-SQL_MODELS=$(cat <<'SQL'
-SELECT count(*) FROM meta_model
-SQL
-)
-
-# 同样输出独立列（见上：拼接会让列变成 1 个，任何按位置引用都会失效）
-SQL_SCOPES=$(cat <<'SQL'
-SELECT r.code, r.tenant_id, s.model_id, s.scope_type, COALESCE(s.scope_expr, '-')
-FROM sys_role_data_scope s JOIN sys_role r ON r.id = s.role_id
-ORDER BY r.code, s.model_id
-SQL
-)
-
-run_sql() {
-  # SQL 经 -c 传入（不用 -f 临时文件：sudo 切用户后可能读不到 mktemp 目录）。
-  # ⚠️ 不要 2>/dev/null 吞掉 stderr：SQL 错误会被伪装成「查询失败或无数据」，
-  # 排查时完全看不到真实原因（本轮为此多花了 4 轮）。错误直接透出。
-  sudo -u postgres psql -d "$DB" -t -A -F "$(printf '\t')" -c "$1" 2>&1
-}
+ROWS=$(ro "$SQL_ACCOUNTS") || exit 2
 
 echo ""
 echo "--- 账号有效数据范围 ---"
-ROWS=$(run_sql "$SQL_ACCOUNTS")
 if [ -z "$ROWS" ]; then
-  echo "  查询失败或无活跃账号" >&2
-  exit 2
+  echo "  （无活跃账号）"
+else
+  while IFS=$'\t' read -r account roles scopes verdict; do
+    [ -z "${account:-}" ] && continue
+    case "$verdict" in
+      NO_SCOPE) mark='  [WARN]' ;;
+      ALL)      mark='  [ OK ]' ;;
+      *)        mark='  [ .. ]' ;;
+    esac
+    printf '%s %-24s roles=%-4s with_scope=%-4s %s\n' "$mark" "$account" "$roles" "$scopes" "$verdict"
+  done <<< "$ROWS"
 fi
-while IFS=$'\t' read -r account roles scopes verdict; do
-  [ -z "${account:-}" ] && continue
-  case "$verdict" in
-    NO_SCOPE) mark='  [WARN]' ;;
-    ALL)      mark='  [ OK ]' ;;
-    *)        mark='  [ .. ]' ;;
-  esac
-  printf '%s %-24s roles=%-4s with_scope=%-4s %s\n' "$mark" "$account" "$roles" "$scopes" "$verdict"
-done <<< "$ROWS"
-echo ""
 
-MODELS=$(run_sql "$SQL_MODELS")
+# ---- 2. 影响面 ----
+MODELS=$(ro "SELECT count(*) FROM meta_model") || exit 2
+echo ""
 echo "--- 影响面 ---"
 echo "  未删除模型数: ${MODELS:-未知}（NO_SCOPE 账号对这些模型的数据一律 1=0 不可见）"
-echo ""
 
+# ---- 3. 现有范围记录 ----
+SQL_SCOPES="
+SELECT r.code, r.tenant_id, s.model_id, s.scope_type, COALESCE(s.scope_expr, '-')
+FROM sys_role_data_scope s JOIN sys_role r ON r.id = s.role_id
+ORDER BY r.code, s.model_id"
+SCOPES=$(ro "$SQL_SCOPES") || exit 2
+
+echo ""
 echo "--- 现有数据范围记录 ---"
-SCOPES=$(run_sql "$SQL_SCOPES")
 if [ -z "$SCOPES" ]; then
   echo "  （无任何数据范围记录）"
 else
@@ -129,10 +130,11 @@ else
     fi
   done <<< "$SCOPES"
 fi
-echo ""
 
+# ---- 4. 结论 ----
 NO_SCOPE_COUNT=$(printf '%s\n' "$ROWS" | grep -c 'NO_SCOPE$' || true)
 
+echo ""
 echo "--- 结论 ---"
 if [ "${NO_SCOPE_COUNT:-0}" -eq 0 ]; then
   echo "  [OK] 所有活跃账号均有数据范围"
@@ -153,7 +155,7 @@ echo "    5) 保留一个无授权账号做拒绝对照（证明限制真实生�
 
 if [ "$STRICT" -eq 1 ]; then
   echo ""
-  echo "  [--strict] 存在缺范围账号 -> 退出码 1"
+  echo "  [--strict] 存在缺范围账号 -> 退出码 1（阻止发布）"
   exit 1
 fi
 exit 0
