@@ -17,6 +17,7 @@
 环境要求：ssh/scp 可用且已配免密；服务器端已安装 scripts/schema-release.sh。
 """
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -483,16 +484,35 @@ def datascope_precheck(target: str, strict: bool) -> None:
     """
     db = "schema_prod" if target == "prod" else "schema_acceptance"
     print(f"\n== 数据权限预检（只读）: {db} ==")
-    remote = f"bash -s -- {db}" + (" --strict" if strict else "")
-    # 脚本随仓库发布，经 stdin 传入避免在服务器留副本
-    local = (ROOT / "scripts" / "datascope-precheck.sh").read_text(encoding="utf-8")
+    # ⚠️ 用 base64 传输脚本本体：脚本含 `(null)`、`|`、引号等字符，
+    # 直接拼进 ssh 命令行会被 shell 重新解析（实测在 heredoc 下报
+    # `syntax error near unexpected token '('`）。base64 只含安全字符。
+    local = (ROOT / "scripts" / "datascope-precheck.sh").read_bytes()
+    b64 = base64.b64encode(local).decode("ascii")
+    strict_arg = " --strict" if strict else ""
+    remote = (
+        f"echo {b64} | base64 -d > /tmp/ds-precheck.sh && "
+        f"chmod +x /tmp/ds-precheck.sh && "
+        f"bash /tmp/ds-precheck.sh {db}{strict_arg}"
+    )
     try:
-        proc = ssh(f"{remote} <<'DS_PRE'\n{local}\nDS_PRE", check=False, timeout=120)
+        proc = ssh(remote, check=False, timeout=120)
     except Exception as e:  # noqa: BLE001 - 预检失败不应掩盖真实部署错误
         print(f"  预检执行异常（不阻断）: {e}")
         return
     out = (proc.stdout or "") + (proc.stderr or "")
     print(out.rstrip())
+
+    # 预检自身失败（库不存在/查询出错/脚本异常退出 2）→ **按失败处理，不放行**。
+    # 「无法确认」不等于「没有问题」：放行等于用未知风险换部署速度。
+    if proc.returncode == 2 or "数据库不存在或无法查询" in out:
+        raise SystemExit(
+            f"\n数据权限预检无法执行（{db}，exit={proc.returncode}）。\n"
+            "  预检失败不等于没有风险——拒绝继续，请先确认：\n"
+            "    · 目标库名是否正确\n"
+            "    · 服务器上 sudo -u postgres 是否可用\n"
+            "  （如确需跳过，用 --skip-datascope-check 显式承担风险）")
+
     if strict:
         # ssh(check=False) 不抛异常，这里按输出里的 strict 结论判断
         if "[--strict] 存在缺范围账号" in out:
