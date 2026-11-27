@@ -81,10 +81,14 @@ def check_playwright(path, not_before=None):
         for case in suite.findall('testcase'):
             if any(case.find(tag) is not None for tag in ('failure', 'error', 'skipped')):
                 raise ValueError(f'场景未通过: {case.get("name")}')
-            match = re.match(r'^(SMK-[A-Z]+-\d+)(?:\s|$)', case.get('name', ''))
-            if not match or match[1] not in REQUIRED_SMOKE:
+            # 场景 ID 可能出现在用例名任意位置：
+            #   未嵌套 describe → 'SMK-DES-01 登录后…'
+            #   有 describe     → '审批中心 › SMK-APR-01 发起…'  ← 2026-11-27 CI 漏判的原因
+            # 用非锚定匹配，取第一个出现的场景 ID。
+            match = re.search(r'(SMK-[A-Z]+-\d+)', case.get('name', ''))
+            if not match or match.group(1) not in REQUIRED_SMOKE:
                 continue
-            scenario = match[1]
+            scenario = match.group(1)
             if scenario in found:
                 raise ValueError(f'重复必跑场景: {scenario}')
             file_name, project = REQUIRED_SMOKE[scenario]
@@ -99,7 +103,18 @@ def check_playwright(path, not_before=None):
             found[scenario] = True
     missing = REQUIRED_SMOKE.keys() - found.keys()
     if missing:
-        raise ValueError('必跑场景缺失: ' + ', '.join(sorted(missing)))
+        # 诊断：列出报告里实际识别到的场景与每个 suite 的 hostname/name，
+        # 让「缺了什么 + 报告长什么样」同时可见。
+        seen = []
+        for suite in suites:
+            names = [c.get('name', '')[:40] for c in suite.findall('testcase')]
+            seen.append(f'  suite name={suite.get("name")!r} '
+                        f'hostname={suite.get("hostname")!r} cases={names}')
+        detail = '\n'.join(seen) if seen else '  （报告无任何 testsuite）'
+        raise ValueError(
+            '必跑场景缺失: ' + ', '.join(sorted(missing))
+            + '\n报告实际内容:\n' + detail
+            + '\n已识别到的场景: ' + (', '.join(sorted(found)) or '（无）'))
     return len(cases)
 
 
