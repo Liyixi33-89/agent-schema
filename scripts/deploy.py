@@ -28,10 +28,27 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SERVER = os.environ.get("SCHEMA_DEPLOY_HOST", "root@111.231.57.177")
-# 部署通道：日常发布用 deploy 专用账号（setup-deploy-user.sh 创建，sudo 白名单仅 schema-release.sh）；
-# root 直连仅作为初始化/救援通道保留（环境变量 SCHEMA_DEPLOY_ROLE 可临时覆盖）。
+SERVER = os.environ.get("SCHEMA_DEPLOY_HOST", "deploy@111.231.57.177")
+# ⚠️ 实际 SSH 用户由 SERVER 的 `user@` 前缀决定，**不是**这个 ROLE。
+# ROLE 仅用于一致性断言（2026-11-27 评审指出：改 ROLE 不会切换用户，
+# 曾让人误以为设 ROLE=deploy 就在用 deploy 账号）。
 ROLE = os.environ.get("SCHEMA_DEPLOY_ROLE", "deploy")
+
+
+def _assert_role_matches() -> None:
+    """ROLE 与 SERVER 的用户名前缀必须一致，否则报错。
+
+    不一致时行为完全由 SERVER 决定、ROLE 只是摆设——
+    「看似可配置实则无效」的选项比不提供更危险。
+    """
+    if "@" not in SERVER:
+        raise SystemExit(f"SCHEMA_DEPLOY_HOST 缺少用户名前缀（应为 user@host）: {SERVER}")
+    actual = SERVER.split("@", 1)[0]
+    if actual != ROLE:
+        raise SystemExit(
+            f"SCHEMA_DEPLOY_ROLE({ROLE}) 与 SCHEMA_DEPLOY_HOST 的用户名({actual}) 不一致。\n"
+            "  实际 SSH 用户由 SERVER 决定，ROLE 不会切换用户。\n"
+            f"  请改 SCHEMA_DEPLOY_HOST={ROLE}@<host>，或去掉 SCHEMA_DEPLOY_ROLE。")
 REMOTE_ROOT = "/opt/schema"
 ENTRIES = {  # 入口 -> 路径（发布后独立验证）
     "runtime": "/",
@@ -460,6 +477,78 @@ def deploy_prod(head: str, work: Path, backend_jar: Path, web_dir: Path):
 
 
 
+def datascope_precheck(target: str, strict: bool) -> None:
+    """发布前只读数据权限预检（2026-11-27）。
+
+    ## 为什么在发布流程里做
+    资源级授权上线后，`ScopeResolver` 对「无任何数据范围授权」的判定是 `1 = 0`
+    （默认拒绝，最小权限原则）。而「账号有很多管理员角色」**不**代表有数据范围——
+    生产 admin 实测 22 个角色、0 个带范围，上线后 50 个模型的数据全部不可见。
+
+    ## 执行身份：走 root 白名单，不经 deploy 用户的 postgres 权限
+    预检脚本安装在 root 属主目录（/usr/local/sbin），由 sudo 白名单允许的
+    `schema-release.sh datascope-check` 以 **root** 身份调用，内部用
+    `runuser -u postgres` 连库。
+
+    这样 deploy 用户**不需要**任何 `sudo -u postgres` 权限——那会直接扩大攻击面
+    （等同于给部署账号任意库读写能力）。也不接受「执行哪个脚本」的参数，
+    否则白名单入口就变成「root 执行任意代码」。
+
+    ## 判定只看退出码，不解析文案
+      0 = 通过
+      1 = strict 且发现缺范围 → 阻止发布
+      其他（2 / 126 / 超时 / 连接失败…）= 预检不可用 → 阻止发布
+
+    「无法确认」必须等于「拒绝」：用未知风险换部署速度是不可接受的。
+    实测踩过 —— 脚本 Permission denied 退出码 126、库名判断失效导致提前退出，
+    两次都被旧逻辑当成通过，直接部署了生产。
+
+    ## 纪律：只读、不自动修
+    缺范围属于权限决策，必须由人按模型授予。自动批量补 ALL 会把最小权限
+    变成全员全量，是最危险的做法——因此预检只打印报告与建议，绝不写库。
+    """
+    db = "schema_prod" if target == "prod" else "schema_acceptance"
+    release_sh = ("/opt/schema/schema-release.sh" if target == "prod"
+                  else "/opt/schema/schema-release-accept.sh")
+    strict_arg = " --strict" if strict else ""
+
+    print(f"\n== 数据权限预检（只读）: {db} ==")
+    remote = f"sudo -n /bin/bash {release_sh} datascope-check {db}{strict_arg}"
+    try:
+        proc = ssh(remote, check=False, timeout=180)
+    except SystemExit:
+        # ⚠️ 不能 `except SystemExit as e` 再 raise SystemExit —— SystemExit 在
+        # Python 里不继承 Exception，且 ssh() 内部用 SystemExit 报错（超时/失败）。
+        # 这里必须捕获后**转换成明确的下文**，否则调用方拿到的是「远程命令失败」
+        # 这种与预检无关的文案（实测：超时被误报成普通部署错误）。
+        raise SystemExit(
+            f"\n数据权限预检无法执行（{db}）：ssh 调用失败（超时或连接异常）。\n"
+            "  预检不可用不等于没有风险——拒绝发布。")
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(
+            f"\n数据权限预检无法执行（{db}）：{e}\n"
+            "  预检不可用不等于没有风险——拒绝发布。") from e
+
+    out = (proc.stdout or "") + (proc.stderr or "")
+    print(out.rstrip())
+
+    if proc.returncode == 0:
+        return
+    if proc.returncode == 1:
+        raise SystemExit(
+            f"\n数据权限预检未通过（{db}）：存在无数据范围的活跃账号。\n"
+            "  这是有意的门禁——资源级授权上线后这些账号将看不到任何业务数据。\n"
+            "  请先按模型授予范围（见上方建议）。\n"
+            "  ⚠️ 不要为了「让预检通过」而批量补 model_id=0 的 ALL。")
+    raise SystemExit(
+        f"\n数据权限预检无法执行（{db}，exit={proc.returncode}）。\n"
+        "  预检不可用不等于没有风险——拒绝发布。常见原因：\n"
+        "    · 预检脚本未安装到 /usr/local/sbin（root 属主）\n"
+        "    · schema-release.sh 的 datascope-check 子命令未部署\n"
+        "    · sudo 白名单未包含该脚本\n"
+        "  如确需跳过，用 --skip-datascope-check 显式承担风险。")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", required=True, help="git commit（完整或短 hash）")
@@ -467,7 +556,15 @@ def main():
                     help="发布目标：prod=生产面（默认）/ accept=验收面")
     ap.add_argument("--skip-build", action="store_true")
     ap.add_argument("--skip-verify", action="store_true")
+    ap.add_argument("--skip-datascope-check", action="store_true",
+                    help="跳过发布前数据权限预检（危险：会放过「上线后业务不可见」的配置）")
+    ap.add_argument("--datascope-strict", action="store_true",
+                    help="验收面也按 strict 处理（默认 prod 已 strict，accept 只报告）")
     args = ap.parse_args()
+
+    # 先校验部署身份（ROLE 与 SERVER 用户名一致），再动任何东西——
+    # 避免跑到一半才发现「以为用 deploy 其实用 root」。
+    _assert_role_matches()
 
     head = require_clean_head(args.version)
 
@@ -475,6 +572,14 @@ def main():
         print("== verify (commit 级) ==")
         run(["powershell" if os.name == "nt" else "pwsh",
              "-NoProfile", "-File", "scripts/verify.ps1", "-Level", "commit"], cwd=ROOT)
+
+    # 数据权限预检：在构建之前跑（构建耗时，早失败更省时间）
+    if args.skip_datascope_check:
+        print("\n⚠️ 已跳过数据权限预检（--skip-datascope-check）")
+        print("   若账号缺数据范围，上线后其业务数据将全部不可见（1 = 0 默认拒绝）")
+    else:
+        strict = args.target == "prod" or args.datascope_strict
+        datascope_precheck(args.target, strict)
 
     with tempfile.TemporaryDirectory(prefix="schema-release-") as td:
         work = Path(td)

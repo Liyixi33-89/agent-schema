@@ -370,6 +370,11 @@ case "${1:-}" in
     upload) shift; cmd_upload "$@" ;;
     ingest) shift; cmd_ingest "$@" ;;
     switch) shift; cmd_switch "$@" ;;
+    # 数据权限预检（2026-11-27）：同 schema-release.sh，脚本固定在 root 属主目录
+    datascope-check)
+        shift
+        exec /usr/local/sbin/schema-datascope-check "$@"
+        ;;
     status) cmd_status ;;
     *) sed -n '2,20p' "$0"; exit 2 ;;
 esac
