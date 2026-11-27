@@ -31,6 +31,26 @@ REQUIRED_SMOKE = {
 }
 
 
+def _same_spec_file(classname, expected):
+    """报告里的 classname 是否就是清单声明的测试文件。
+
+    Playwright 的 junit reporter 在不同调用方式下 classname 形态不同：
+      - `approval.spec.ts`（只给文件名）
+      - `e2e/approval.spec.ts`（带目录）
+      - `e2e\\approval.spec.ts`（Windows 分隔符）
+      - `approval.spec.ts › 审批中心 › SMK-APR-01 …`（带 describe 层级）
+
+    严格相等会让门禁因「路径写法不同」误报缺失——2026-11-27 CI 就因此
+    报「必跑场景缺失」而实际 11 条全通过。这里按「末段文件名相同」判定。
+    """
+    if classname is None:
+        return False
+    # 取第一段（去掉 describe 层级），再取路径末段
+    head = str(classname).split('›')[0].strip()
+    tail = re.split(r'[/\\]', head)[-1].strip()
+    return tail == expected
+
+
 def check_playwright(path, not_before=None):
     report = Path(path)
     if not report.is_file():
@@ -68,8 +88,14 @@ def check_playwright(path, not_before=None):
             if scenario in found:
                 raise ValueError(f'重复必跑场景: {scenario}')
             file_name, project = REQUIRED_SMOKE[scenario]
-            if case.get('classname') != file_name or suite.get('hostname') != project:
-                raise ValueError(f'必跑场景项目或文件不匹配: {scenario}')
+            if not _same_spec_file(case.get('classname'), file_name):
+                raise ValueError(
+                    f'必跑场景项目或文件不匹配: {scenario}'
+                    f'（清单: {file_name}，报告: {case.get("classname")!r}）')
+            if suite.get('hostname') != project:
+                raise ValueError(
+                    f'必跑场景项目不匹配: {scenario}'
+                    f'（清单: {project}，报告: {suite.get("hostname")!r}）')
             found[scenario] = True
     missing = REQUIRED_SMOKE.keys() - found.keys()
     if missing:
